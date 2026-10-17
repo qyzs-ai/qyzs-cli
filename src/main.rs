@@ -6,7 +6,7 @@ use std::path::Path;
 async fn main() {
     let mut args: Vec<String> = std::env::args().collect();
 
-    // 别名形式兼容路由：若程序以 qyzs-pdf2md 形式被调用，内部自动重写为 qyzs pdf2md
+    // 别名形式兼容路由：若程序以 qyzs-<子命令> 形式被调用 (软链接等)，内部自动重写为 qyzs <子命令>
     let sub_cmd = args.first().and_then(|exe_arg| {
         let file_stem = Path::new(exe_arg)
             .file_stem()

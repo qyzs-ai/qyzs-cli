@@ -104,14 +104,21 @@ qyzs ocr scan.png
 qyzs parse document.pdf
 ```
 
-### 5. PDF 纯 Rust 拆分与高级流水线 (`pdf-split` & `pdf2md`)
+### 5. 全能文档转 Markdown 与 PDF 拆分 (`markitdown` & `pdf-split`)
 
 ```bash
-# 提取指定页码范围另存为新 PDF
-qyzs pdf-split --file big.pdf --pages 1-3,5 --output split.pdf
+# 先预览: 自动识别格式与流水线规划 (离线, 零模型调用)
+qyzs markitdown tender_doc.pdf --dry-run
 
-# 将超长 PDF 每 15 页切片并分块转为 Markdown 聚合输出
-qyzs pdf2md --file tender_doc.pdf -o tender.md --batch-pages 15
+# 全能转换: 本地/URL 自动识别格式 (pdf/docx/xls/xlsx/pptx/vsdx/图片/html),
+# 超长 PDF 每 15 页切片聚合, 规则清洗只做结构归一
+qyzs markitdown tender_doc.pdf -o tender.md
+
+# 严谨档 (多轮核验 + 交叉验证): 阶段④⑤接入后可用
+qyzs markitdown report.docx --mode rigor
+
+# 提取指定页码范围另存为新 PDF (纯 Rust, 零系统 C 依赖)
+qyzs pdf-split --file big.pdf --pages 1-3,5 --output split.pdf
 ```
 
 ### 6. 语义表征与重排 (`embed` & `rerank`)

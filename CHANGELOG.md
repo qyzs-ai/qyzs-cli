@@ -13,9 +13,23 @@
   格式嗅探（PDF 魔数、OOXML 条目名、OLE2 目录流名、图像魔数、HTML，扩展名兜底）、
   格式通道路由、三档流水线（speed/balanced/rigor）规划、`--dry-run` 预览；
   OLE2 容器配 OOXML 扩展名时给出"疑似加密文档"警告。
+- 阶段②转换执行（speed 档）：PDF 本地 15 页/批切片 + MinerU 逐片同步抽取聚合；
+  docx 整文件解析；规则清洗行为契约（只做结构归一不改写内容，见
+  `tests/docs/QYZS-MARKITDOWN.md` §3.1）；过程数据工作区生命周期（内容指纹
+  工作目录、并发锁、manifest 段×阶段状态机、段完成即流式清理切片二进制、成功
+  清理/失败保留、`--resume` 幂等续跑、7 天残留时机性清扫）。
 - `docs/RELEASE.md`：版本号制度、发布流程与发布条件清单（SSOT）。
 - `CHANGELOG.md`（本文件）。
 - `LICENSE`：补齐 Apache-2.0 许可证文本（此前 README/Cargo/npm 均声明但文件缺失）。
+
+### Changed
+
+- 破坏性：原"超长 PDF 切片转 Markdown"独立子命令移除，能力同版本被
+  `markitdown --mode speed` 吸收（迁移豁免见 docs/RELEASE.md §1）。
+  迁移映射: `qyzs <旧命令> --file X -o Y --batch-pages 15` →
+  `qyzs markitdown X -o Y`（15 页/批切片为 markitdown 内置默认行为）；
+  小文档原始直通继续使用 `qyzs parse`；页面级拆分继续使用 `qyzs pdf-split`。
+  argv[0] 双形式调用 (`qyzs-<command>` 软链) 对被移除命令名不再可用。
 
 ### Fixed
 

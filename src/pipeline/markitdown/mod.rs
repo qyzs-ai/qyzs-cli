@@ -1,11 +1,17 @@
 //! markitdown 全能文档转 Markdown 流水线
 //!
-//! 阶段①：格式嗅探 + 通道路由 + `--dry-run` 规划预览。
-//! 转换执行通道按落地顺序分阶段接入 (PDF/DOCX → Office/Visio 本地抽取 →
-//! balanced 润色档 → rigor 交叉验证档)，未接入前非 dry-run 调用返回明确提示。
+//! 阶段①: 格式嗅探 + 通道路由 + `--dry-run` 规划预览。
+//! 阶段②: speed 档执行 — PDF (本地切片 + MinerU 逐片聚合) 与 doc/docx
+//! (MinerU 整文件) 通道，规则清洗只做结构归一，工作区生命周期管理
+//! (锁/manifest/流式清理/断点续跑)。
+//! 阶段③~⑤ (Office/Visio 本地抽取、balanced 润色、rigor 交叉验证) 分阶段接入。
 
+pub mod clean;
 pub mod detect;
+pub mod pdf;
+pub mod workspace;
 
+use crate::client::QyzsClient;
 use crate::error::{QyzsError, QyzsResult};
 use crate::pdf::PdfExtractor;
 use detect::{DetectMethod, Detection, FormatDetector, SourceFormat};
@@ -16,9 +22,6 @@ use std::path::PathBuf;
 
 /// URL 输入下载大小上限
 const MAX_DOWNLOAD_BYTES: u64 = 200 * 1024 * 1024;
-
-/// MinerU 单批切片页数 (与本地切片聚合内核一致的内部常量)
-const SLICE_BATCH_PAGES: usize = 15;
 
 /// MinerU 同步通道实测吞吐 (秒/页，capability_matrix 校准真值)
 const MINERU_SECONDS_PER_PAGE: f64 = 0.26;
@@ -185,11 +188,7 @@ impl MarkitdownPipeline {
         } else {
             None
         };
-        let slice_count = page_count.map(|p| if p > SLICE_BATCH_PAGES {
-            p.div_ceil(SLICE_BATCH_PAGES)
-        } else {
-            1
-        });
+        let slice_count = page_count.map(pdf::estimate_slices);
 
         let (channel, unsupported_reason) = Self::route(&detection.format);
         let supported = channel.is_some();
@@ -209,7 +208,7 @@ impl MarkitdownPipeline {
                 warnings.push(format!(
                     "共 {} 页：MinerU 异步轮询通道未实现，将按每批 {} 页同步串行抽取，仅抽取环节预估约 {} 秒",
                     pages,
-                    SLICE_BATCH_PAGES,
+                    pdf::SLICE_BATCH_PAGES,
                     (pages as f64 * MINERU_SECONDS_PER_PAGE).ceil() as u64
                 ));
             }
@@ -262,11 +261,15 @@ impl MarkitdownPipeline {
     fn route(format: &SourceFormat) -> (Option<&'static str>, Option<String>) {
         match format {
             SourceFormat::Pdf => (Some("mineru-slice"), None),
-            SourceFormat::Doc | SourceFormat::Docx => (Some("mineru-document"), None),
+            SourceFormat::Docx => (Some("mineru-document"), None),
             SourceFormat::Xls | SourceFormat::Xlsx => (Some("sheet-tables"), None),
             SourceFormat::Pptx | SourceFormat::Vsdx => (Some("ooxml-text"), None),
             SourceFormat::Image(_) => (Some("ocr-vl"), None),
             SourceFormat::Html => (Some("html-to-md"), None),
+            SourceFormat::Doc => (
+                None,
+                Some("旧版 Word 二进制格式 (.doc) 不被解析网关接受 (实测 HTTP 400 Unsupported file type)，请先在 Word/WPS 中另存为 .docx".to_string()),
+            ),
             SourceFormat::Ppt => (
                 None,
                 Some("旧版 PowerPoint 二进制格式 (.ppt) 不在支持范围，请先在 PowerPoint/WPS 中另存为 .pptx".to_string()),
@@ -318,7 +321,7 @@ impl MarkitdownPipeline {
 
     fn extract_stage(channel: &str, image_handling: ImageHandling) -> String {
         match channel {
-            "mineru-slice" => format!("extract(mineru3.2.3, {}页/批切片)", SLICE_BATCH_PAGES),
+            "mineru-slice" => format!("extract(mineru3.2.3, {}页/批切片)", pdf::SLICE_BATCH_PAGES),
             "mineru-document" => "extract(mineru3.2.3)".to_string(),
             "sheet-tables" => "extract(本地表格解析)".to_string(),
             "ooxml-text" => "extract(ooxml 文本抽取)".to_string(),
@@ -378,6 +381,160 @@ impl MarkitdownPipeline {
         file.flush()?;
         Ok((dir, file_path))
     }
+
+    /// speed 档转换执行 (阶段②)。
+    ///
+    /// 流程: 输入落地 → 格式嗅探 → 工作区开立 (锁/指纹/续跑) → 通道抽取
+    /// → 规则清洗 (结构归一契约) → 交付 (返回值, 由调用层写 -o 或 stdout)
+    /// → 工作区收尾 (成功清理/失败保留)。
+    ///
+    /// `on_progress`: (已完成片段序号, 片段总数) 回调，长文档切片串行时提供反馈。
+    pub async fn convert(
+        client: &QyzsClient,
+        opts: &MarkitdownOptions,
+        timeout_secs: u64,
+        on_progress: Option<&dyn Fn(usize, usize)>,
+    ) -> QyzsResult<String> {
+        if opts.mode != PipelineMode::Speed {
+            return Err(QyzsError::Usage(
+                "balanced/rigor 档尚未接入；当前版本转换请使用 --mode speed，或先以 --dry-run 查看规划"
+                    .to_string(),
+            ));
+        }
+
+        let (result, ws) = Self::convert_inner(client, opts, timeout_secs, on_progress).await;
+        match result {
+            Ok(md) => {
+                if let Some(ws) = ws {
+                    ws.finish_success(opts.no_clean)?;
+                }
+                Ok(md)
+            }
+            Err(err) => {
+                let hint = match ws {
+                    Some(mut ws) => {
+                        ws.finish_failure();
+                        format!(
+                            "\n工作区已保留: {} (修复后可用 --resume 续跑)",
+                            ws.root.display()
+                        )
+                    }
+                    None => String::new(),
+                };
+                Err(err.with_hint(&hint))
+            }
+        }
+    }
+
+    /// MinerU 解析默认开启 OCR 辅助 (与 parse 命令默认一致: 扫描件为难点, 文本件不受影响)
+    const MINERU_IS_OCR: bool = true;
+
+    /// 执行主体; 无论成败都以 Option<Workspace> 归还工作区句柄供收尾
+    #[allow(clippy::type_complexity)]
+    async fn convert_inner(
+        client: &QyzsClient,
+        opts: &MarkitdownOptions,
+        timeout_secs: u64,
+        on_progress: Option<&dyn Fn(usize, usize)>,
+    ) -> (
+        QyzsResult<String>,
+        Option<workspace::Workspace>,
+    ) {
+        // 统一落地为本地文件 (URL 先下载到临时文件, 内容指纹以字节为准)
+        let (_temp_guard, local_path) = if is_url_input(&opts.input) {
+            match Self::download_to_temp(&opts.input, timeout_secs).await {
+                Ok((dir, file_path)) => (Some(dir), file_path),
+                Err(e) => return (Err(e), None),
+            }
+        } else {
+            let path = PathBuf::from(&opts.input);
+            if !path.exists() {
+                return (
+                    Err(QyzsError::Usage(format!("输入文件不存在: {}", opts.input))),
+                    None,
+                );
+            }
+            (None, path)
+        };
+
+        let detection = if let Some(t) = &opts.type_override {
+            Detection {
+                format: t.clone(),
+                method: DetectMethod::ManualOverride,
+                warning: None,
+            }
+        } else {
+            match FormatDetector::detect_file(&local_path) {
+                Ok(d) => d,
+                Err(e) => return (Err(e), None),
+            }
+        };
+
+        // 路由前置决策 (一处集中): 不支持/未接入的格式不创建工作区, 避免缓存残留死目录
+        let fmt = detection.format.clone();
+        let (channel, reason) = Self::route(&fmt);
+        if channel.is_none() {
+            let msg = reason.unwrap_or_else(|| "该格式暂不支持转换".to_string());
+            return (Err(QyzsError::Usage(msg)), None);
+        }
+        if channel != Some("mineru-slice") && channel != Some("mineru-document") {
+            return (
+                Err(QyzsError::Usage(format!(
+                    "格式 '{}' 的转换通道将在后续阶段接入；当前版本支持 PDF/DOCX (speed 档)",
+                    fmt.label()
+                ))),
+                None,
+            );
+        }
+
+        // 工作区开立 (输入内容指纹 → 并发锁 → manifest；仅显式 --resume 复用现场)
+        let (mut ws, resumed) = match workspace::Workspace::open(
+            &local_path,
+            detection.format.key(),
+            opts.mode.key(),
+            opts.resume,
+        ) {
+            Ok(v) => v,
+            Err(e) => return (Err(e), None),
+        };
+        let _ = resumed; // 续跑语义由 workspace.stage_done 逐段生效
+
+        // 通道抽取 (路由已收窄至 mineru-slice / mineru-document)
+        let extracted = match detection.format {
+            SourceFormat::Pdf => {
+                pdf::extract(
+                    client,
+                    &mut ws,
+                    &local_path.to_string_lossy(),
+                    Self::MINERU_IS_OCR,
+                    on_progress,
+                )
+                .await
+            }
+            SourceFormat::Docx => {
+                pdf::extract_document(
+                    client,
+                    &mut ws,
+                    &local_path.to_string_lossy(),
+                    Self::MINERU_IS_OCR,
+                )
+                .await
+            }
+            _ => Err(QyzsError::Server(format!(
+                "内部路由不一致: 格式 '{}' 未匹配到已接入通道",
+                fmt.label()
+            ))),
+        };
+
+        match extracted {
+            Ok(raw) => (Ok(clean::rule_clean(&raw)), Some(ws)),
+            Err(e) => (Err(e), Some(ws)),
+        }
+    }
+}
+
+fn is_url_input(input: &str) -> bool {
+    input.starts_with("http://") || input.starts_with("https://")
 }
 
 /// 人类可读的体积表示
@@ -414,6 +571,11 @@ mod tests {
         let (channel, reason) = MarkitdownPipeline::route(&SourceFormat::Vs);
         assert!(channel.is_none());
         assert!(reason.unwrap().contains(".vsdx"));
+
+        // 网关实测拒绝 .doc (HTTP 400 Unsupported file type) → 路由为不支持
+        let (channel, reason) = MarkitdownPipeline::route(&SourceFormat::Doc);
+        assert!(channel.is_none());
+        assert!(reason.unwrap().contains(".docx"));
 
         let (channel, _) = MarkitdownPipeline::route(&SourceFormat::Pdf);
         assert_eq!(channel, Some("mineru-slice"));

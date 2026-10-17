@@ -27,6 +27,25 @@ pub enum QyzsError {
 }
 
 impl QyzsError {
+    /// 在保留错误变体与退出码的前提下附加一条可操作提示 (换行追加)
+    pub fn with_hint(self, hint: &str) -> Self {
+        fn attach(mut msg: String, hint: &str) -> String {
+            msg.push('\n');
+            msg.push_str(hint);
+            msg
+        }
+        match self {
+            Self::Usage(m) => Self::Usage(attach(m, hint)),
+            Self::Auth(m) => Self::Auth(attach(m, hint)),
+            Self::Network(m) => Self::Network(attach(m, hint)),
+            Self::Timeout(m) => Self::Timeout(attach(m, hint)),
+            Self::Server(m) => Self::Server(attach(m, hint)),
+            Self::Io(m) => Self::Io(attach(m, hint)),
+            Self::Pdf(m) => Self::Pdf(attach(m, hint)),
+            Self::Config(m) => Self::Config(attach(m, hint)),
+        }
+    }
+
     pub fn exit_code(&self) -> i32 {
         match self {
             Self::Usage(_) => exit_code::USAGE_ERR,

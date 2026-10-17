@@ -6,7 +6,7 @@ use crate::client::{ChatOptions, ChatResponse, QyzsClient};
 use crate::config::{Config, Credentials, ResolvedConfig};
 use crate::error::{QyzsError, QyzsResult};
 use crate::pdf::{PdfExtractor, PdfSplitter};
-use crate::pipeline::{CrossVerifier, DatasetManager, MarkitdownPipeline, Pdf2MdPipeline};
+use crate::pipeline::{CrossVerifier, DatasetManager, MarkitdownPipeline};
 use crate::term::{set_language, OutputFormat, Printer};
 use crate::updater::UpdateManager;
 use clap::Parser;
@@ -235,21 +235,6 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             println!("{}", res);
         }
 
-        Commands::Pdf2md {
-            file,
-            output,
-            is_ocr,
-            batch_pages,
-        } => {
-            let md = Pdf2MdPipeline::process(&client, &file, is_ocr, batch_pages).await?;
-            if let Some(out_p) = output {
-                std::fs::write(&out_p, &md)?;
-                printer.ok(&format!("Markdown 结果已保存至: {}", out_p));
-            } else {
-                println!("{}", md);
-            }
-        }
-
         Commands::Markitdown {
             input,
             output,
@@ -265,13 +250,7 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             no_clean,
             dry_run,
         } => {
-            if !dry_run {
-                return Err(QyzsError::Usage(
-                    "markitdown 转换执行通道尚在分阶段接入 (阶段②~⑤)；当前版本请使用 --dry-run 查看格式识别与流水线规划"
-                        .to_string(),
-                ));
-            }
-
+            let mode_explicit = mode.is_some();
             let opts = crate::pipeline::markitdown::MarkitdownOptions {
                 input,
                 output,
@@ -305,12 +284,41 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
                 dry_run,
             };
 
-            let plan =
-                MarkitdownPipeline::plan(&opts, config.timeout_seconds).await?;
-            if config.output_format == OutputFormat::Json {
-                println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
+            if dry_run {
+                let plan = MarkitdownPipeline::plan(&opts, config.timeout_seconds).await?;
+                if config.output_format == OutputFormat::Json {
+                    println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
+                } else {
+                    print_markitdown_plan(&printer, &plan);
+                }
             } else {
-                print_markitdown_plan(&printer, &plan);
+                // speed 档为阶段②唯一可执行档位；未显式选档时默认落 speed 并告知
+                let run_opts = if mode_explicit {
+                    opts
+                } else {
+                    printer.info("未显式指定 --mode，当前执行 speed 档 (balanced/rigor 尚未接入)");
+                    crate::pipeline::markitdown::MarkitdownOptions {
+                        mode: crate::pipeline::markitdown::PipelineMode::Speed,
+                        ..opts
+                    }
+                };
+                let md = MarkitdownPipeline::convert(
+                    &client,
+                    &run_opts,
+                    config.timeout_seconds,
+                    Some(&|done: usize, total: usize| {
+                        if total > 1 {
+                            printer.info(&format!("── 片段抽取进度 {}/{} ──", done, total));
+                        }
+                    }),
+                )
+                .await?;
+                if let Some(out_p) = run_opts.output {
+                    std::fs::write(&out_p, &md)?;
+                    printer.ok(&format!("Markdown 结果已保存至: {}", out_p));
+                } else {
+                    println!("{}", md);
+                }
             }
         }
 
@@ -601,7 +609,7 @@ fn print_models_matrix(printer: &Printer) {
     println!("{:<20} {:<10} {:<10} {}", "qwen3.6-27b", "深度推理", "6.02s", "具思維鏈深度推理能力，實測 13.8萬 Tokens 100% 召回");
     println!("{:<20} {:<10} {:<10} {}", "qwen3-VL-30B-A3B", "視覺多模態", "5.62s", "16 圖可靠並發（>16 圖需分批），文本硬限 131,072 Tokens");
     println!("{:<20} {:<10} {:<10} {}", "paddleocrvl", "公文OCR", "1.95s", "毫秒級文字轉錄，限制 <=800px 自動縮放");
-    println!("{:<20} {:<10} {:<10} {}", "mineru3.2.3", "文檔解析", "0.59s", "PDF/Word 一鍵結構化輸出 Markdown 大綱與表格");
+    println!("{:<20} {:<10} {:<10} {}", "mineru3.2.3", "文檔解析", "0.59s", "PDF/Word(docx) 一鍵結構化輸出 Markdown 大綱與表格");
     println!("{:<20} {:<10} {:<10} {}", "bge-m3", "向量表徵", "0.27s", "1024 維密集向量，知識庫檢索首選");
     println!("{:<20} {:<10} {:<10} {}", "qwen3-embadding-8b", "超大向量", "0.39s", "4096 維超高分辨率語義向量");
     println!("{:<20} {:<10} {:<10} {}", "qwen3-reranker-8b", "語義重排", "0.28s", "Top1 > 0.90 置信度打分，精排首選");

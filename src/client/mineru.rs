@@ -20,6 +20,19 @@ pub struct MineruData {
     pub pages: Option<usize>,
 }
 
+/// 任务型响应 (网关实测形态): {status, results: {"<文件名>": {md_content}}}
+#[derive(Debug, Clone, Deserialize)]
+struct MineruTaskResponse {
+    status: Option<String>,
+    error: Option<serde_json::Value>,
+    results: Option<std::collections::BTreeMap<String, MineruTaskResult>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MineruTaskResult {
+    md_content: Option<String>,
+}
+
 impl QyzsClient {
     /// 上传文档文件到 MinerU 专线进行结构化解析并提取 Markdown
     pub async fn parse_document(
@@ -66,6 +79,8 @@ impl QyzsClient {
 
         // 尝试解析结构化响应
         let raw_text = resp.text().await.map_err(|e| QyzsError::Server(e.to_string()))?;
+
+        // 形态一 (旧包装): {code, msg, data: {markdown | content}}
         if let Ok(res) = serde_json::from_str::<MineruResponse>(&raw_text) {
             if let Some(data) = res.data {
                 if let Some(md) = data.markdown {
@@ -77,7 +92,39 @@ impl QyzsClient {
             }
         }
 
-        // 若不是包装的 JSON，返回原始响应字符串
+        // 形态二 (任务型, 网关实测): {status, results: {"<文件名>": {md_content}}}
+        if let Ok(task) = serde_json::from_str::<MineruTaskResponse>(&raw_text) {
+            if let Some(results) = task.results {
+                // 多文件请求时按文件名序拼接 (当前单文件请求仅一条)
+                let mut merged = String::new();
+                for result in results.values() {
+                    if let Some(md) = &result.md_content {
+                        if !merged.is_empty() {
+                            merged.push_str("\n\n");
+                        }
+                        merged.push_str(md);
+                    }
+                }
+                if !merged.is_empty() {
+                    return Ok(merged);
+                }
+            }
+            // 任务显式失败: 携带状态与错误详情报错, 不再静默返回原始 JSON
+            if let Some(status) = &task.status {
+                if status != "completed" {
+                    return Err(QyzsError::Server(format!(
+                        "MinerU 解析任务未成功 (status: {}): {}",
+                        status,
+                        task.error
+                            .as_ref()
+                            .map(|e| e.to_string())
+                            .unwrap_or_else(|| "无错误详情".to_string())
+                    )));
+                }
+            }
+        }
+
+        // 非以上任何结构: 返回原始响应字符串 (保持既有兜底行为)
         Ok(raw_text)
     }
 }

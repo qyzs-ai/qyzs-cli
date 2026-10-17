@@ -142,21 +142,6 @@ pub enum Commands {
         threshold: Option<f64>,
     },
 
-    #[command(about = "PDF 结构化转 Markdown 高级流水线 (含本地自动分页切片与 MinerU 聚合)")]
-    Pdf2md {
-        #[arg(help = "待转换 PDF 文件路径")]
-        file: String,
-
-        #[arg(short, long, help = "输出 Markdown 文件保存路径 (默认输出到 stdout)")]
-        output: Option<String>,
-
-        #[arg(long, default_value_t = true, help = "是否启用 OCR 引擎辅助")]
-        is_ocr: bool,
-
-        #[arg(long, default_value_t = 15, help = "超长文档单次批处理切片页数")]
-        batch_pages: usize,
-    },
-
     #[command(about = "PDF 纯 Rust 页面拆分与分块提取 (基于 lopdf，零系统 C 依赖)")]
     PdfSplit {
         #[arg(help = "待拆分 PDF 原始文件路径")]
@@ -195,7 +180,7 @@ pub enum Commands {
         #[arg(long, help = "流水线档位: speed (单通道+规则清洗) | balanced (+LLM润色+自检) | rigor (双通道+交叉验证+仲裁) (默认 balanced)")]
         mode: Option<String>,
 
-        #[arg(long, help = "手动指定输入格式覆盖自动识别 (pdf|doc|docx|xls|xlsx|ppt|pptx|vsd|vsdx|image|html)")]
+        #[arg(long, help = "手动指定输入格式覆盖自动识别 (pdf|docx|xls|xlsx|ppt|pptx|vsd|vsdx|image|html)")]
         r#type: Option<String>,
 
         #[arg(long, help = "图像内容处理策略: auto | ocr | describe | both | skip (默认 auto)")]
