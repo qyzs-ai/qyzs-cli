@@ -8,8 +8,10 @@
 
 pub mod clean;
 pub mod detect;
+pub mod light_check;
 pub mod ooxml;
 pub mod pdf;
+pub mod polish;
 pub mod sheet_tables;
 pub mod workspace;
 
@@ -397,9 +399,9 @@ impl MarkitdownPipeline {
         timeout_secs: u64,
         on_progress: Option<&dyn Fn(usize, usize)>,
     ) -> QyzsResult<String> {
-        if opts.mode != PipelineMode::Speed {
+        if opts.mode == PipelineMode::Rigor {
             return Err(QyzsError::Usage(
-                "balanced/rigor 档尚未接入；当前版本转换请使用 --mode speed，或先以 --dry-run 查看规划"
+                "rigor 档尚未接入；当前版本转换请使用 --mode speed 或 --mode balanced，或先以 --dry-run 查看规划"
                     .to_string(),
             ));
         }
@@ -538,9 +540,82 @@ impl MarkitdownPipeline {
         };
 
         match extracted {
-            Ok(raw) => (Ok(clean::rule_clean(&raw)), Some(ws)),
+            Ok(raw) => {
+                // 档位后处理: speed → 规则清洗; balanced → 分段润色 (light-check 回退)
+                let outcome = match opts.mode {
+                    PipelineMode::Speed => Ok(clean::rule_clean(&raw)),
+                    PipelineMode::Balanced | PipelineMode::Rigor => {
+                        Self::polish_document(client, opts, &mut ws, &raw, on_progress).await
+                    }
+                };
+                match outcome {
+                    Ok(md) => (Ok(md), Some(ws)),
+                    Err(e) => (Err(e), Some(ws)),
+                }
+            }
             Err(e) => (Err(e), Some(ws)),
         }
+    }
+
+    /// balanced 档: 全文术语表提取 → 24k 字符分段 → 逐段 dsv4 润色 →
+    /// light-check (不过则回退原文) → 规则清洗收尾。段级状态入 manifest。
+    async fn polish_document(
+        client: &QyzsClient,
+        opts: &MarkitdownOptions,
+        ws: &mut workspace::Workspace,
+        raw: &str,
+        on_progress: Option<&dyn Fn(usize, usize)>,
+    ) -> QyzsResult<String> {
+        let model = opts.model.clone().unwrap_or_else(|| "dsv4".to_string());
+        let term_table = polish::extract_term_table(raw);
+        let segments = polish::segment_markdown(raw, opts.segment_chars);
+        let total = segments.len();
+        let mut warnings: Vec<String> = Vec::new();
+
+        let mut polished_doc = String::new();
+        for (idx, (heading_path, body)) in segments.iter().enumerate() {
+            let seg_id = format!("seg-{:03}", idx + 1);
+
+            let text = if ws.stage_done(&seg_id, "polish") {
+                ws.read_segment_text(&seg_id)?
+            } else {
+                let polished = polish::polish_segment(client, &model, body, heading_path, &term_table)
+                    .await
+                    .map_err(|e| {
+                        QyzsError::Server(format!(
+                            "第 {}/{} 段润色失败: {}",
+                            idx + 1,
+                            total,
+                            e
+                        ))
+                    })?;
+
+                // light-check: 不过则回退原文并记录告警
+                let check = light_check::check_polished(body, &polished);
+                let accepted = if check.passed {
+                    polished
+                } else {
+                    warnings.extend(check.issues.iter().map(|i| format!("段 {}: {}", idx + 1, i)));
+                    body.clone()
+                };
+                ws.write_segment_text(&seg_id, &accepted)?;
+                ws.complete_stage(&seg_id, "polish", &[])?;
+                accepted
+            };
+
+            if let Some(progress) = on_progress {
+                progress(idx + 1, total);
+            }
+            polished_doc.push_str(&text);
+            polished_doc.push_str("\n\n");
+        }
+
+        for w in &warnings {
+            eprintln!("\x1b[33m[WARN]\x1b[0m 润色质检回退: {}", w);
+        }
+
+        let _ = ws; // manifest 已在循环内更新
+        Ok(clean::rule_clean(&polished_doc))
     }
 }
 

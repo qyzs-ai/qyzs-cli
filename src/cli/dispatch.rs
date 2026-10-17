@@ -251,6 +251,7 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             dry_run,
         } => {
             let mode_explicit = mode.is_some();
+            let run_output = output.clone();
             let opts = crate::pipeline::markitdown::MarkitdownOptions {
                 input,
                 output,
@@ -292,28 +293,21 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
                     print_markitdown_plan(&printer, &plan);
                 }
             } else {
-                // speed 档为阶段②唯一可执行档位；未显式选档时默认落 speed 并告知
-                let run_opts = if mode_explicit {
-                    opts
-                } else {
-                    printer.info("未显式指定 --mode，当前执行 speed 档 (balanced/rigor 尚未接入)");
-                    crate::pipeline::markitdown::MarkitdownOptions {
-                        mode: crate::pipeline::markitdown::PipelineMode::Speed,
-                        ..opts
-                    }
-                };
+                if !mode_explicit {
+                    printer.info("默认 balanced 档 (单通道 + dsv4 单轮排版润色 + 轻量质检)");
+                }
                 let md = MarkitdownPipeline::convert(
                     &client,
-                    &run_opts,
+                    &opts,
                     config.timeout_seconds,
                     Some(&|done: usize, total: usize| {
                         if total > 1 {
-                            printer.info(&format!("── 片段抽取进度 {}/{} ──", done, total));
+                            printer.info(&format!("── 片段进度 {}/{} ──", done, total));
                         }
                     }),
                 )
                 .await?;
-                if let Some(out_p) = run_opts.output {
+                if let Some(out_p) = run_output {
                     std::fs::write(&out_p, &md)?;
                     printer.ok(&format!("Markdown 结果已保存至: {}", out_p));
                 } else {
