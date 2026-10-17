@@ -15,5 +15,5 @@ pub use client::QyzsClient;
 pub use config::{Config, Credentials, ResolvedConfig};
 pub use error::{exit_code, QyzsError, QyzsResult};
 pub use pdf::{PdfExtractor, PdfMetadata, PdfSplitter};
-pub use pipeline::{CrossVerifier, DatasetManager, Pdf2MdPipeline};
+pub use pipeline::{CrossVerifier, DatasetManager, MarkitdownPipeline, Pdf2MdPipeline};
 pub use updater::UpdateManager;

@@ -6,7 +6,7 @@ use crate::client::{ChatOptions, ChatResponse, QyzsClient};
 use crate::config::{Config, Credentials, ResolvedConfig};
 use crate::error::{QyzsError, QyzsResult};
 use crate::pdf::{PdfExtractor, PdfSplitter};
-use crate::pipeline::{CrossVerifier, DatasetManager, Pdf2MdPipeline};
+use crate::pipeline::{CrossVerifier, DatasetManager, MarkitdownPipeline, Pdf2MdPipeline};
 use crate::term::{set_language, OutputFormat, Printer};
 use crate::updater::UpdateManager;
 use clap::Parser;
@@ -250,6 +250,70 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             }
         }
 
+        Commands::Markitdown {
+            input,
+            output,
+            mode,
+            r#type,
+            image_handling,
+            model,
+            min_confidence,
+            report,
+            work_dir,
+            segment_chars,
+            resume,
+            no_clean,
+            dry_run,
+        } => {
+            if !dry_run {
+                return Err(QyzsError::Usage(
+                    "markitdown 转换执行通道尚在分阶段接入 (阶段②~⑤)；当前版本请使用 --dry-run 查看格式识别与流水线规划"
+                        .to_string(),
+                ));
+            }
+
+            let opts = crate::pipeline::markitdown::MarkitdownOptions {
+                input,
+                output,
+                mode: match mode.as_deref() {
+                    Some(s) => crate::pipeline::markitdown::PipelineMode::parse(s)?,
+                    None => crate::pipeline::markitdown::PipelineMode::Balanced,
+                },
+                type_override: match r#type.as_deref() {
+                    Some(s) => Some(crate::pipeline::markitdown::detect::SourceFormat::parse(s)?),
+                    None => None,
+                },
+                image_handling: match image_handling.as_deref() {
+                    Some(s) => crate::pipeline::markitdown::ImageHandling::parse(s)?,
+                    None => crate::pipeline::markitdown::ImageHandling::Auto,
+                },
+                model,
+                min_confidence: match min_confidence {
+                    Some(c) if !(0.0..=1.0).contains(&c) => {
+                        return Err(QyzsError::Usage(format!(
+                            "--min-confidence 取值必须在 0.0~1.0 之间，当前: {}",
+                            c
+                        )));
+                    }
+                    other => other,
+                },
+                report,
+                work_dir,
+                segment_chars,
+                resume,
+                no_clean,
+                dry_run,
+            };
+
+            let plan =
+                MarkitdownPipeline::plan(&opts, config.timeout_seconds).await?;
+            if config.output_format == OutputFormat::Json {
+                println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
+            } else {
+                print_markitdown_plan(&printer, &plan);
+            }
+        }
+
         Commands::PdfSplit {
             file,
             pages,
@@ -475,6 +539,56 @@ fn print_probe_line(printer: &Printer, probe: &crate::client::probe::ProbeResult
         printer.ok(&format!("{:<32} {:>3} OK  ({}ms)", probe.name, probe.status_code, probe.latency_ms));
     } else {
         printer.err(&format!("{:<32} {:>3} ERR ({}ms)", probe.name, probe.status_code, probe.latency_ms));
+    }
+}
+
+fn print_markitdown_plan(
+    printer: &Printer,
+    plan: &crate::pipeline::markitdown::ConversionPlan,
+) {
+    let styler = printer.styler();
+    println!("{}", styler.bold("[markitdown] 流水线规划预览 (--dry-run)"));
+    println!(
+        "  输入:        {} ({}, {})",
+        plan.input,
+        if plan.input_source == "url" { "网络下载" } else { "本地文件" },
+        crate::pipeline::markitdown::human_size(plan.size_bytes)
+    );
+    println!(
+        "  识别格式:    {} ({})",
+        plan.detected_label,
+        match plan.detect_method {
+            "content-sniff" => "内容嗅探",
+            "extension-fallback" => "扩展名兜底",
+            _ => "手动指定",
+        }
+    );
+    if let (Some(pages), Some(slices)) = (plan.page_count, plan.slice_count) {
+        println!(
+            "  PDF 页数:    {} 页 → {} 批切片 (每批 ≤15 页)",
+            pages, slices
+        );
+    }
+    println!("  处理档位:    {}", plan.mode);
+    println!(
+        "  规划通道:    {}",
+        plan.channel.unwrap_or("—")
+    );
+    if plan.supported {
+        println!("  执行阶段:    {}", plan.stages.join(" → "));
+    } else {
+        printer.err("  状态:        ✗ 该格式暂不支持转换");
+        println!(
+            "  原因:        {}",
+            plan.unsupported_reason.as_deref().unwrap_or("—")
+        );
+    }
+    if plan.mode != "speed" {
+        println!("  润色模型:    {}", plan.polish_model);
+    }
+    println!("  输出目标:    {}", plan.output_target);
+    for w in &plan.warnings {
+        printer.warn(&format!("  ⚠ {}", w));
     }
 }
 

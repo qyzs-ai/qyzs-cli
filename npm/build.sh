@@ -13,6 +13,8 @@ mkdir -p "${DIST_DIR}/cli/bin"
 # 1. 复制顶层 cli 包
 cp npm/cli/package.json "${DIST_DIR}/cli/package.json"
 sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/g" "${DIST_DIR}/cli/package.json"
+# optionalDependencies 的平台包版本钉必须与顶层版本同步，否则新版顶层包会拉到旧版平台二进制
+sed -i "s|\"\(@qyzs-ai/cli-[a-z0-9-]*\)\": \"[^\"]*\"|\"\1\": \"${VERSION}\"|g" "${DIST_DIR}/cli/package.json"
 cp npm/cli/bin/qyzs.js "${DIST_DIR}/cli/bin/qyzs.js"
 chmod +x "${DIST_DIR}/cli/bin/qyzs.js"
 

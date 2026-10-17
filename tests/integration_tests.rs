@@ -5,6 +5,7 @@ use qyzs::error::{exit_code, QyzsError};
 use qyzs::pdf::{PdfExtractor, PdfSplitter};
 use qyzs::pipeline::{CrossVerifier, DatasetManager};
 use qyzs::term::{detect_environment_language, set_language, Language};
+use clap::Parser as _;
 use std::io::Write;
 use tempfile::tempdir;
 
@@ -126,4 +127,91 @@ fn test_zip_dataset_extraction() {
     assert!(extracted_file.exists());
     let content = std::fs::read_to_string(extracted_file).unwrap();
     assert_eq!(content, "Hello Qingyang AI");
+}
+
+#[test]
+fn test_markitdown_cli_arg_surface() {
+    // 完整参数面契约：全部参数可解析且取值正确传递
+    let cli = qyzs::Cli::try_parse_from([
+        "qyzs",
+        "markitdown",
+        "a.pdf",
+        "--dry-run",
+        "--mode",
+        "rigor",
+        "--type",
+        "pdf",
+        "--image-handling",
+        "describe",
+        "--min-confidence",
+        "0.9",
+        "--segment-chars",
+        "12000",
+        "--resume",
+        "--no-clean",
+        "-o",
+        "out.md",
+        "--report",
+        "report.json",
+        "--model",
+        "dsv4",
+    ])
+    .expect("markitdown 完整参数面应可解析");
+
+    if let qyzs::Commands::Markitdown {
+        input,
+        dry_run,
+        mode,
+        r#type,
+        image_handling,
+        min_confidence,
+        segment_chars,
+        resume,
+        no_clean,
+        output,
+        report,
+        model,
+        ..
+    } = cli.command
+    {
+        assert_eq!(input, "a.pdf");
+        assert!(dry_run);
+        assert_eq!(mode.as_deref(), Some("rigor"));
+        assert_eq!(r#type.as_deref(), Some("pdf"));
+        assert_eq!(image_handling.as_deref(), Some("describe"));
+        assert_eq!(min_confidence, Some(0.9));
+        assert_eq!(segment_chars, 12_000);
+        assert!(resume);
+        assert!(no_clean);
+        assert_eq!(output.as_deref(), Some("out.md"));
+        assert_eq!(report.as_deref(), Some("report.json"));
+        assert_eq!(model.as_deref(), Some("dsv4"));
+    } else {
+        panic!("应为 Markitdown 命令变体");
+    }
+}
+
+#[test]
+fn test_markitdown_cli_defaults() {
+    // 默认值契约：segment_chars=24000、三个开关关闭、mode 留空 (dispatch 层默认 balanced)
+    let cli = qyzs::Cli::try_parse_from(["qyzs", "markitdown", "a.pdf", "--dry-run"])
+        .expect("markitdown 最小参数应可解析");
+
+    if let qyzs::Commands::Markitdown {
+        dry_run,
+        mode,
+        segment_chars,
+        resume,
+        no_clean,
+        ..
+    } = cli.command
+    {
+        assert!(dry_run);
+        assert!(mode.is_none());
+        assert_eq!(segment_chars, 24_000);
+        assert!(!resume);
+        assert!(!no_clean);
+    } else {
+        panic!("应为 Markitdown 命令变体");
+    }
 }

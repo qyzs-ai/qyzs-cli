@@ -126,6 +126,13 @@ qyzs rerank -q "土地利用现状分类" -d "自然资源部规程..." -d "无�
 
 ---
 
+## 版本与发布
+
+- 版本号制度、发布流程与发布条件清单：[docs/RELEASE.md](docs/RELEASE.md)
+- 变更记录：[CHANGELOG.md](CHANGELOG.md)
+
+---
+
 ## 许可证
 
 本项目采用 [Apache-2.0](LICENSE) 许可证开源。

@@ -9,7 +9,8 @@ use clap_complete::Shell;
     author = "Qingyang AI Computing Center Team <dev@qyzs.ai>",
     version,
     about = "自然资源部庆阳智算中心大模型统一命令行工具",
-    long_about = "自然资源部庆阳智算中心统一命令行工具 (qyzs)，提供全量模型调用、公文与大文档结构化解析、同源互验与跨平台自更新能力。"
+    long_about = "自然资源部庆阳智算中心统一命令行工具 (qyzs)，提供全量模型调用、公文与大文档结构化解析、同源互验与跨平台自更新能力。",
+    after_help = "常用流程:\n  qyzs status                          # 运行环境、凭据与三网关自检\n  qyzs auth login                      # 安全保存 API Key (0600)\n  qyzs chat \"请综述这份材料...\"         # 对话推理 (流式打字机)\n  qyzs models                          # 查看实测可用模型矩阵\n  qyzs markitdown 文档.pdf --dry-run   # 全能转 Markdown: 预览识别与流水线规划\n  qyzs markitdown 文档.pdf -o out.md   # 全能转 Markdown: 执行转换"
 )]
 pub struct Cli {
     #[arg(long, global = true, help = "覆盖 API Key 认证凭证")]
@@ -181,6 +182,48 @@ pub enum Commands {
 
         #[arg(long, help = "MinerU 结构化 Markdown 文件路径")]
         markdown: String,
+    },
+
+    #[command(about = "全能文档转 Markdown 流水线 (自动识别格式 + 多通道抽取 + 交叉验证排版)")]
+    Markitdown {
+        #[arg(help = "输入: 本地文件路径或 http(s):// 在线地址 (自动识别格式)")]
+        input: String,
+
+        #[arg(short, long, help = "输出 Markdown 文件保存路径 (默认输出到 stdout)")]
+        output: Option<String>,
+
+        #[arg(long, help = "流水线档位: speed (单通道+规则清洗) | balanced (+LLM润色+自检) | rigor (双通道+交叉验证+仲裁) (默认 balanced)")]
+        mode: Option<String>,
+
+        #[arg(long, help = "手动指定输入格式覆盖自动识别 (pdf|doc|docx|xls|xlsx|ppt|pptx|vsd|vsdx|image|html)")]
+        r#type: Option<String>,
+
+        #[arg(long, help = "图像内容处理策略: auto | ocr | describe | both | skip (默认 auto)")]
+        image_handling: Option<String>,
+
+        #[arg(long, help = "理解/润色阶段 LLM 覆盖 (默认: dsv4)")]
+        model: Option<String>,
+
+        #[arg(long, help = "交叉验证一致性阈值 0.0~1.0 (默认 0.85, 仅 balanced/rigor 档生效)")]
+        min_confidence: Option<f64>,
+
+        #[arg(long, help = "输出质量报告 JSON 路径 (检测格式/各通道置信度/冲突清单/轮次耗时)")]
+        report: Option<String>,
+
+        #[arg(long, help = "工作目录 (默认 ~/.cache/qyzs/markitdown/<输入内容哈希>/)")]
+        work_dir: Option<String>,
+
+        #[arg(long, default_value_t = 24_000, help = "章节分段目标字符数 (0 = 禁用结构分段, 仅按切片边界分段)")]
+        segment_chars: usize,
+
+        #[arg(long, default_value_t = false, help = "从上次中断的工作目录断点续跑 (输入内容一致时生效)")]
+        resume: bool,
+
+        #[arg(long, default_value_t = false, help = "成功后也保留全部中间产物 (默认成功即流式清理, 失败自动保留)")]
+        no_clean: bool,
+
+        #[arg(long, default_value_t = false, help = "仅输出格式识别结果与规划流水线, 不执行转换")]
+        dry_run: bool,
     },
 
     #[command(about = "从 GitHub 官方仓库下载并准备基准测试数据集")]
