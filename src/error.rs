@@ -1,6 +1,5 @@
 //! 全局统一错误与退出码定义
 
-use std::fmt;
 
 /// 标准退出码定义
 pub mod exit_code {
@@ -14,15 +13,23 @@ pub mod exit_code {
 
 pub type QyzsResult<T> = Result<T, QyzsError>;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum QyzsError {
+    #[error("用法错误: {0}")]
     Usage(String),
+    #[error("认证凭据错误: {0}")]
     Auth(String),
+    #[error("网络连接失败: {0}")]
     Network(String),
+    #[error("请求超时: {0}")]
     Timeout(String),
+    #[error("服务端异常: {0}")]
     Server(String),
+    #[error("IO 操作失败: {0}")]
     Io(String),
+    #[error("PDF 处理异常: {0}")]
     Pdf(String),
+    #[error("配置异常: {0}")]
     Config(String),
 }
 
@@ -56,23 +63,6 @@ impl QyzsError {
         }
     }
 }
-
-impl fmt::Display for QyzsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Usage(msg) => write!(f, "用法错误: {}", msg),
-            Self::Auth(msg) => write!(f, "认证凭据错误: {}", msg),
-            Self::Network(msg) => write!(f, "网络连接失败: {}", msg),
-            Self::Timeout(msg) => write!(f, "请求超时: {}", msg),
-            Self::Server(msg) => write!(f, "服务端异常: {}", msg),
-            Self::Io(msg) => write!(f, "IO 操作失败: {}", msg),
-            Self::Pdf(msg) => write!(f, "PDF 处理异常: {}", msg),
-            Self::Config(msg) => write!(f, "配置异常: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for QyzsError {}
 
 impl From<std::io::Error> for QyzsError {
     fn from(err: std::io::Error) -> Self {

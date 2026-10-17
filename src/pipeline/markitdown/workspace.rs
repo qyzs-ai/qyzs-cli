@@ -329,14 +329,14 @@ mod tests {
         drop(ws);
 
         // 显式续跑: 复用已完成段
-        let (mut ws, resumed) =
+        let (ws, resumed) =
             Workspace::open_in(ws_cache.clone(), &input, "pdf", "speed", true).unwrap();
         assert!(resumed, "显式续跑且指纹一致时应复用现场");
         assert!(ws.stage_done("slice-01", "extract"));
         drop(ws);
 
         // 不带续跑标志: 现场作废重新处理 (默认重跑即重新处理)
-        let (mut ws, resumed) =
+        let (ws, resumed) =
             Workspace::open_in(ws_cache, &input, "pdf", "speed", false).unwrap();
         assert!(!resumed, "未显式续跑时既有现场应作废");
         assert!(!ws.stage_done("slice-01", "extract"));
@@ -370,7 +370,7 @@ mod tests {
 
         // 输入内容变化 → 自动全新开始，旧状态作废 (即使显式要求续跑)
         sample_file(work.path(), "input.bin", b"v2-changed");
-        let (mut ws, resumed) = Workspace::open_in(ws_cache, &input, "pdf", "speed", true).unwrap();
+        let (ws, resumed) = Workspace::open_in(ws_cache, &input, "pdf", "speed", true).unwrap();
         assert!(!resumed, "指纹不一致时即使显式续跑也应全新开始");
         assert!(!ws.stage_done("doc", "extract"));
         ws.finish_success(false).unwrap();

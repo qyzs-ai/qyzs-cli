@@ -11,9 +11,9 @@ pub struct VerificationReport {
     pub notes: String,
 }
 
-pub struct CrossVerifier;
+pub struct OcrVerifier;
 
-impl CrossVerifier {
+impl OcrVerifier {
     /// 执行 OCR 识别结果与 MinerU 解析结果的同源互验
     pub fn verify(ocr_text: &str, mineru_markdown: &str) -> VerificationReport {
         let ocr_clean: String = ocr_text.chars().filter(|c| !c.is_whitespace()).collect();

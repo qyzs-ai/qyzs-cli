@@ -200,7 +200,7 @@ fn extract_xls_impl(path: &str) -> QyzsResult<String> {
             .worksheet_range(name)
             .map_err(|e| QyzsError::Server(format!("读取工作表 '{}' 失败: {}", name, e)))?;
         let merged: Vec<(u32, u32, u32, u32)> = workbook
-            .worksheet_merge_cells(name)
+            .merge_cells_by_sheet_name(name)
             .unwrap_or_default()
             .iter()
             .map(|d| (d.start.0, d.start.1, d.end.0, d.end.1))

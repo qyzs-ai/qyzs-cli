@@ -1243,6 +1243,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "thiserror",
  "tokio",
  "toml",
  "zip 9.0.4",

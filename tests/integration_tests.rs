@@ -3,7 +3,7 @@
 use qyzs::config::{Credentials, ResolvedConfig};
 use qyzs::error::{exit_code, QyzsError};
 use qyzs::pdf::{PdfExtractor, PdfSplitter};
-use qyzs::pipeline::{CrossVerifier, DatasetManager};
+use qyzs::pipeline::{DatasetManager, OcrVerifier};
 use qyzs::term::{detect_environment_language, set_language, Language};
 use clap::Parser as _;
 use std::io::Write;
@@ -99,7 +99,7 @@ fn test_pdf_operations() {
 fn test_cross_verifier() {
     let ocr = "中华人民共和国财政部公告 政府采购评审专家";
     let md = "# 政府采购评审专家管理办法\n财政部发布公告。";
-    let report = CrossVerifier::verify(ocr, md);
+    let report = OcrVerifier::verify(ocr, md);
     assert!(report.jaccard_similarity > 0.0);
     assert_eq!(report.ocr_char_count, 20);
 }

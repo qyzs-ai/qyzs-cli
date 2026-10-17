@@ -69,3 +69,20 @@ max_tokens = 2048
 # qwen2.5-72b   → 404 未查询到模型配置
 # text-embedding-v4 → 500（不存在，用 bge-m3 替代）
 # mymodel-paddleocr-udhyfg → 400 base_url_missing（用 paddleocrvl 替代）
+
+# ── CLI `qyzs models` 渲染数据 ──────────────────────────────────────────────
+# `qyzs models` 由本段数据驱动渲染（编译期嵌入二进制）。延时与特性描述与
+# 上方注释及 tests/docs 的实测数值保持一致；此处为结构化镜像，简体中文。
+[models.matrix]
+rows = [
+  { code = "dsv4",               category = "通用对话",   latency = "1.02s",  feature = "极速响应，实测 51.8 万 Tokens 100% 召回 (默认主模型)" },
+  { code = "qwen3.6-27b",        category = "深度推理",   latency = "6.02s",  feature = "具思维链深度推理能力，实测 13.8 万 Tokens 100% 召回" },
+  { code = "qwen3-VL-30B-A3B",   category = "视觉多模态", latency = "5.62s",  feature = "16 图可靠并发（>16 图需分批），文本硬限 131,072 Tokens" },
+  { code = "paddleocrvl",        category = "公文OCR",    latency = "1.95s",  feature = "毫秒级文字转录，限制 <=800px 自动缩放" },
+  { code = "mineru3.2.3",        category = "文档解析",   latency = "0.59s",  feature = "PDF/Word(docx) 一键结构化输出 Markdown 大纲与表格" },
+  { code = "bge-m3",             category = "向量表征",   latency = "0.27s",  feature = "1024 维密集向量，知识库检索首选" },
+  { code = "qwen3-embadding-8b", category = "超大向量",   latency = "0.39s",  feature = "4096 维超高分辨率语义向量" },
+  { code = "qwen3-reranker-8b",  category = "语义重排",   latency = "0.28s",  feature = "Top1 > 0.90 置信度打分，精排首选" },
+  { code = "Qwen3-ASR-1.7B",     category = "语音识别",   latency = "0.89s",  feature = "16kHz 语音直接转写" },
+  { code = "acid-sam3-full",     category = "遥感变化",   latency = "异步表单", feature = "双时相遥感大模型变化检测流水线" },
+]

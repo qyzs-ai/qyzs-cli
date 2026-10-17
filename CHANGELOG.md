@@ -31,6 +31,15 @@
   小文档原始直通继续使用 `qyzs parse`；页面级拆分继续使用 `qyzs pdf-split`。
   argv[0] 双形式调用 (`qyzs-<command>` 软链) 对被移除命令名不再可用。
 
+### Changed
+
+- 骨架重构：dispatch 分发层拆分为 `handlers/{inference,documents,system}`
+  按域处理器（分发层只留"解析→映射→调用"）；`QyzsError` 迁移 thiserror
+  声明式派生；`qyzs models` 矩阵改为 `capability_matrix.toml` 数据驱动渲染
+  （新增 `[models.matrix]` 结构段，原有实测注释数值未动），并修正繁体混用；
+  OCR 同源互验模块更名 `OcrVerifier`（与向量交叉验证同名异义消除）。
+  CLI 行为契约（--help/退出码/输出语义）经回归验证保持不变。
+
 ### Fixed
 
 - `npm/build.sh`：发布装配时同步改写 `optionalDependencies` 平台包版本钉，
