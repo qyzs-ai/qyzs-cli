@@ -52,13 +52,19 @@
 | docx | MinerU 整文件解析 | ✅ |
 | xlsx / xls | 本地表格解析 (calamine) → Markdown 表格 | ✅ |
 | pptx / vsdx | 本地 OOXML 部件抽取 (zip + XML) | ✅ |
-| image | paddleocrvl / qwen3-VL（`--image-handling` 策略） | 未接入 |
-| html | 纯 Rust HTML → Markdown | 未接入 |
+| image | paddleocrvl / qwen3-VL（`--image-handling` 策略） | ✅ |
+| html | htmd (html5ever) → Markdown；`<script>/<style>` 入口剥离 | ✅ |
 
 - MinerU 解析默认开启 OCR 辅助（与 `parse` 命令默认一致）。
-- 同步通道实测边界 30 页 / 10 MB；超限文档切片后串行处理（异步轮询通道未实现，
-  dry-run 会给出耗时预估警告）。
-- image/html 通道接入前，对应格式非 dry-run 调用返回明确提示。
+- **超时预算**：转换场景客户端超时取 `max(用户超时, 300s)`（实测扫描件解析存在
+  长尾，默认 60s 会误伤）；交互命令不受影响。
+- **超长文档行为（2026-10-18 实测修订）**：40 页/10.7MB 文档网关**同步完成**
+  （15.9s），2026-10-17 记录的"30 页/10MB 转异步"阈值未复现；实现上不做轮询，
+  若网关返回 pending/running 状态将**显式报错**提示减小文档，不悬挂等待。
+- 空白页文档 `md_content` 为空属合法任务结果；整体抽取结果为空时 markitdown
+  显式报错（空白文档/无文本层扫描件），不产出空文件假成功。
+- LLM 响应取文统一 `ChatResponse::primary_text`：content 为空回退 reasoning
+  （实测 qwen3-VL 非流式会把完整回答放入 reasoning）。
 
 ## 5. 过程数据生命周期
 

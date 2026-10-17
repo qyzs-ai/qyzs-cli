@@ -62,6 +62,10 @@ max_tokens = 2048
 #   2026-10-18 实测（markitdown 通道验证）：.doc 旧版 Word 不被网关接受
 #   （HTTP 400 {"detail":"Unsupported file type: doc"}）；.docx 正常。
 #   客户端路由按此约束：.doc 明确报错并提示另存为 .docx。
+#   2026-10-18 补充实测：40 页/10.7MB 文档同步通道 15.9s 完成（三批串行），
+#   "30 页/10MB 转异步"阈值未复现触发；空白页文档 md_content 为空属合法返回。
+#   qwen3-VL 非流式偶发完整回答置于 reasoning 字段而 content 为空（客户端
+#   ChatResponse::primary_text 已统一回退）。
 
 # ── 离线/禁用路由（实测禁止调度）────────────────────────────────────────────
 # qwen36        → 500 Connection error（节点宕机）

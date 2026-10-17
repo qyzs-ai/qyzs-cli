@@ -53,6 +53,27 @@ pub struct ChatResponse {
     pub usage: Option<ChatUsage>,
 }
 
+impl ChatResponse {
+    /// 取首个选择的正文文本: content 优先, 为空时回退 reasoning。
+    /// 实测部分模型 (qwen3.6-27b / qwen3-VL 非流式) 会把完整回答放入
+    /// reasoning 而 content 为空 (capability_matrix 记录的行为), 调用方
+    /// 不应只读 content。
+    pub fn primary_text(&self) -> String {
+        self.choices
+            .first()
+            .and_then(|c| c.message.as_ref())
+            .and_then(|m| {
+                let content = m.content.as_deref().unwrap_or("").trim();
+                if !content.is_empty() {
+                    Some(content.to_string())
+                } else {
+                    m.reasoning.as_deref().map(str::trim).map(str::to_string)
+                }
+            })
+            .unwrap_or_default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatChoice {
     pub index: usize,

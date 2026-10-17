@@ -163,14 +163,8 @@ pub async fn arbitrate_paragraph(
         )
         .await?;
 
-    let content = resp
-        .choices
-        .first()
-        .and_then(|c| c.message.as_ref())
-        .and_then(|m| m.content.clone())
-        .unwrap_or_default();
-
-    let trimmed = content.trim();
+    let trimmed = resp.primary_text().trim().to_string();
+    let trimmed = trimmed.as_str();
     if trimmed.is_empty() || trimmed == "UNRESOLVED" {
         return Ok(None);
     }

@@ -95,7 +95,8 @@ impl QyzsClient {
         // 形态二 (任务型, 网关实测): {status, results: {"<文件名>": {md_content}}}
         if let Ok(task) = serde_json::from_str::<MineruTaskResponse>(&raw_text) {
             if let Some(results) = task.results {
-                // 多文件请求时按文件名序拼接 (当前单文件请求仅一条)
+                // 任务结构命中即走任务路径 (含 md_content 为空的合法情况:
+                // 空白页文档 — 不再回落原始 JSON)
                 let mut merged = String::new();
                 for result in results.values() {
                     if let Some(md) = &result.md_content {
@@ -105,13 +106,17 @@ impl QyzsClient {
                         merged.push_str(md);
                     }
                 }
-                if !merged.is_empty() {
-                    return Ok(merged);
-                }
+                return Ok(merged);
             }
-            // 任务显式失败: 携带状态与错误详情报错, 不再静默返回原始 JSON
+            // results 缺失: 任务显式失败或仍在异步执行
             if let Some(status) = &task.status {
                 if status != "completed" {
+                    if status == "pending" || status == "running" {
+                        return Err(QyzsError::Server(format!(
+                            "MinerU 返回异步任务状态 (status: {})，当前同步通道不支持轮询；请减小文档体积/页数后重试",
+                            status
+                        )));
+                    }
                     return Err(QyzsError::Server(format!(
                         "MinerU 解析任务未成功 (status: {}): {}",
                         status,

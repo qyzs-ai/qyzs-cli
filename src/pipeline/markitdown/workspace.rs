@@ -290,7 +290,6 @@ pub fn sha256_file(path: &Path) -> QyzsResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write as _;
 
     fn sample_file(dir: &Path, name: &str, content: &[u8]) -> PathBuf {
         let p = dir.join(name);

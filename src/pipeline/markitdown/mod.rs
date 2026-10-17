@@ -9,7 +9,9 @@
 pub mod clean;
 pub mod cross_verify;
 pub mod detect;
+pub mod html_md;
 pub mod light_check;
+pub mod ocr_vl;
 pub mod ooxml;
 pub mod pdf;
 pub mod polish;
@@ -30,6 +32,9 @@ const MAX_DOWNLOAD_BYTES: u64 = 200 * 1024 * 1024;
 
 /// MinerU 同步通道实测吞吐 (秒/页，capability_matrix 校准真值)
 const MINERU_SECONDS_PER_PAGE: f64 = 0.26;
+
+/// 转换场景超时下限 (秒): 网关同步解析存在长尾, 扫描件实测需 >60s
+const EXTRACT_TIMEOUT_FLOOR_SECS: u64 = 300;
 
 /// 处理档位
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,7 +216,7 @@ impl MarkitdownPipeline {
         if let Some(pages) = page_count {
             if pages > 30 {
                 warnings.push(format!(
-                    "共 {} 页：MinerU 异步轮询通道未实现，将按每批 {} 页同步串行抽取，仅抽取环节预估约 {} 秒",
+                    "共 {} 页：按每批 {} 页同步串行抽取，仅抽取环节预估约 {} 秒 (2026-10-18 实测 40 页/10.7MB 网关同步完成，未触发异步；若网关返回异步任务状态将显式报错)",
                     pages,
                     pdf::SLICE_BATCH_PAGES,
                     (pages as f64 * MINERU_SECONDS_PER_PAGE).ceil() as u64
@@ -400,7 +405,14 @@ impl MarkitdownPipeline {
         timeout_secs: u64,
         on_progress: Option<&dyn Fn(usize, usize)>,
     ) -> QyzsResult<String> {
-        let (result, ws) = Self::convert_inner(client, opts, timeout_secs, on_progress).await;
+        let (result, ws) = {
+            // 抽取/润色共用的宽超时客户端: 网关同步解析存在长尾 (实测扫描件
+            // 默认 60s 超时误伤, 300s 内完成), 转换场景取 max(用户超时, 300s)
+            let mut cfg = client.config().clone();
+            cfg.timeout_seconds = cfg.timeout_seconds.max(EXTRACT_TIMEOUT_FLOOR_SECS);
+            let extract_client = QyzsClient::new(cfg)?;
+            Self::convert_inner(&extract_client, opts, timeout_secs, on_progress).await
+        };
         match result {
             Ok(md) => {
                 if let Some(ws) = ws {
@@ -477,13 +489,17 @@ impl MarkitdownPipeline {
         }
         if !matches!(
             channel,
-            Some("mineru-slice") | Some("mineru-document") | Some("sheet-tables") | Some("ooxml-text")
+            Some("mineru-slice")
+                | Some("mineru-document")
+                | Some("sheet-tables")
+                | Some("ooxml-text")
+                | Some("ocr-vl")
+                | Some("html-to-md")
         ) {
             return (
-                Err(QyzsError::Usage(format!(
-                    "格式 '{}' 的转换通道将在后续阶段接入；当前版本支持 PDF/DOCX/XLS(X)/PPTX/VSDX (speed 档)",
-                    fmt.label()
-                ))),
+                Err(QyzsError::Usage(
+                    reason.unwrap_or_else(|| "该格式暂不支持转换".to_string()),
+                )),
                 None,
             );
         }
@@ -527,6 +543,11 @@ impl MarkitdownPipeline {
                 SourceFormat::Pptx => ooxml::extract_pptx(&mut ws, &local_path_str),
                 _ => ooxml::extract_vsdx(&mut ws, &local_path_str),
             },
+            Some("ocr-vl") => {
+                ocr_vl::extract_image(client, &mut ws, &local_path_str, opts.image_handling)
+                    .await
+            }
+            Some("html-to-md") => html_md::extract_html(&mut ws, &local_path_str),
             _ => Err(QyzsError::Server(format!(
                 "内部路由不一致: 格式 '{}' 未匹配到已接入通道",
                 fmt.label()
@@ -535,6 +556,14 @@ impl MarkitdownPipeline {
 
         match extracted {
             Ok(raw) => {
+                if raw.trim().is_empty() {
+                    return (
+                        Err(QyzsError::Server(
+                            "抽取结果为空 (可能为空白文档、无文本层扫描件或网关未识别出内容)".to_string(),
+                        )),
+                        Some(ws),
+                    );
+                }
                 // 档位后处理: speed → 规则清洗; balanced → 分段润色; rigor → 润色
                 //   + 双通道交叉验证 + 冲突仲裁 + 全局审查
                 let outcome = match opts.mode {
@@ -809,14 +838,7 @@ impl MarkitdownPipeline {
             )
             .await?;
 
-        Ok(resp
-            .choices
-            .first()
-            .and_then(|c| c.message.as_ref())
-            .and_then(|m| m.content.clone())
-            .unwrap_or_default()
-            .trim()
-            .to_string())
+        Ok(resp.primary_text())
     }
 }
 

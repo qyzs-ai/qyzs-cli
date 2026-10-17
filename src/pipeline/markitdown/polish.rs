@@ -181,13 +181,7 @@ pub async fn polish_segment(
         )
         .await?;
 
-    let content = resp
-        .choices
-        .first()
-        .and_then(|c| c.message.as_ref())
-        .and_then(|m| m.content.clone())
-        .unwrap_or_default();
-    let trimmed = content.trim().to_string();
+    let trimmed = resp.primary_text();
     if trimmed.is_empty() {
         return Err(QyzsError::Server(format!(
             "润色模型 '{}' 对 {} 字符的段返回了空内容 (思维链模型可能耗尽输出预算)",

@@ -13,6 +13,9 @@
   格式嗅探（PDF 魔数、OOXML 条目名、OLE2 目录流名、图像魔数、HTML，扩展名兜底）、
   格式通道路由、三档流水线（speed/balanced/rigor）规划、`--dry-run` 预览；
   OLE2 容器配 OOXML 扩展名时给出"疑似加密文档"警告。
+- 全格式通道补齐：图像（`--image-handling` auto/ocr/describe/both/skip，
+  paddleocrvl OCR + qwen3-VL 描述，auto 按文字产出量自适应）与 HTML/网页
+  （htmd/html5ever 纯 Rust 转换，script/style 入口剥离）。
 - 阶段②转换执行（speed 档）：PDF 本地 15 页/批切片 + MinerU 逐片同步抽取聚合；
   docx 整文件解析；规则清洗行为契约（只做结构归一不改写内容，见
   `tests/docs/QYZS-MARKITDOWN.md` §3.1）；过程数据工作区生命周期（内容指纹
@@ -42,6 +45,12 @@
 
 ### Fixed
 
+- MinerU 任务型响应解析：空白页文档 `md_content` 为空时不再泄漏原始 JSON 到
+  输出；网关返回 pending/running 异步状态时显式报错而非静默；整体抽取结果
+  为空时 markitdown 报错，不产出空文件假成功。
+- LLM 响应取文：新增 `ChatResponse::primary_text`（content 空回退 reasoning），
+  修复 qwen3-VL 非流式偶发空响应（实测该模型把完整回答放入 reasoning 字段）。
+- markitdown 转换场景客户端超时下限 300s（实测扫描件解析长尾超过默认 60s）。
 - `npm/build.sh`：发布装配时同步改写 `optionalDependencies` 平台包版本钉，
   修复新版顶层包会拉取旧版平台二进制的版本漂移问题。
 
