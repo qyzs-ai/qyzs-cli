@@ -1,0 +1,40 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Kunming Dianchi Pilot AOI",
+        "region": "Yunnan",
+        "task": "surface_change_detection"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              102.68,
+              24.95
+            ],
+            [
+              102.75,
+              24.95
+            ],
+            [
+              102.75,
+              24.88
+            ],
+            [
+              102.68,
+              24.88
+            ],
+            [
+              102.68,
+              24.95
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

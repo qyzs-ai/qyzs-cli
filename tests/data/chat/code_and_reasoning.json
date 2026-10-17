@@ -1,0 +1,7 @@
+[
+  {
+    "id": "chat_code_01",
+    "prompt": "请使用 Rust 编写一个高性能的 GeoJSON Bounding Box 计算函数，输入为包含多个 Polygon 的 FeatureCollection 字符串，输出其外包矩形经纬度 [min_lng, min_lat, max_lng, max_lat]，要求使用 serde_json 并处理坐标无效的边界情况。",
+    "task": "rust_geospatial_computing"
+  }
+]

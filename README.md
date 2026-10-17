@@ -1,0 +1,131 @@
+# QYZS CLI (庆阳智算中心统一命令行工具)
+
+[![CI](https://github.com/qyzs-ai/qyzs-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/qyzs-ai/qyzs-cli/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+自然资源部庆阳智算中心（国家级智算节点）官方命令行客户端（`qyzs`）。
+基于 **纯 Rust** 打造，具备**零宿主动态库依赖（Zero Dynamic Dependency）**、**极小构建体积**、**跨平台/国产化架构原生支持**与**单二进制双形式兼容调用**。
+
+---
+
+## 核心特性
+
+- **零外部动态依赖**：内置 Mozilla 根证书与 `rustls`，无需宿主系统 OpenSSL 或 C 动态库，拷到任意机器即装即用。
+- **全平台多架构矩阵**：
+  - **Linux**: `amd64` (x86_64), `arm64` (aarch64), **`loong64` (龙芯 loongarch64 全国产化支持)**；
+  - **macOS**: `amd64` (Intel), `arm64` (Apple Silicon M系列)；
+  - **Windows**: `amd64` (`x86_64-pc-windows-gnu`)。
+- **命令行双形式兼容**：原生支持标准子命令 `qyzs <command>`，且内置 `argv[0]` 自动重写，无缝兼容 `qyzs-<command>`（如软链接调用）。
+- **实测评分最优默认模型**：未指定 `--model` 时，自动装载经基准压测评定最高分的模型（对话默认 `dsv4` 1.0s/77k上下文；多图默认 `qwen3-VL` 16图并发；公文OCR默认 `paddleocrvl` 带800px防崩溃缩放；文档结构化默认 `mineru3.2.3`）。
+- **双语环境自适应 (i18n)**：全量 CLI 提示信息根据系统 `LANG/LC_ALL` 自动适配中英文（中文环境使用中文，非中文一律英文），上游模型返回内容原样透传。
+- **四层级联配置优先级**：`CLI 参数` > `环境变量 (QYZS_*)` > `配置文件 (~/.config/qyzs/)` > `代码基准真值`；敏感 API Key 严格采用 XDG 0600 安全隔离。
+
+---
+
+## 安装方式
+
+### 1. 跨平台一键脚本（推荐，安装即更新）
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/qyzs-ai/qyzs-cli/main/scripts/install.sh | bash
+```
+
+```powershell
+# Windows PowerShell
+irm https://raw.githubusercontent.com/qyzs-ai/qyzs-cli/main/scripts/install.ps1 | iex
+```
+
+### 2. npm 全局安装
+
+```bash
+npm install -g @qyzs-ai/cli
+```
+
+### 3. Cargo 源码构建
+
+```bash
+cargo install --path .
+```
+
+---
+
+## 常用子命令速览
+
+### 1. 运行诊断与模型可用矩阵
+
+```bash
+# 全链路运行诊断（本地环境 + 凭据 0600 安全审计 + 远程三网关延时探针）
+qyzs status
+qyzs status --json
+
+# 查看智算中心全量高可靠模型矩阵与实测延时
+qyzs models
+```
+
+### 2. 凭据与配置管理
+
+```bash
+# 方式一：环境变量（推荐，优先级：CLI 参数 > QYZS_APIKEY > 已保存凭据）
+export QYZS_APIKEY=<your-api-key>
+
+# 方式二：安全登录并保存 API Key (自动应用 0600 权限)
+qyzs auth login --key "$QYZS_APIKEY"
+
+# 查看当前生效 Key 掩码与安全性
+qyzs auth status
+
+# 读取或设置持久化配置
+qyzs config get network.base_url
+qyzs config set model.language zh-cn
+qyzs config path
+```
+
+### 3. 对话与多模态推理 (`chat`)
+
+```bash
+# 纯文本对话 (默认调用 dsv4，开启流式打字机输出)
+qyzs chat "请阐述《测试文献A》的关键要求。"
+
+# 深度思维链推理 (调用 qwen3.6-27b，展示实时思考过程)
+qyzs chat -m qwen3.6-27b --reasoning "核算以下建设用地指标与争议仲裁推演..."
+
+# 多图并发视觉理解 (自动切换至 qwen3-VL-30B-A3B，支持 1~16 张图片)
+qyzs chat -i p1.png -i p2.png -i p3.png "对比数张公文扫描件，指出印章盖章单位与签字页位置。"
+```
+
+### 4. 公文文字 OCR 与结构化解析 (`ocr` & `parse`)
+
+```bash
+# 公文 OCR 版面文字提取 (paddleocrvl，内置长边 <= 800px 自动等比缩放，规避 2048 崩溃)
+qyzs ocr scan.png
+
+# 复杂公文结构化解析转 Markdown (MinerU 3.2.3 专线，完整保留标题大纲与复杂表格)
+qyzs parse document.pdf
+```
+
+### 5. PDF 纯 Rust 拆分与高级流水线 (`pdf-split` & `pdf2md`)
+
+```bash
+# 提取指定页码范围另存为新 PDF
+qyzs pdf-split --file big.pdf --pages 1-3,5 --output split.pdf
+
+# 将超长 PDF 每 15 页切片并分块转为 Markdown 聚合输出
+qyzs pdf2md --file tender_doc.pdf -o tender.md --batch-pages 15
+```
+
+### 6. 语义表征与重排 (`embed` & `rerank`)
+
+```bash
+# 向量表征 (默认 bge-m3 1024 维)
+qyzs embed "自然资源资产清查" "国土空间生态修复"
+
+# 语义重排序精排 (默认 qwen3-reranker-8b, Top1置信度>0.90)
+qyzs rerank -q "土地利用现状分类" -d "自然资源部规程..." -d "无关参考文本..." --top-n 3
+```
+
+---
+
+## 许可证
+
+本项目采用 [Apache-2.0](LICENSE) 许可证开源。

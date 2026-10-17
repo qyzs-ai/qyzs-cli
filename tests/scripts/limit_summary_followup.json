@@ -1,0 +1,99 @@
+{
+  "context_ceiling_confirm": {
+    "dsv4_267000_chars": {
+      "accepted": true,
+      "latency_sec": 23.367,
+      "prompt_tokens": 131883,
+      "needle_recalled": true
+    },
+    "dsv4_330000_chars": {
+      "accepted": true,
+      "latency_sec": 20.947,
+      "prompt_tokens": 162999,
+      "needle_recalled": true
+    },
+    "qwen3.6-27b_134500_chars": {
+      "accepted": true,
+      "latency_sec": 115.156,
+      "prompt_tokens": 65171,
+      "needle_recalled": true
+    },
+    "qwen3-VL-30B-A3B_140000_chars": {
+      "accepted": true,
+      "latency_sec": 7.292,
+      "prompt_tokens": 71573,
+      "needle_recalled": true
+    }
+  },
+  "temperature_upper_qwen36": {
+    "2.2": {
+      "accepted": true
+    },
+    "2.5": {
+      "accepted": true
+    },
+    "3.0": {
+      "accepted": true
+    },
+    "4.0": {
+      "accepted": true
+    }
+  },
+  "bge_large_zh_input_length": {
+    "50": {
+      "accepted": true
+    },
+    "100": {
+      "accepted": true
+    },
+    "300": {
+      "accepted": true
+    },
+    "500": {
+      "accepted": true
+    },
+    "800": {
+      "accepted": false,
+      "http_code": 500,
+      "error": "{\"detail\":{\"error\":{\"message\":\"Error code: 400 - {'object': 'error', 'message': \\\"This model's maximum context length is 512 tokens. However, you requ"
+    }
+  },
+  "bge-m3_length_bisect": {
+    "13000": {
+      "accepted": true
+    },
+    "16000": {
+      "accepted": false,
+      "http_code": 500,
+      "error": "{\"detail\":{\"error\":{\"message\":\"Error code: 400 - {'error': {'message': \\\"This model's maximum context length is 8192 tokens. However, you requested 0 "
+    },
+    "18000": {
+      "accepted": false,
+      "http_code": 500,
+      "error": "{\"detail\":{\"error\":{\"message\":\"Error code: 400 - {'error': {'message': \\\"This model's maximum context length is 8192 tokens. However, you requested 0 "
+    }
+  },
+  "qwen3-embadding-8b_length_bisect": {
+    "13000": {
+      "accepted": false,
+      "http_code": 500,
+      "error": "Internal Server Error"
+    },
+    "16000": {
+      "accepted": false,
+      "http_code": 500,
+      "error": "Internal Server Error"
+    },
+    "18000": {
+      "accepted": false,
+      "http_code": 500,
+      "error": "Internal Server Error"
+    }
+  },
+  "images_32": {
+    "accepted": true,
+    "latency_sec": 7.573,
+    "prompt_tokens": 38469,
+    "reply": ""
+  }
+}

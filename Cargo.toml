@@ -1,0 +1,45 @@
+[package]
+name = "qyzs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Qingyang AI Computing Center Team <dev@qyzs.ai>"]
+description = "Natural Resources Ministry Qingyang AI Computing Center CLI & Document Pipeline"
+license = "Apache-2.0"
+
+[dependencies]
+# 命令行与补全
+clap = { version = "4.5", default-features = false, features = ["derive", "std", "help", "usage", "error-context", "env"] }
+clap_complete = "4.5"
+
+# 异步运行时与工具
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "fs", "io-util"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+# 纯 Rust HTTP 与 TLS (无系统 OpenSSL 依赖)
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "stream", "rustls-tls-webpki-roots"] }
+
+# 序列化与配置
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# 纯 Rust PDF 操作
+lopdf = "0.45"
+
+# 纯 Rust 图像处理 (用于 OCR 800px 等比缩放)
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+# 纯 Rust 压缩与哈希 (用于自更新与数据集解压)
+zip = { version = "9.0", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+base64 = "0.22"
+
+# 跨平台临时文件
+tempfile = "3.12"
+
+[profile.release]
+opt-level = "z"        # 针对产物体积优化
+lto = true             # 链接时死代码剔除
+codegen-units = 1      # 提升 LTO 消除死代码效率
+panic = "abort"        # 移除 unwinding 栈回溯开销
+strip = true           # 剥除符号表

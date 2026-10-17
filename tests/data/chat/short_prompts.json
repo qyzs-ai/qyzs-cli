@@ -1,0 +1,12 @@
+[
+  {
+    "id": "chat_short_01",
+    "prompt": "请解释我国自然资源管理中'三区三线'的具体含义，并列出各条控制线的法律效力。",
+    "task": "natural_resources_cadastral_definition"
+  },
+  {
+    "id": "chat_short_02",
+    "prompt": "将以下自然资源部项目数据清洗为合法JSON，字段包括project_name, budget_wan, status: '2026年国土空间数字底座建设工程，预算为458.6万元，当前处于招标前符合性审查阶段。'",
+    "task": "json_structured_output"
+  }
+]

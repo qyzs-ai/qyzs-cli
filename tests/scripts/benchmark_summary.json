@@ -1,0 +1,156 @@
+{
+  "chat_models": {
+    "dsv4": {
+      "status": "ONLINE",
+      "http_code": 200,
+      "latency_sec": 1.039,
+      "response_sample": "摸清资源家底，支撑国土空间规划与动态监管。",
+      "usage": {
+        "completion_tokens": 15,
+        "prompt_tokens": 18,
+        "total_tokens": 33,
+        "completion_tokens_details": null,
+        "prompt_tokens_details": null
+      }
+    },
+    "qwen3.6-27b": {
+      "status": "ONLINE",
+      "http_code": 200,
+      "latency_sec": 5.972,
+      "response_sample": "Here's a thinking process:  1.  **Analyze User Input:**    - **Topic:** 自然资源三维立体",
+      "usage": {
+        "completion_tokens": 400,
+        "prompt_tokens": 24,
+        "total_tokens": 424,
+        "completion_tokens_details": null,
+        "prompt_tokens_details": null
+      }
+    },
+    "qwen36": {
+      "status": "OFFLINE_OR_UNMOUNTED",
+      "http_code": 500,
+      "latency_sec": 1.543,
+      "error": "{\"detail\":{\"error\":{\"message\":\"500: {'error': {'message': '模型调用失败: Connection error.', 'type': 'server_error', 'code': '"
+    },
+    "deepseek_v3_2": {
+      "status": "OFFLINE_OR_UNMOUNTED",
+      "http_code": 500,
+      "latency_sec": 0.186,
+      "error": "{\"detail\":{\"error\":{\"message\":\"模型配置获取失败: {'error': '获取模型详情失败: 未查询到模型配置或模型未上架，modeCode : deepseek_v3_2'}\",\"type\":\"server_"
+    },
+    "qwen2.5-72b": {
+      "status": "OFFLINE_OR_UNMOUNTED",
+      "http_code": 500,
+      "latency_sec": 0.184,
+      "error": "{\"detail\":{\"error\":{\"message\":\"模型配置获取失败: {'error': '获取模型详情失败: 未查询到模型配置或模型未上架，modeCode : qwen2.5-72b'}\",\"type\":\"server_er"
+    }
+  },
+  "vlm_models": {
+    "qwen3-VL-30B-A3B": {
+      "status": "ONLINE",
+      "http_code": 200,
+      "latency_sec": 4.047,
+      "response_sample": "好的，这张架构图清晰地展示了“国土空间规划实施监测网络（CSPON）”的总体框架。我们可以从顶层（最上层）和底层（最下层）两个维度来识别和概述其核心内容。  -",
+      "usage": {
+        "completion_tokens": 500,
+        "prompt_tokens": 1398,
+        "total_tokens": 1898,
+        "completion_tokens_details": null,
+        "prompt_tokens_details": null
+      }
+    },
+    "paddleocrvl": {
+      "status": "ONLINE",
+      "http_code": 200,
+      "latency_sec": 2.92,
+      "response_sample": "保障体系 | 场景 | 规划全周期管理 | “两统一”业务支撑 | 其他部门业务支撑 | 公众服务 | 共建机制 安全保障 | 规划编制审批 | ● 规划实施监",
+      "usage": {
+        "completion_tokens": 500,
+        "prompt_tokens": 660,
+        "total_tokens": 1160,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "image_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": 638,
+          "video_tokens": 0
+        }
+      }
+    },
+    "qwen3.6-27b": {
+      "status": "ONLINE",
+      "http_code": 200,
+      "latency_sec": 10.326,
+      "response_sample": "用户希望我识别并概述这张架构图的“顶层”和“底层”的核心内容。  1.  **分析图片结构：**     *   这是一张名为“国土空间规划实施监测网络（CSP",
+      "usage": {
+        "completion_tokens": 500,
+        "prompt_tokens": 1399,
+        "total_tokens": 1899,
+        "completion_tokens_details": null,
+        "prompt_tokens_details": null
+      }
+    }
+  },
+  "embeddings": {
+    "bge-m3": {
+      "status": "ONLINE",
+      "dimension": 1024,
+      "latency_sec": 0.293
+    },
+    "qwen3-embadding-8b": {
+      "status": "ONLINE",
+      "dimension": 4096,
+      "latency_sec": 0.38
+    },
+    "bge-large-zh-v1.5": {
+      "status": "ONLINE",
+      "dimension": 1024,
+      "latency_sec": 0.303
+    },
+    "text-embedding-v4": {
+      "status": "OFFLINE_OR_UNMOUNTED",
+      "http_code": 500,
+      "error": "{\"detail\":{\"error\":{\"message\":\"模型配置获取失败: text-embedding-v4，请检查模型code和apiKey是否正确\""
+    }
+  },
+  "rerankers": {
+    "bge-reranker-v2-m3": {
+      "status": "ONLINE",
+      "latency_sec": 0.302,
+      "top1_index": 0,
+      "top1_score": 0.8467
+    },
+    "bge-reranker-large": {
+      "status": "ONLINE",
+      "latency_sec": 0.288,
+      "top1_index": 0,
+      "top1_score": 0.7744
+    },
+    "qwen3-reranker-8b": {
+      "status": "ONLINE",
+      "latency_sec": 0.279,
+      "top1_index": 0,
+      "top1_score": 0.9064
+    }
+  },
+  "mineru": {
+    "status": "ONLINE",
+    "http_code": 200,
+    "latency_sec": 0.48,
+    "markdown_length": 5136,
+    "markdown_preview": "<a id=\"_Toc18022\"></a> # 附件2  <a id=\"_Toc2017331844\"></a> # 项目验收前符合性审查表  <table><tr><td><p>项目名称</p><"
+  },
+  "audio_asr": {
+    "status": "ONLINE",
+    "http_code": 200,
+    "latency_sec": 0.589,
+    "recognized_text": "language None<asr_text>"
+  }
+}

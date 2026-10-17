@@ -1,0 +1,68 @@
+{
+  "multi_image_concurrency": {
+    "1_images": {
+      "status": "SUCCESS",
+      "http_code": 200,
+      "latency_sec": 1.622,
+      "prompt_tokens": 1413,
+      "completion_tokens": 117,
+      "output_preview": "根据您提供的请求内容，其中**不包含任何图片**。  您所展示的是一张完整的、结构化的**信息图表**（或称“架构图”），它以文字、方框、线条和颜色来组织和呈现信息，而不是由多张独立的图片（如JPG、PNG等格式的图像文件）构成。  因此，统计结果如下：  *   **图片数量：** 0 张 *  "
+    },
+    "4_images": {
+      "status": "SUCCESS",
+      "http_code": 200,
+      "latency_sec": 3.672,
+      "prompt_tokens": 7795,
+      "completion_tokens": 295,
+      "output_preview": "根据您提供的请求内容，其中共包含 **4** 张图片。  以下是每张图片的大致内容，并重点指出了包含公章的图片：  1.  **第一张图片**：这是一张名为“国土空间规划实施监测网络（CSPON）总体框架”的系统架构图。它详细展示了该网络的“保障体系”、“场景”、“模型”、“数据”、“网络”等核心组"
+    },
+    "8_images": {
+      "status": "SUCCESS",
+      "http_code": 200,
+      "latency_sec": 4.21,
+      "prompt_tokens": 11625,
+      "completion_tokens": 413,
+      "output_preview": "根据您提供的请求，其中共包含 **6** 张图片。  以下是每张图片的大致内容，并重点指出了包含公章的图片：  1.  **第一张图片**：一张名为“国土空间规划实施监测网络（CSPON）总体框架”的系统架构图。该图详细展示了该网络的保障体系、场景、模型、数据、网络和组织保障等各个组成部分及其相互关"
+    },
+    "16_images": {
+      "status": "SUCCESS",
+      "http_code": 200,
+      "latency_sec": 6.643,
+      "prompt_tokens": 19259,
+      "completion_tokens": 500,
+      "output_preview": "根据您提供的请求，其中共包含15张图片。以下是每张图片的大致内容，并重点指出了包含公章的图片。  **图片列表及内容：**  1.  **《国土空间规划实施监测网络（CSPON）总体框架》图**：一张结构化的框架图，展示了该系统的保障体系、场景、模型、数据、网络和组织保障等核心组成部分。 2.  *"
+    }
+  },
+  "context_and_needle": {
+    "8k_chars_approx_4k_tokens": {
+      "status": "SUCCESS",
+      "http_code": 200,
+      "char_count": 8000,
+      "prompt_tokens": 4060,
+      "completion_tokens": 14,
+      "latency_sec": 1.046,
+      "secret_recalled": true,
+      "reply": "QYZS-GOLDEN-TOKEN-88992211"
+    },
+    "32k_chars_approx_16k_tokens": {
+      "status": "SUCCESS",
+      "http_code": 200,
+      "char_count": 32000,
+      "prompt_tokens": 15932,
+      "completion_tokens": 14,
+      "latency_sec": 2.558,
+      "secret_recalled": true,
+      "reply": "QYZS-GOLDEN-TOKEN-88992211"
+    },
+    "157k_chars_approx_64k_tokens": {
+      "status": "SUCCESS",
+      "http_code": 200,
+      "char_count": 157460,
+      "prompt_tokens": 77795,
+      "completion_tokens": 14,
+      "latency_sec": 11.612,
+      "secret_recalled": true,
+      "reply": "QYZS-GOLDEN-TOKEN-88992211"
+    }
+  }
+}

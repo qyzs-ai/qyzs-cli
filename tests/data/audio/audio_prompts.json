@@ -1,0 +1,12 @@
+{
+  "audio_files": [
+    {
+      "file": "samples/sample_speech_cmd.wav",
+      "format": "wav",
+      "sample_rate": 16000,
+      "channels": 1,
+      "duration_seconds": 3.0,
+      "description": "Standard 16kHz mono acoustic test probe for Qwen3-ASR-1.7B gateway verification"
+    }
+  ]
+}

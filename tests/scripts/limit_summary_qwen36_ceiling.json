@@ -1,0 +1,18 @@
+{
+  "260000_chars": {
+    "accepted": true,
+    "latency_sec": 221.933,
+    "prompt_tokens": 125915,
+    "needle_recalled": true,
+    "finish_reason": "stop",
+    "reply": "QYZS-GOLDEN-TOKEN-88992211"
+  },
+  "285000_chars": {
+    "accepted": true,
+    "latency_sec": 237.269,
+    "prompt_tokens": 138028,
+    "needle_recalled": true,
+    "finish_reason": "stop",
+    "reply": "QYZS-GOLDEN-TOKEN-88992211"
+  }
+}

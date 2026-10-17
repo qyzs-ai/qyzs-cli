@@ -1,0 +1,39 @@
+{
+  "description": "OCR and MinerU paired dataset for mutual cross-verification and consensus arbitration",
+  "pairs": [
+    {
+      "pair_id": "pair_01_text_pdf_p1",
+      "mineru_source_file": "mineru/text_pdf/REF-0056_政府采购评审专家管理办法.pdf",
+      "page_index": 0,
+      "ocr_image_file": "ocr/images/ref0056_p1_title.png",
+      "expected_key_tokens": [
+        "政府采购评审专家管理办法",
+        "财库〔2016〕198号",
+        "第一章 总则",
+        "财政部"
+      ]
+    },
+    {
+      "pair_id": "pair_02_scanned_redhead_p1",
+      "mineru_source_file": "mineru/scanned_pdf/REF-0101_网络安全等级保护指导意见_scan.pdf",
+      "page_index": 0,
+      "ocr_image_file": "ocr/images/ref0101_p1_redhead_scan.png",
+      "expected_key_tokens": [
+        "自然资源部网络安全和信息化领导小组办公室文件",
+        "自然资网信办发〔2024〕5号",
+        "关于进一步加强自然资源部网络安全等级保护工作的指导意见"
+      ]
+    },
+    {
+      "pair_id": "pair_03_scanned_seal_p8",
+      "mineru_source_file": "mineru/scanned_pdf/REF-0101_网络安全等级保护指导意见_scan.pdf",
+      "page_index": 7,
+      "ocr_image_file": "ocr/images/ref0101_p8_seal_scan.png",
+      "expected_key_tokens": [
+        "自然资源部网络安全和信息化领导小组办公室",
+        "印发",
+        "抄送"
+      ]
+    }
+  ]
+}

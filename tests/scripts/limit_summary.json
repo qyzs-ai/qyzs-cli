@@ -1,0 +1,564 @@
+{
+  "context_ceiling": {
+    "dsv4": {
+      "157460_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 14.464,
+        "prompt_tokens": 77797,
+        "completion_tokens": 14,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      },
+      "196000_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 12.53,
+        "prompt_tokens": 96863,
+        "completion_tokens": 14,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      },
+      "230000_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 21.2,
+        "prompt_tokens": 113638,
+        "completion_tokens": 14,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      },
+      "262000_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 20.146,
+        "prompt_tokens": 129425,
+        "completion_tokens": 14,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      }
+    },
+    "qwen3.6-27b": {
+      "8000_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 20.662,
+        "prompt_tokens": 3931,
+        "completion_tokens": 987,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      },
+      "32000_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 38.548,
+        "prompt_tokens": 15525,
+        "completion_tokens": 897,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      },
+      "64000_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 65.163,
+        "prompt_tokens": 31028,
+        "completion_tokens": 969,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      },
+      "131000_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 116.672,
+        "prompt_tokens": 63489,
+        "completion_tokens": 810,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      }
+    },
+    "qwen3-VL-30B-A3B_text": {
+      "32000_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 1.767,
+        "prompt_tokens": 16385,
+        "completion_tokens": 18,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      },
+      "64000_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 2.704,
+        "prompt_tokens": 32742,
+        "completion_tokens": 18,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      },
+      "131000_chars": {
+        "status": "SUCCESS",
+        "http_code": 200,
+        "latency_sec": 5.584,
+        "prompt_tokens": 66990,
+        "completion_tokens": 18,
+        "finish_reason": "stop",
+        "needle_recalled": true,
+        "reply": "QYZS-GOLDEN-TOKEN-88992211"
+      }
+    }
+  },
+  "max_tokens_boundary": {
+    "dsv4": {
+      "1": {
+        "accepted": true,
+        "latency_sec": 0.744,
+        "completion_tokens": 1,
+        "finish_reason": "length"
+      },
+      "1024": {
+        "accepted": true,
+        "latency_sec": 0.78,
+        "completion_tokens": 2,
+        "finish_reason": "stop"
+      },
+      "8192": {
+        "accepted": true,
+        "latency_sec": 0.781,
+        "completion_tokens": 2,
+        "finish_reason": "stop"
+      },
+      "16384": {
+        "accepted": true,
+        "latency_sec": 1.905,
+        "completion_tokens": 2,
+        "finish_reason": "stop"
+      },
+      "32768": {
+        "accepted": true,
+        "latency_sec": 1.069,
+        "completion_tokens": 2,
+        "finish_reason": "stop"
+      },
+      "65536": {
+        "accepted": true,
+        "latency_sec": 1.144,
+        "completion_tokens": 2,
+        "finish_reason": "stop"
+      }
+    },
+    "qwen3.6-27b": {
+      "1": {
+        "accepted": true,
+        "latency_sec": 0.346,
+        "completion_tokens": 1,
+        "finish_reason": "length"
+      },
+      "1024": {
+        "accepted": true,
+        "latency_sec": 3.012,
+        "completion_tokens": 191,
+        "finish_reason": "stop"
+      },
+      "8192": {
+        "accepted": true,
+        "latency_sec": 3.037,
+        "completion_tokens": 191,
+        "finish_reason": "stop"
+      },
+      "16384": {
+        "accepted": true,
+        "latency_sec": 2.986,
+        "completion_tokens": 191,
+        "finish_reason": "stop"
+      },
+      "32768": {
+        "accepted": true,
+        "latency_sec": 3.018,
+        "completion_tokens": 191,
+        "finish_reason": "stop"
+      },
+      "65536": {
+        "accepted": true,
+        "latency_sec": 2.975,
+        "completion_tokens": 191,
+        "finish_reason": "stop"
+      }
+    },
+    "qwen3-VL-30B-A3B": {
+      "1": {
+        "accepted": true,
+        "latency_sec": 0.276,
+        "completion_tokens": 1,
+        "finish_reason": "length"
+      },
+      "1024": {
+        "accepted": true,
+        "latency_sec": 0.259,
+        "completion_tokens": 2,
+        "finish_reason": "stop"
+      },
+      "8192": {
+        "accepted": true,
+        "latency_sec": 0.283,
+        "completion_tokens": 2,
+        "finish_reason": "stop"
+      },
+      "16384": {
+        "accepted": true,
+        "latency_sec": 0.281,
+        "completion_tokens": 2,
+        "finish_reason": "stop"
+      },
+      "32768": {
+        "accepted": true,
+        "latency_sec": 0.262,
+        "completion_tokens": 2,
+        "finish_reason": "stop"
+      },
+      "65536": {
+        "accepted": true,
+        "latency_sec": 0.269,
+        "completion_tokens": 2,
+        "finish_reason": "stop"
+      }
+    }
+  },
+  "temperature_boundary": {
+    "dsv4": {
+      "-0.5": {
+        "accepted": false,
+        "http_code": 500,
+        "error": "{\"detail\":{\"error\":{\"message\":\"500: {'error': {'message': \\\"模型调用失败: Error code: 400 - {'error': {'message': 'temperature must be non-negative, got -0.5. (parameter=temperature, value=-0.5)', 'type': '"
+      },
+      "0.0": {
+        "accepted": true
+      },
+      "0.7": {
+        "accepted": true
+      },
+      "1.0": {
+        "accepted": true
+      },
+      "1.5": {
+        "accepted": true
+      },
+      "2.0": {
+        "accepted": true
+      },
+      "2.1": {
+        "accepted": false,
+        "http_code": 500,
+        "error": "{\"detail\":{\"error\":{\"message\":\"500: {'error': {'message': \\\"模型调用失败: Error code: 400 - {'error': {'message': 'temperature must be in [0, 2], got 2.1. (parameter=temperature, value=2.1)', 'type': 'BadRe"
+      }
+    },
+    "qwen3.6-27b": {
+      "-0.5": {
+        "accepted": false,
+        "http_code": 500,
+        "error": "{\"detail\":{\"error\":{\"message\":\"500: {'error': {'message': \\\"模型调用失败: Error code: 400 - {'error': {'message': 'temperature must be non-negative, got -0.5. (parameter=temperature, value=-0.5)', 'type': '"
+      },
+      "0.0": {
+        "accepted": true
+      },
+      "0.7": {
+        "accepted": true
+      },
+      "1.0": {
+        "accepted": true
+      },
+      "1.5": {
+        "accepted": true
+      },
+      "2.0": {
+        "accepted": true
+      },
+      "2.1": {
+        "accepted": true
+      }
+    }
+  },
+  "multi_image_extreme": {
+    "20_images": {
+      "status": "SUCCESS",
+      "http_code": 200,
+      "latency_sec": 10.173,
+      "prompt_tokens": 27005,
+      "completion_tokens": 3,
+      "reply": "10"
+    },
+    "24_images": {
+      "status": "SUCCESS",
+      "http_code": 200,
+      "latency_sec": 6.604,
+      "prompt_tokens": 30835,
+      "completion_tokens": 3,
+      "reply": "13"
+    }
+  },
+  "embedding_limits": {
+    "bge-m3": {
+      "input_length": {
+        "1000": {
+          "accepted": true,
+          "dimension": 1024
+        },
+        "5000": {
+          "accepted": true,
+          "dimension": 1024
+        },
+        "10000": {
+          "accepted": true,
+          "dimension": 1024
+        },
+        "20000": {
+          "accepted": false,
+          "http_code": 500,
+          "error": "{\"detail\":{\"error\":{\"message\":\"Error code: 400 - {'error': {'message': \\\"This model's maximum context length is 8192 tokens. However, you requested 0 output tokens and your prompt contains at least 81"
+        }
+      },
+      "batch_size": {
+        "16": {
+          "accepted": true,
+          "returned": 16
+        },
+        "32": {
+          "accepted": true,
+          "returned": 32
+        },
+        "64": {
+          "accepted": true,
+          "returned": 64
+        },
+        "128": {
+          "accepted": true,
+          "returned": 128
+        },
+        "256": {
+          "accepted": true,
+          "returned": 256
+        }
+      }
+    },
+    "qwen3-embadding-8b": {
+      "input_length": {
+        "1000": {
+          "accepted": true,
+          "dimension": 4096
+        },
+        "5000": {
+          "accepted": true,
+          "dimension": 4096
+        },
+        "10000": {
+          "accepted": true,
+          "dimension": 4096
+        },
+        "20000": {
+          "accepted": false,
+          "http_code": 500,
+          "error": "Internal Server Error"
+        }
+      },
+      "batch_size": {
+        "16": {
+          "accepted": true,
+          "returned": 16
+        },
+        "32": {
+          "accepted": true,
+          "returned": 32
+        },
+        "64": {
+          "accepted": true,
+          "returned": 64
+        },
+        "128": {
+          "accepted": true,
+          "returned": 128
+        },
+        "256": {
+          "accepted": true,
+          "returned": 256
+        }
+      }
+    },
+    "bge-large-zh-v1.5": {
+      "input_length": {
+        "1000": {
+          "accepted": false,
+          "http_code": 500,
+          "error": "{\"detail\":{\"error\":{\"message\":\"Error code: 400 - {'object': 'error', 'message': \\\"This model's maximum context length is 512 tokens. However, you requested 994 tokens in the input for embedding genera"
+        },
+        "5000": {
+          "accepted": false,
+          "http_code": 500,
+          "error": "{\"detail\":{\"error\":{\"message\":\"Error code: 400 - {'object': 'error', 'message': \\\"This model's maximum context length is 512 tokens. However, you requested 4944 tokens in the input for embedding gener"
+        },
+        "10000": {
+          "accepted": false,
+          "http_code": 500,
+          "error": "{\"detail\":{\"error\":{\"message\":\"Error code: 400 - {'object': 'error', 'message': \\\"This model's maximum context length is 512 tokens. However, you requested 9878 tokens in the input for embedding gener"
+        },
+        "20000": {
+          "accepted": false,
+          "http_code": 500,
+          "error": "{\"detail\":{\"error\":{\"message\":\"Error code: 400 - {'object': 'error', 'message': \\\"This model's maximum context length is 512 tokens. However, you requested 19743 tokens in the input for embedding gene"
+        }
+      },
+      "batch_size": {
+        "16": {
+          "accepted": true,
+          "returned": 16
+        },
+        "32": {
+          "accepted": true,
+          "returned": 32
+        },
+        "64": {
+          "accepted": true,
+          "returned": 64
+        },
+        "128": {
+          "accepted": true,
+          "returned": 128
+        },
+        "256": {
+          "accepted": true,
+          "returned": 256
+        }
+      }
+    }
+  },
+  "rerank_scale": {
+    "bge-reranker-v2-m3": {
+      "10": {
+        "accepted": true,
+        "latency_sec": 0.365,
+        "returned": 5,
+        "top1_index": 7,
+        "top1_score": 0.9956
+      },
+      "50": {
+        "accepted": true,
+        "latency_sec": 0.646,
+        "returned": 5,
+        "top1_index": 7,
+        "top1_score": 0.9956
+      },
+      "100": {
+        "accepted": true,
+        "latency_sec": 0.946,
+        "returned": 5,
+        "top1_index": 7,
+        "top1_score": 0.9956
+      },
+      "200": {
+        "accepted": true,
+        "latency_sec": 1.49,
+        "returned": 5,
+        "top1_index": 7,
+        "top1_score": 0.9956
+      }
+    },
+    "qwen3-reranker-8b": {
+      "10": {
+        "accepted": true,
+        "latency_sec": 0.421,
+        "returned": 5,
+        "top1_index": 7,
+        "top1_score": 0.9475
+      },
+      "50": {
+        "accepted": true,
+        "latency_sec": 1.147,
+        "returned": 5,
+        "top1_index": 7,
+        "top1_score": 0.9476
+      },
+      "100": {
+        "accepted": true,
+        "latency_sec": 1.909,
+        "returned": 5,
+        "top1_index": 7,
+        "top1_score": 0.9476
+      },
+      "200": {
+        "accepted": true,
+        "latency_sec": 3.46,
+        "returned": 5,
+        "top1_index": 7,
+        "top1_score": 0.9476
+      }
+    },
+    "bge-reranker-large": {
+      "10": {
+        "accepted": true,
+        "latency_sec": 0.356,
+        "returned": 5,
+        "top1_index": 0,
+        "top1_score": 0.9976
+      },
+      "50": {
+        "accepted": true,
+        "latency_sec": 0.647,
+        "returned": 5,
+        "top1_index": 47,
+        "top1_score": 0.998
+      },
+      "100": {
+        "accepted": true,
+        "latency_sec": 0.966,
+        "returned": 5,
+        "top1_index": 47,
+        "top1_score": 0.998
+      },
+      "200": {
+        "accepted": true,
+        "latency_sec": 1.509,
+        "returned": 5,
+        "top1_index": 47,
+        "top1_score": 0.998
+      }
+    }
+  },
+  "mineru_page_ladder": {
+    "source_pdf": "REF-0056_政府采购评审专家管理办法.pdf",
+    "source_pages": 10,
+    "ladder": {
+      "5": {
+        "accepted": true,
+        "http_code": 200,
+        "task_status": "completed",
+        "size_mb": 0.2,
+        "latency_sec": 3.118,
+        "md_content_chars": 2105
+      },
+      "15": {
+        "accepted": true,
+        "http_code": 200,
+        "task_status": "completed",
+        "size_mb": 0.21,
+        "latency_sec": 5.078,
+        "md_content_chars": 6534
+      },
+      "30": {
+        "accepted": true,
+        "http_code": 200,
+        "task_status": "completed",
+        "size_mb": 0.21,
+        "latency_sec": 7.659,
+        "md_content_chars": 13285
+      }
+    }
+  }
+}

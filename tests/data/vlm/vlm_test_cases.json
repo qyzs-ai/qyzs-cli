@@ -1,0 +1,34 @@
+{
+  "test_cases": [
+    {
+      "id": "vlm_01_seal_ocr",
+      "image": "images/sig_seal_official.png",
+      "prompt": "请识别图中的印章文字、发文单位名称及日期，并判断印章形态是否完整无缺损。",
+      "expected_entities": [
+        "云南省数据局",
+        "印章"
+      ]
+    },
+    {
+      "id": "vlm_02_flowchart_reasoning",
+      "image": "images/system_arch_flowchart.png",
+      "prompt": "请详细分析该架构图的分层结构，列出各层级名称以及核心组件流向。",
+      "expected_entities": [
+        "国土空间",
+        "监测网络",
+        "架构",
+        "数据"
+      ]
+    },
+    {
+      "id": "vlm_03_multi_image_16_count",
+      "image_batch_dir": "multi_image_batch",
+      "prompt": "请统计本次请求输入的图片总数，并指出其中哪张图片包含红色的公章？",
+      "expected_answer_contains": [
+        "16",
+        "公章",
+        "云南省数据局"
+      ]
+    }
+  ]
+}

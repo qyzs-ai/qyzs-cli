@@ -1,0 +1,44 @@
+{
+  "dsv4_400000": {
+    "accepted": true,
+    "latency_sec": 36.597,
+    "prompt_tokens": 197548,
+    "needle_recalled": true
+  },
+  "dsv4_530000": {
+    "accepted": true,
+    "latency_sec": 45.76,
+    "prompt_tokens": 261739,
+    "needle_recalled": true
+  },
+  "qwen36_140000": {
+    "accepted": true,
+    "latency_sec": 123.677,
+    "prompt_tokens": 67834,
+    "needle_recalled": true
+  },
+  "vl_200000": {
+    "accepted": true,
+    "latency_sec": 8.673,
+    "prompt_tokens": 102188,
+    "needle_recalled": true
+  },
+  "qwen36_temp_8.0": {
+    "accepted": true
+  },
+  "qwen3_emb_length_bisect": {
+    "11000": {
+      "accepted": true
+    },
+    "12000": {
+      "accepted": true
+    }
+  },
+  "images_48": {
+    "accepted": true,
+    "latency_sec": 7.363,
+    "raw_bytes_mb": 13.2,
+    "prompt_tokens": 57693,
+    "reply": ""
+  }
+}

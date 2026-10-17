@@ -1,0 +1,123 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-check:
+    name: Rust Check & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cargo Check
+        run: cargo check --verbose
+      - name: Cargo Test
+        run: cargo test --verbose
+
+  release-binaries:
+    name: Build & Upload Release Binaries
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [rust-check]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: loongarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: qyzs
+          target: ${{ matrix.target }}
+          archive: $bin-$target
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  release-npm-and-scripts:
+    name: Publish npm & Upload Install Scripts
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [release-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Determine Version
+        id: ver
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Release version: $TAG"
+
+      - name: Upload Install Scripts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            scripts/install.sh
+            scripts/install.ps1
+            scripts/install.cmd
+          generate_release_notes: true
+
+      - name: Pack npm packages
+        run: bash npm/build.sh ${{ steps.ver.outputs.version }}
+
+      - name: npm Auth
+        if: env.NPM_TOKEN != ''
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
+
+      - name: Publish platform packages
+        if: env.NPM_TOKEN != ''
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          for pkg in linux-x64 linux-arm64 linux-loong64 darwin-arm64 darwin-x64 win32-x64; do
+            if [ -d "dist/npm/$pkg" ]; then
+              if npm view "@qyzs-ai/$pkg@${{ steps.ver.outputs.version }}" >/dev/null 2>&1; then
+                echo "Skip @qyzs-ai/$pkg (already published)"
+                continue
+              fi
+              echo "Publish @qyzs-ai/$pkg"
+              (cd "dist/npm/$pkg" && npm publish --provenance --access public) || true
+            fi
+          done
+
+      - name: Publish top-level @qyzs-ai/cli
+        if: env.NPM_TOKEN != ''
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if npm view "@qyzs-ai/cli@${{ steps.ver.outputs.version }}" >/dev/null 2>&1; then
+            echo "Skip @qyzs-ai/cli (already published)"
+          else
+            (cd dist/npm/cli && npm publish --provenance --access public) || true
+          fi

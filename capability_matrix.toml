@@ -1,0 +1,68 @@
+# capability_matrix.toml
+# 庆阳智算中心模型能力调度矩阵（SSOT 校准真值）
+#
+# 数据来源：tests/scripts/run_benchmarks.py + stress_limits.py + limit_probe*.py
+# 实测日期：2026-10-17；明细见 tests/docs/QYZS-ANALYZE.md 与 tests/scripts/*_summary.json
+#
+# [model.params.*] 段与 qyzs CLI 的 ~/.config/qyzs/config.toml 模式兼容，
+# 可整段复制进用户配置使 CLI 按 Bearer 网关实测边界自动调度。
+
+[model]
+default_chat = "dsv4"
+default_ocr = "paddleocrvl"
+default_parse = "mineru3.2.3"
+default_embed = "bge-m3"
+default_rerank = "qwen3-reranker-8b"
+default_asr = "Qwen3-ASR-1.7B"
+default_sam = "acid-sam3-full"
+
+# ── 文本推理 ─────────────────────────────────────────────────────────────
+# dsv4：短文本 ~1.0s；上下文实测 518,438 Tokens（约 105 万字符）100% 针孔召回，
+#       梯度内未见天花板，延时约 0.25 ms/Token。
+#       temperature 服务端硬校验区间 [0, 2]（越界 400）；max_tokens 1~65536 均接受。
+[model.params.dsv4]
+temperature = 0.2
+max_tokens = 8192
+
+# qwen3.6-27b：思维链模型（content 为空时回退 reasoning 字段）；
+#   上下文实测 138,028 Tokens 100% 召回（梯度内未触顶），13.8 万 Tokens 延时约 237s，
+#   建议仅在 ≤3 万 Tokens 场景使用；max_tokens 必须预留 ≥2048 思维链预算，
+#   否则推理 Tokens 耗尽预算导致 content 为空（temperature 实测 8.0 仍被接受，生产约束 0~2）。
+[model.params.qwen3_6_27b]
+temperature = 0.4
+max_tokens = 4096
+
+# ── 视觉多模态 ───────────────────────────────────────────────────────────
+# qwen3-VL-30B-A3B：文本通道硬上限 131,072 Tokens（服务端报错确认，102,188 实测通过）；
+#   多图可靠工作点 16 图/请求（4 图计数准确，8/16 图漏数 1；网关可承载 ≥48 图/13.2 MB
+#   但 32 图起输出为空）——客户端 >16 图必须分批。
+[model.params.qwen3_VL_30B_A3B]
+temperature = 0.1
+max_tokens = 2048
+
+# paddleocrvl：FastDeploy max_model_len=2048 硬限，图像最长边 ≤800px（约 1,200 视觉 Token），
+#   超限报 EngineError: input_ids_len + 1 >= 2048。
+[model.params.paddleocrvl]
+temperature = 0.0
+max_tokens = 2048
+
+# ── 向量表征（批量 ≥256 条/请求；越界一律 HTTP 500）────────────────────────
+# bge-m3：1024 维；单条输入 ≤13,000 字符（16,000 拒绝）→ 长文本按 ≤12,000 字符分块。
+# qwen3-embadding-8b：4096 维；单条输入 ≤12,000 字符（13,000 拒绝）。
+# bge-large-zh-v1.5：1024 维短向量模型；单条输入 ≤约 500 字符（≈800 拒绝），仅限短句。
+
+# ── 语义重排（候选集 200 篇实测可用；CLI 分批切片 ≤100 篇/批）───────────────
+# bge-reranker-v2-m3：0.37s@10 篇 → 1.49s@200 篇，Top1 稳定（首选）。
+# qwen3-reranker-8b：0.42s@10 篇 → 3.46s@200 篇（大候选集延迟约 2.3 倍，Top1 > 0.90）。
+# bge-reranker-large：同 v2-m3 量级，但同质语料下 Top1 漂移，仅作基础过滤。
+
+# ── 文档解析 ─────────────────────────────────────────────────────────────
+# mineru3.2.3：同步通道实测 30 页（0.2 MB）7.7s 无断点，约 0.26 s/页；
+#   CLI 同步/异步切换阈值：页数 >30 或体积 >10 MB 转异步轮询。
+
+# ── 离线/禁用路由（实测禁止调度）────────────────────────────────────────────
+# qwen36        → 500 Connection error（节点宕机）
+# deepseek_v3_2 → 404 未查询到模型配置
+# qwen2.5-72b   → 404 未查询到模型配置
+# text-embedding-v4 → 500（不存在，用 bge-m3 替代）
+# mymodel-paddleocr-udhyfg → 400 base_url_missing（用 paddleocrvl 替代）

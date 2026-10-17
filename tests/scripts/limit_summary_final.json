@@ -1,0 +1,26 @@
+{
+  "dsv4_700000": {
+    "accepted": true,
+    "latency_sec": 67.397,
+    "prompt_tokens": 345659,
+    "needle_recalled": true
+  },
+  "dsv4_1050000": {
+    "accepted": true,
+    "latency_sec": 128.054,
+    "prompt_tokens": 518438,
+    "needle_recalled": true
+  },
+  "qwen36_150000": {
+    "accepted": true,
+    "latency_sec": 135.635,
+    "prompt_tokens": 72677,
+    "needle_recalled": true
+  },
+  "vl_400000": {
+    "accepted": false,
+    "http_code": 500,
+    "latency_sec": 1.152,
+    "error": "{\"detail\":{\"error\":{\"message\":\"500: {'error': {'message': '模型调用失败: Error code: 400 - {\\\\'error\\\\': {\\\\'message\\\\': \\\"This model\\\\'s maximum context length is 131072 tokens. However, you requested 150 output tokens and your prompt contains at least 130923 input tokens, for a total of at least 131073 "
+  }
+}

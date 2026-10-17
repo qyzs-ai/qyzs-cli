@@ -1,0 +1,83 @@
+//! MinerU 3.2.3 复杂文档结构化解析专线 (/ai-gateway/mineru3.2.3/file_parse)
+
+use super::QyzsClient;
+use crate::error::{QyzsError, QyzsResult};
+use reqwest::multipart::{Form, Part};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MineruResponse {
+    pub code: Option<i32>,
+    pub msg: Option<String>,
+    pub data: Option<MineruData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MineruData {
+    pub markdown: Option<String>,
+    pub content: Option<String>,
+    pub pages: Option<usize>,
+}
+
+impl QyzsClient {
+    /// 上传文档文件到 MinerU 专线进行结构化解析并提取 Markdown
+    pub async fn parse_document(
+        &self,
+        file_path: &str,
+        is_ocr: bool,
+    ) -> QyzsResult<String> {
+        let key = self.config.ensure_auth()?;
+        let path = Path::new(file_path);
+        if !path.exists() {
+            return Err(QyzsError::Io(format!("待解析文件不存在: {}", file_path)));
+        }
+
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("document.pdf")
+            .to_string();
+
+        let file_bytes = std::fs::read(path)
+            .map_err(|e| QyzsError::Io(format!("读取待解析文件失败 {}: {}", file_path, e)))?;
+
+        let part = Part::bytes(file_bytes)
+            .file_name(file_name)
+            .mime_str("application/octet-stream")
+            .map_err(|e| QyzsError::Usage(format!("构建表单文件失败: {}", e)))?;
+
+        let form = Form::new()
+            .part("files", part)
+            .text("is_ocr", if is_ocr { "true" } else { "false" });
+
+        let resp = self
+            .http
+            .post("ai-gateway/mineru3.2.3/file_parse", Some(key))
+            .multipart(form)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let err_text = resp.text().await.unwrap_or_default();
+            return Err(QyzsError::Server(format!("MinerU 网关返回 HTTP {}: {}", status, err_text)));
+        }
+
+        // 尝试解析结构化响应
+        let raw_text = resp.text().await.map_err(|e| QyzsError::Server(e.to_string()))?;
+        if let Ok(res) = serde_json::from_str::<MineruResponse>(&raw_text) {
+            if let Some(data) = res.data {
+                if let Some(md) = data.markdown {
+                    return Ok(md);
+                }
+                if let Some(c) = data.content {
+                    return Ok(c);
+                }
+            }
+        }
+
+        // 若不是包装的 JSON，返回原始响应字符串
+        Ok(raw_text)
+    }
+}
