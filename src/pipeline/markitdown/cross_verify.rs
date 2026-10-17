@@ -1,0 +1,224 @@
+//! markitdown rigor 档交叉验证与冲突仲裁
+//!
+//! 第二抽取通道与主通道 (MinerU) 独立产出 → bge-m3 段落级向量相似度
+//! (复用客户端 12k 分块 + 256 条拆批护栏) → 低于阈值的段落交 dsv4 仲裁
+//! (≤2 轮) → 不可决段插入 unverified 标记。
+
+use crate::client::QyzsClient;
+use crate::error::QyzsResult;
+
+/// 参与验证的最小段落长度 (过短段落语义区分度不足)
+const MIN_PARA_CHARS: usize = 20;
+
+/// 第二通道证据块的目标字符数
+const SECONDARY_CHUNK_CHARS: usize = 800;
+
+/// 仲裁轮次上限
+pub const ARBITRATION_ROUNDS: usize = 2;
+
+/// 余弦相似度
+pub fn cosine(a: &[f64], b: &[f64]) -> f64 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let mut dot = 0f64;
+    let mut na = 0f64;
+    let mut nb = 0f64;
+    for (x, y) in a.iter().zip(b.iter()) {
+        dot += (*x as f64) * (*y as f64);
+        na += (*x as f64) * (*x as f64);
+        nb += (*y as f64) * (*y as f64);
+    }
+    if na == 0.0 || nb == 0.0 {
+        return 0.0;
+    }
+    dot / (na.sqrt() * nb.sqrt())
+}
+
+/// 主通道段落切分 (围栏免疫; 过短段落跳过验证原样保留)
+pub fn split_paragraphs(md: &str) -> Vec<String> {
+    let mut paras = Vec::new();
+    let mut in_fence = false;
+    for block in md.split("\n\n") {
+        if block.lines().any(|l| {
+            let t = l.trim_start();
+            t.starts_with("```") || t.starts_with("~~~")
+        }) {
+            // 围栏块整体跳过 (内容逐字保留)
+            continue;
+        }
+        let _ = &mut in_fence;
+        let trimmed = block.trim();
+        if trimmed.chars().count() >= MIN_PARA_CHARS {
+            paras.push(trimmed.to_string());
+        }
+    }
+    paras
+}
+
+/// 第二通道文本 → 证据块 (段落聚合到目标尺寸)
+pub fn chunk_secondary(text: &str) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut buf = String::new();
+    for para in text.split("\n\n") {
+        let trimmed = para.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !buf.is_empty() && buf.chars().count() + trimmed.chars().count() > SECONDARY_CHUNK_CHARS {
+            chunks.push(std::mem::take(&mut buf));
+        }
+        if !buf.is_empty() {
+            buf.push_str("\n\n");
+        }
+        buf.push_str(trimmed);
+        if buf.chars().count() >= SECONDARY_CHUNK_CHARS {
+            chunks.push(std::mem::take(&mut buf));
+        }
+    }
+    if !buf.is_empty() {
+        chunks.push(buf);
+    }
+    chunks
+}
+
+/// 每个主通道段落与第二通道证据块的逐段相似度对账
+/// 返回 (段落下标, 最高相似度, 最佳证据块下标)
+pub async fn verify_paragraphs(
+    client: &QyzsClient,
+    paragraphs: &[String],
+    secondary_chunks: &[String],
+) -> QyzsResult<Vec<(usize, f64, usize)>> {
+    if paragraphs.is_empty() || secondary_chunks.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // bge-m3 单请求 ≤256 物理条 + 12k 字符分块护栏由客户端内部处理
+    let para_embeds = client.embed(paragraphs.to_vec(), None).await?;
+    let chunk_embeds = client.embed(secondary_chunks.to_vec(), None).await?;
+
+    let para_vecs: Vec<Vec<f64>> = para_embeds
+        .data
+        .iter()
+        .map(|d| d.embedding.clone())
+        .collect();
+    let chunk_vecs: Vec<Vec<f64>> = chunk_embeds
+        .data
+        .iter()
+        .map(|d| d.embedding.clone())
+        .collect();
+
+    let mut results = Vec::with_capacity(paragraphs.len());
+    for (idx, pv) in para_vecs.iter().enumerate() {
+        let mut best = (f64::MIN, 0usize);
+        for (ci, cv) in chunk_vecs.iter().enumerate() {
+            let s = cosine(pv, cv);
+            if s > best.0 {
+                best = (s, ci);
+            }
+        }
+        results.push((idx, best.0, best.1));
+    }
+    Ok(results)
+}
+
+/// dsv4 仲裁单轮: 返回 Some(修正后的段落) 或 None (不可决)
+pub async fn arbitrate_paragraph(
+    client: &QyzsClient,
+    model: &str,
+    paragraph: &str,
+    evidence: &str,
+    attempt: usize,
+) -> QyzsResult<Option<String>> {
+    let system = "你是独立抽取通道的仲裁引擎。给定主通道段落与第二通道证据，判断段落内容是否有第二通道支持。\n\
+- 若证据支持段落 (语义一致, 允许格式/标点差异): 原样输出该段落, 一字不改;\n\
+- 若证据表明段落存在错漏 (如识别错误、缺字): 输出依据证据修正后的段落;\n\
+- 若无法判定: 只输出 UNRESOLVED 四个词, 不要任何其他内容。\n\
+不要输出解释。";
+
+    let hint = if attempt > 1 {
+        "\n(第二轮: 请放宽对格式差异的顾虑, 仅关注事实与数字是否一致; 若仍无法确定请输出 UNRESOLVED)"
+    } else {
+        ""
+    };
+
+    let prompt = format!(
+        "[主通道段落]\n{}\n\n[第二通道证据]\n{}\n{}",
+        paragraph, evidence, hint
+    );
+
+    let resp = client
+        .chat(
+            &prompt,
+            Some(system),
+            crate::client::ChatOptions {
+                model: Some(model.to_string()),
+                temperature: Some(0.0),
+                max_tokens: Some(8192),
+                top_p: None,
+                stream: false,
+                show_reasoning: false,
+                images: Vec::new(),
+            },
+        )
+        .await?;
+
+    let content = resp
+        .choices
+        .first()
+        .and_then(|c| c.message.as_ref())
+        .and_then(|m| m.content.clone())
+        .unwrap_or_default();
+
+    let trimmed = content.trim();
+    if trimmed.is_empty() || trimmed == "UNRESOLVED" {
+        return Ok(None);
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cosine() {
+        assert!((cosine(&[1.0, 0.0], &[1.0, 0.0]) - 1.0).abs() < 1e-9);
+        assert!((cosine(&[1.0, 0.0], &[0.0, 1.0])).abs() < 1e-9);
+        assert!((cosine(&[1.0, 0.0], &[-1.0, 0.0]) + 1.0).abs() < 1e-9);
+        assert_eq!(cosine(&[], &[1.0]), 0.0);
+        assert_eq!(cosine(&[0.0, 0.0], &[1.0, 1.0]), 0.0);
+    }
+
+    #[test]
+    fn test_split_paragraphs() {
+        let md = "第一段有足够长的内容参与验证,包含数字 12345 与单位亩。\n\n# 标题\n\n第二段也有足够长度的内容,包含更多事实陈述与单位公顷。\n\n```\n围栏内容 # 长文本足够长足够长足够长\n```";
+        let paras = split_paragraphs(md);
+        assert_eq!(paras.len(), 2, "标题过短且围栏应被跳过: {:?}", paras);
+        assert!(paras[0].contains("第一段"));
+    }
+
+    #[test]
+    fn test_chunk_secondary_grouping() {
+        let paras: Vec<String> = (0..50)
+            .map(|i| format!("证据段落{}: {}", i, "内容文字。".repeat(30)))
+            .collect();
+        let text = paras.join("\n\n");
+        let chunks = chunk_secondary(&text);
+        assert!(chunks.len() > 1);
+        // 每块接近目标尺寸
+        for c in &chunks {
+            assert!(c.chars().count() <= SECONDARY_CHUNK_CHARS * 2);
+        }
+        // 全部内容保留 (按段落文本抽查)
+        for (i, p) in paras.iter().enumerate().step_by(7) {
+            let head: String = p.chars().take(12).collect();
+            assert!(chunks.iter().any(|c| c.contains(&head)), "段落 {} 应在某证据块中", i);
+        }
+    }
+
+    #[test]
+    fn test_chunk_secondary_empty() {
+        assert!(chunk_secondary("  \n\n ").is_empty());
+    }
+}

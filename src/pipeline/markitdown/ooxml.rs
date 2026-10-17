@@ -12,7 +12,6 @@ use quick_xml::events::Event;
 use quick_xml::XmlVersion;
 use quick_xml::Reader;
 use std::io::{BufReader, Read as _};
-use std::path::Path;
 
 /// 提取元素文本 (含嵌套, 仅取文本节点)
 fn element_inner_text(xml: &str, tag_local: &str) -> Vec<String> {
@@ -285,6 +284,70 @@ pub fn extract_vsdx(ws: &mut Workspace, path: &str) -> QyzsResult<String> {
     Ok(output)
 }
 
+/// docx 本地文本抽取 (rigor 档第二通道): word/document.xml 按 <w:p> 聚合 <w:t>
+pub fn extract_docx_text(bytes: &[u8]) -> QyzsResult<String> {
+    let mut archive = open_zip(bytes)?;
+    let xml_bytes = read_zip_entry(&mut archive, "word/document.xml")
+        .map_err(|e| QyzsError::Server(format!("docx 缺少主文档部件: {}", e)))?;
+    let xml = String::from_utf8_lossy(&xml_bytes).into_owned();
+
+    let mut reader = Reader::from_str(&xml);
+    reader.config_mut().trim_text(false);
+    let mut paragraphs: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut w_depth = 0usize;
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) => {
+                if e.name().local_name().as_ref() == "t" && w_depth > 0 {
+                    // w:t 文本由 Text 事件携带
+                }
+                w_depth += 1;
+            }
+            Ok(Event::End(e)) => {
+                let name = e.name().local_name().as_ref().to_string();
+                w_depth = w_depth.saturating_sub(1);
+                if name == "p" && w_depth == 0 {
+                    let trimmed = current.trim();
+                    if !trimmed.is_empty() {
+                        paragraphs.push(trimmed.to_string());
+                    }
+                    current.clear();
+                }
+            }
+            Ok(Event::Text(t)) => {
+                // 仅 w:t 内的文本 (简化: w_depth>0 即正文范围, w:t/w:instrText 不区分)
+                if w_depth > 1 {
+                    current.push_str(&t.xml_content(XmlVersion::Implicit1_0));
+                }
+            }
+            Ok(Event::GeneralRef(r)) => {
+                if w_depth > 1 {
+                    let name = r.as_ref();
+                    match name {
+                        "amp" => current.push('&'),
+                        "lt" => current.push('<'),
+                        "gt" => current.push('>'),
+                        "quot" => current.push('"'),
+                        "apos" => current.push('\''),
+                        _ => {
+                            if let Ok(Some(c)) = r.resolve_char_ref() {
+                                current.push(c);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+    Ok(paragraphs.join("
+
+"))
+}
+
 fn open_zip(bytes: &[u8]) -> QyzsResult<zip::ZipArchive<BufReader<std::io::Cursor<&[u8]>>>> {
     let cursor = std::io::Cursor::new(bytes);
     zip::ZipArchive::new(BufReader::new(cursor))
@@ -303,12 +366,6 @@ fn read_zip_entry(
         .read_to_end(&mut buf)
         .map_err(|e| QyzsError::Io(format!("读取部件 {} 失败: {}", name, e)))?;
     Ok(buf)
-}
-
-/// 测试辅助: 判断路径文件名扩展
-#[cfg(test)]
-pub fn is_pptx_path(path: &Path) -> bool {
-    path.extension().is_some_and(|e| e == "pptx")
 }
 
 #[cfg(test)]
@@ -447,11 +504,5 @@ mod tests {
         let bytes = build_zip(&[("[Content_Types].xml", "<x/>".into())]);
         let err = extract_pptx_text(&bytes).unwrap_err();
         assert!(matches!(err, crate::error::QyzsError::Server(_)));
-    }
-
-    #[test]
-    fn test_is_pptx_path() {
-        assert!(is_pptx_path(Path::new("a/b.pptx")));
-        assert!(!is_pptx_path(Path::new("a/b.ppt")));
     }
 }

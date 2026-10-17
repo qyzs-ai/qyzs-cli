@@ -7,6 +7,7 @@
 //! 阶段③~⑤ (Office/Visio 本地抽取、balanced 润色、rigor 交叉验证) 分阶段接入。
 
 pub mod clean;
+pub mod cross_verify;
 pub mod detect;
 pub mod light_check;
 pub mod ooxml;
@@ -399,13 +400,6 @@ impl MarkitdownPipeline {
         timeout_secs: u64,
         on_progress: Option<&dyn Fn(usize, usize)>,
     ) -> QyzsResult<String> {
-        if opts.mode == PipelineMode::Rigor {
-            return Err(QyzsError::Usage(
-                "rigor 档尚未接入；当前版本转换请使用 --mode speed 或 --mode balanced，或先以 --dry-run 查看规划"
-                    .to_string(),
-            ));
-        }
-
         let (result, ws) = Self::convert_inner(client, opts, timeout_secs, on_progress).await;
         match result {
             Ok(md) => {
@@ -541,11 +535,15 @@ impl MarkitdownPipeline {
 
         match extracted {
             Ok(raw) => {
-                // 档位后处理: speed → 规则清洗; balanced → 分段润色 (light-check 回退)
+                // 档位后处理: speed → 规则清洗; balanced → 分段润色; rigor → 润色
+                //   + 双通道交叉验证 + 冲突仲裁 + 全局审查
                 let outcome = match opts.mode {
                     PipelineMode::Speed => Ok(clean::rule_clean(&raw)),
-                    PipelineMode::Balanced | PipelineMode::Rigor => {
+                    PipelineMode::Balanced => {
                         Self::polish_document(client, opts, &mut ws, &raw, on_progress).await
+                    }
+                    PipelineMode::Rigor => {
+                        Self::rigor_document(client, opts, &mut ws, &raw, &local_path_str, &detection.format, on_progress).await
                     }
                 };
                 match outcome {
@@ -614,8 +612,211 @@ impl MarkitdownPipeline {
             eprintln!("\x1b[33m[WARN]\x1b[0m 润色质检回退: {}", w);
         }
 
-        let _ = ws; // manifest 已在循环内更新
         Ok(clean::rule_clean(&polished_doc))
+    }
+
+    /// rigor 档: balanced 润色 → 第二通道交叉验证 → 冲突段仲裁 (≤2 轮) →
+    /// 不可决段标记 → 全局结构审查。第二通道不可用 (扫描件文本层为空/本地
+    /// 通道无独立第二通道) 时诚实降级并告警, 不静默伪装验证通过。
+    #[allow(clippy::too_many_arguments)]
+    async fn rigor_document(
+        client: &QyzsClient,
+        opts: &MarkitdownOptions,
+        ws: &mut workspace::Workspace,
+        raw: &str,
+        local_path: &str,
+        format: &SourceFormat,
+        on_progress: Option<&dyn Fn(usize, usize)>,
+    ) -> QyzsResult<String> {
+        // 1. 润色 (与 balanced 共用, 段级状态复用)
+        let polished = Self::polish_document(client, opts, ws, raw, on_progress).await?;
+
+        // 2. 第二通道抽取 (manifest 阶段 "secondary")
+        let secondary = if ws.stage_done("secondary", "extract") {
+            ws.read_segment_text("secondary")?
+        } else {
+            let text = match format {
+                SourceFormat::Pdf => {
+                    let pages = crate::pdf::PdfExtractor::read_metadata(local_path)?.page_count;
+                    crate::pdf::PdfExtractor::extract_text(
+                        local_path,
+                        &(1..=pages as u32).collect::<Vec<u32>>(),
+                    )?
+                }
+                SourceFormat::Docx => {
+                    let bytes = std::fs::read(local_path)?;
+                    ooxml::extract_docx_text(&bytes)?
+                }
+                _ => String::new(),
+            };
+            ws.write_segment_text("secondary", &text)?;
+            ws.complete_stage("secondary", "extract", &[])?;
+            text
+        };
+
+        // 3. 第二通道可用性判定: 文本层过薄 (扫描件/无线性文本的格式) → 降级
+        let secondary_chars = secondary.trim().chars().count();
+        let primary_chars = polished.chars().count();
+        let usable_secondary = secondary_chars >= 200 && secondary_chars * 5 >= primary_chars;
+        let mut warnings: Vec<String> = Vec::new();
+        if !usable_secondary {
+            warnings.push(format!(
+                "第二通道文本层过薄 ({} 字符 vs 主通道 {} 字符), 交叉验证不可用, rigor 降级为 balanced 行为",
+                secondary_chars, primary_chars
+            ));
+            for w in &warnings {
+                eprintln!("\x1b[33m[WARN]\x1b[0m {}", w);
+            }
+            return Ok(polished);
+        }
+
+        // 4. 向量交叉验证 (manifest 阶段 "verify")
+        let paragraphs = cross_verify::split_paragraphs(&polished);
+        let evidence_chunks = cross_verify::chunk_secondary(&secondary);
+        let similarity = cross_verify::verify_paragraphs(client, &paragraphs, &evidence_chunks).await?;
+
+        let threshold = opts.min_confidence.unwrap_or(0.70);
+        let conflicts: Vec<(usize, f64, usize)> = similarity
+            .into_iter()
+            .filter(|(_, score, _)| *score < threshold)
+            .collect();
+        eprintln!(
+            "\x1b[36m[INFO]\x1b[0m 交叉验证: {} 段参与, {} 段低于阈值 {}",
+            paragraphs.len(),
+            conflicts.len(),
+            threshold
+        );
+
+        // 5. 冲突仲裁 (≤2 轮; manifest 阶段 "arbitrate")
+        let arbitrate_model = opts.model.clone().unwrap_or_else(|| "dsv4".to_string());
+        let mut final_md = polished.clone();
+        for (para_idx, score, chunk_idx) in &conflicts {
+            let seg_id = format!("arb-{:04}", para_idx);
+            if ws.stage_done(&seg_id, "arbitrate") {
+                continue; // 状态恢复: 已仲裁段保持现状
+            }
+
+            let paragraph = &paragraphs[*para_idx];
+            let evidence = &evidence_chunks[*chunk_idx];
+            let mut resolved: Option<String> = None;
+            for attempt in 1..=cross_verify::ARBITRATION_ROUNDS {
+                match cross_verify::arbitrate_paragraph(
+                    client,
+                    &arbitrate_model,
+                    paragraph,
+                    evidence,
+                    attempt,
+                )
+                .await
+                {
+                    Ok(Some(corrected)) => {
+                        resolved = Some(corrected);
+                        break;
+                    }
+                    Ok(None) => continue,
+                    Err(e) => {
+                        warnings.push(format!(
+                            "段落仲裁请求失败 (轮 {}): {}",
+                            attempt,
+                            e
+                        ));
+                        break;
+                    }
+                }
+            }
+
+            match resolved {
+                Some(corrected) if corrected != *paragraph => {
+                    final_md = final_md.replace(paragraph.as_str(), &corrected);
+                    warnings.push(format!(
+                        "段落已按第二通道证据修正 (相似度 {:.2})",
+                        score
+                    ));
+                }
+                Some(_) => {
+                    warnings.push(format!("段落与证据一致 (阈值边缘 {:.2}), 保留原文", score));
+                }
+                None => {
+                    let marker = format!("<!-- qyzs:unverified (相似度 {:.2}) -->\n\n", score);
+                    final_md = final_md.replace(
+                        paragraph.as_str(),
+                        &format!("{}{}", marker, paragraph),
+                    );
+                    warnings.push(format!(
+                        "段落仲裁不可决, 已标记 qyzs:unverified (相似度 {:.2})",
+                        score
+                    ));
+                }
+            }
+            ws.complete_stage(&seg_id, "arbitrate", &[])?;
+        }
+
+        // 6. 全局结构审查 (目录树 + 段摘要, 规模无关; 建议仅报告不自动应用)
+        match Self::global_review(client, &arbitrate_model, &final_md).await {
+            Ok(review_notes) if !review_notes.is_empty() => {
+                warnings.push(format!("全局审查建议: {}", review_notes));
+            }
+            Ok(_) => {}
+            Err(e) => warnings.push(format!("全局审查调用失败: {}", e)),
+        }
+
+        for w in &warnings {
+            eprintln!("\x1b[33m[WARN]\x1b[0m {}", w);
+        }
+        Ok(clean::rule_clean(&final_md))
+    }
+
+    /// 全局轮: 目录树 + 每节 200 字摘要 → 结构问题清单 (仅报告)
+    async fn global_review(
+        client: &QyzsClient,
+        model: &str,
+        document: &str,
+    ) -> QyzsResult<String> {
+        let mut outline = String::new();
+        let mut current_heading = String::new();
+        for line in document.lines() {
+            let is_heading = line.starts_with('#')
+                && line.chars().nth(1).is_some_and(|c| c == ' ' || c == '#');
+            if is_heading {
+                outline.push_str(&format!("\n{}\n", line));
+                current_heading = line.trim_start_matches('#').trim().to_string();
+            } else if !line.trim().is_empty() && current_heading.len() < 200 {
+                // 每节首行前 200 字符作摘要
+                if !outline.ends_with('\u{2026}') {
+                    let snippet: String = line.trim().chars().take(100).collect();
+                    outline.push_str(&format!("  {}\n", snippet));
+                    current_heading.push('\u{2026}');
+                }
+            }
+        }
+
+        let resp = client
+            .chat(
+                &format!(
+                    "以下是文档转换后的目录树与节摘要。仅检查结构问题 (编号跳级、层级倒置、孤儿节、重复章), 逐条输出, 每条一行; 无问题输出空。不要改写内容。\n\n{}",
+                    outline
+                ),
+                Some("你是文档结构审查器。只输出发现的结构问题清单, 每条一行; 没有问题则不输出任何内容。"),
+                crate::client::ChatOptions {
+                    model: Some(model.to_string()),
+                    temperature: Some(0.0),
+                    max_tokens: Some(2048),
+                    top_p: None,
+                    stream: false,
+                    show_reasoning: false,
+                    images: Vec::new(),
+                },
+            )
+            .await?;
+
+        Ok(resp
+            .choices
+            .first()
+            .and_then(|c| c.message.as_ref())
+            .and_then(|m| m.content.clone())
+            .unwrap_or_default()
+            .trim()
+            .to_string())
     }
 }
 
