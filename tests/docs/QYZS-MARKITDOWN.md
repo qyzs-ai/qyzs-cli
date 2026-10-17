@@ -48,17 +48,17 @@
 
 | 格式 | 通道 | 状态 |
 |---|---|---|
-| pdf | 本地按批切片（15 页/批）+ MinerU 逐片同步抽取 + 合并 | ✅ 阶段② |
-| docx | MinerU 整文件解析 | ✅ 阶段② |
-| xlsx | 本地表格解析 (calamine) → Markdown 表格 | 阶段③ |
-| pptx / vsdx | 本地 OOXML 部件抽取 (zip + XML) | 阶段③ |
-| image | paddleocrvl / qwen3-VL（`--image-handling` 策略） | 阶段③后 |
-| html | 纯 Rust HTML → Markdown | 阶段③后 |
+| pdf | 本地按批切片（15 页/批）+ MinerU 逐片同步抽取 + 合并 | ✅ |
+| docx | MinerU 整文件解析 | ✅ |
+| xlsx / xls | 本地表格解析 (calamine) → Markdown 表格 | ✅ |
+| pptx / vsdx | 本地 OOXML 部件抽取 (zip + XML) | ✅ |
+| image | paddleocrvl / qwen3-VL（`--image-handling` 策略） | 未接入 |
+| html | 纯 Rust HTML → Markdown | 未接入 |
 
 - MinerU 解析默认开启 OCR 辅助（与 `parse` 命令默认一致）。
 - 同步通道实测边界 30 页 / 10 MB；超限文档切片后串行处理（异步轮询通道未实现，
   dry-run 会给出耗时预估警告）。
-- balanced/rigor 档在阶段④⑤接入前，非 dry-run 调用返回明确提示。
+- image/html 通道接入前，对应格式非 dry-run 调用返回明确提示。
 
 ## 5. 过程数据生命周期
 
