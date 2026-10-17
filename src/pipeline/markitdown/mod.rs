@@ -8,7 +8,9 @@
 
 pub mod clean;
 pub mod detect;
+pub mod ooxml;
 pub mod pdf;
+pub mod sheet_tables;
 pub mod workspace;
 
 use crate::client::QyzsClient;
@@ -477,10 +479,13 @@ impl MarkitdownPipeline {
             let msg = reason.unwrap_or_else(|| "该格式暂不支持转换".to_string());
             return (Err(QyzsError::Usage(msg)), None);
         }
-        if channel != Some("mineru-slice") && channel != Some("mineru-document") {
+        if !matches!(
+            channel,
+            Some("mineru-slice") | Some("mineru-document") | Some("sheet-tables") | Some("ooxml-text")
+        ) {
             return (
                 Err(QyzsError::Usage(format!(
-                    "格式 '{}' 的转换通道将在后续阶段接入；当前版本支持 PDF/DOCX (speed 档)",
+                    "格式 '{}' 的转换通道将在后续阶段接入；当前版本支持 PDF/DOCX/XLS(X)/PPTX/VSDX (speed 档)",
                     fmt.label()
                 ))),
                 None,
@@ -499,27 +504,33 @@ impl MarkitdownPipeline {
         };
         let _ = resumed; // 续跑语义由 workspace.stage_done 逐段生效
 
-        // 通道抽取 (路由已收窄至 mineru-slice / mineru-document)
-        let extracted = match detection.format {
-            SourceFormat::Pdf => {
+        // 通道抽取 (路由已收窄至已接入通道)
+        let local_path_str = local_path.to_string_lossy().to_string();
+        let extracted = match channel {
+            Some("mineru-slice") => {
                 pdf::extract(
                     client,
                     &mut ws,
-                    &local_path.to_string_lossy(),
+                    &local_path_str,
                     Self::MINERU_IS_OCR,
                     on_progress,
                 )
                 .await
             }
-            SourceFormat::Docx => {
-                pdf::extract_document(
-                    client,
-                    &mut ws,
-                    &local_path.to_string_lossy(),
-                    Self::MINERU_IS_OCR,
-                )
-                .await
+            Some("mineru-document") => {
+                pdf::extract_document(client, &mut ws, &local_path_str, Self::MINERU_IS_OCR).await
             }
+            Some("sheet-tables") => {
+                if detection.format == SourceFormat::Xls {
+                    sheet_tables::extract_xls(&mut ws, &local_path_str)
+                } else {
+                    sheet_tables::extract_xlsx(&mut ws, &local_path_str)
+                }
+            }
+            Some("ooxml-text") => match detection.format {
+                SourceFormat::Pptx => ooxml::extract_pptx(&mut ws, &local_path_str),
+                _ => ooxml::extract_vsdx(&mut ws, &local_path_str),
+            },
             _ => Err(QyzsError::Server(format!(
                 "内部路由不一致: 格式 '{}' 未匹配到已接入通道",
                 fmt.label()
