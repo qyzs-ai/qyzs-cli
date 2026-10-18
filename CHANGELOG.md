@@ -9,6 +9,20 @@
 
 ### Added
 
+- `--language` 全局参数（短形式 `-l`，`--lang` 保留为隐藏兼容别名）：界面语言
+  解析链为 CLI 显式值 > `QYZS_LANG` > 配置文件 > 系统语言探测 > 英文兜底。
+  系统探测扩展两处：locale 标签改为按子标签精确解析（`zh_CN.UTF-8`/`en-US`，
+  修复旧子串匹配把 `french` 误判为英文类的问题，且 `LC_ALL=en_*` 不再穿透到
+  下一层变量）；Windows 无 POSIX locale 变量，新增 Win32 `GetUserDefaultUILanguage`
+  FFI 读取系统 UI 语言（手写 kernel32 声明，零新增依赖）。**默认语言行为变更**：
+  此前一律默认中文，现跟随系统语言。CLI 显式非法值（如 `french`）报
+  USAGE_ERR 并提示合法值；环境变量/配置文件层保持 best-effort 回退英文。
+- 全局参数短形式补齐与短语法规范文档化：`-b` base-url / `-t` timeout /
+  `-l` language / `-c` color / `-f` format；`--api-key` 与 `--model-lang` 无短
+  形式（`-k` 已被 `auth login --key`、`-m` 已被子命令级 `--model` 占用）。子命令
+  级补齐：markitdown `--model` 增 `-m`（对齐 chat/embed/rerank/asr 约定）、
+  rerank `--top-n` 增 `-n`。规范全文落在 `src/cli/args.rs` 模块头注释与 README
+  「全局参数与短语法规范」小节。参数面契约集成测试覆盖新短形式与语言链。
 - `usage` 本地网关用量统计子命令：client 层在 chat（流式/非流式）/ocr/asr/
   embed/rerank 成功调用点自动追加 JSONL 台账
   （`$XDG_STATE_HOME/qyzs/usage.jsonl`），`qyzs usage` 聚合展示请求数与

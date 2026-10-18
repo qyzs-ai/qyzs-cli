@@ -262,3 +262,88 @@ fn test_usage_cli_arg_surface() {
         panic!("应为 Usage 命令变体");
     }
 }
+
+#[test]
+fn test_global_short_flags_surface() {
+    // 短语法规范契约：全局参数短形式 -b/-t/-l/-c/-f 可解析且子命令前后位置均可
+    let cli = qyzs::Cli::try_parse_from([
+        "qyzs", "-b", "http://gw:9200", "-t", "30", "-l", "zh", "-c", "never", "-f", "json",
+        "status",
+    ])
+    .expect("全局短形式 (子命令前) 应可解析");
+    assert_eq!(cli.base_url.as_deref(), Some("http://gw:9200"));
+    assert_eq!(cli.timeout, Some(30));
+    assert_eq!(cli.language.as_deref(), Some("zh"));
+    assert_eq!(cli.color.as_deref(), Some("never"));
+    assert_eq!(cli.format.as_deref(), Some("json"));
+
+    let cli = qyzs::Cli::try_parse_from(["qyzs", "models", "-f", "json", "-t", "45"])
+        .expect("全局短形式 (子命令后) 应可解析");
+    assert_eq!(cli.format.as_deref(), Some("json"));
+    assert_eq!(cli.timeout, Some(45));
+}
+
+#[test]
+fn test_language_flag_canonical_and_alias() {
+    // 规范名 --language / 短形式 -l / 兼容别名 --lang 三者等价可解析
+    for argv in [
+        vec!["qyzs", "--language", "en", "models"],
+        vec!["qyzs", "-l", "en", "models"],
+        vec!["qyzs", "--lang", "en", "models"],
+    ] {
+        let cli = qyzs::Cli::try_parse_from(argv).expect("语言参数三形式应均可解析");
+        assert_eq!(cli.language.as_deref(), Some("en"));
+    }
+}
+
+#[test]
+fn test_language_resolution_chain() {
+    // CLI 显式值: zh 系判中文、en 系判英文; 非法值显式报错 (USAGE_ERR)
+    use qyzs::error::QyzsError;
+    use qyzs::term::Language;
+
+    let zh = ResolvedConfig::resolve(None, None, None, Some("zh_CN"), None, None, None).unwrap();
+    assert_eq!(zh.ui_language, Language::Zh);
+    let en = ResolvedConfig::resolve(None, None, None, Some("en-US"), None, None, None).unwrap();
+    assert_eq!(en.ui_language, Language::En);
+
+    match ResolvedConfig::resolve(None, None, None, Some("french"), None, None, None) {
+        Err(QyzsError::Usage(msg)) => assert!(msg.contains("zh | en"), "报错应提示合法值: {msg}"),
+        other => panic!("非法语言值应返回 Usage 错误, 实际: {other:?}"),
+    }
+}
+
+#[test]
+fn test_subcommand_short_flag_additions() {
+    // 短语法规范契约: --model 统一 -m (markitdown 补齐), rerank --top-n 补齐 -n
+    let cli = qyzs::Cli::try_parse_from([
+        "qyzs",
+        "markitdown",
+        "a.pdf",
+        "-m",
+        "dsv4",
+        "--dry-run",
+    ])
+    .expect("markitdown -m 应可解析");
+    if let qyzs::Commands::Markitdown { model, .. } = cli.command {
+        assert_eq!(model.as_deref(), Some("dsv4"));
+    } else {
+        panic!("应为 Markitdown 命令变体");
+    }
+
+    let cli = qyzs::Cli::try_parse_from(["qyzs", "rerank", "-q", "土地", "-d", "A", "-d", "B", "-n", "2"])
+        .expect("rerank -n 应可解析");
+    if let qyzs::Commands::Rerank {
+        query,
+        document,
+        top_n,
+        ..
+    } = cli.command
+    {
+        assert_eq!(query, "土地");
+        assert_eq!(document, vec!["A", "B"]);
+        assert_eq!(top_n, Some(2));
+    } else {
+        panic!("应为 Rerank 命令变体");
+    }
+}

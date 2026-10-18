@@ -78,24 +78,18 @@ impl ResolvedConfig {
             config.network.timeout
         };
 
-        // 4. 解析界面语言
+        // 4. 解析界面语言 (CLI 显式非法值报错; 环境变量/配置文件 best-effort, 无法识别回退英文)
         let ui_language = if let Some(lang) = cli_lang {
-            match lang.to_lowercase().as_str() {
-                "zh" | "cn" | "zh-cn" => Language::Zh,
-                _ => Language::En,
-            }
-        } else if let Ok(lang) = std::env::var("QYZS_LANG") {
-            let lower = lang.to_lowercase();
-            if lower.contains("zh") || lower.contains("cn") {
-                Language::Zh
-            } else {
-                Language::En
-            }
+            crate::term::i18n::language_from_tag(lang).ok_or_else(|| {
+                QyzsError::Usage(format!(
+                    "无效的界面语言 '{}': 仅支持 zh | en (示例: qyzs --language zh status)",
+                    lang.trim()
+                ))
+            })?
+        } else if let Some(lang) = normalize_env_value(std::env::var("QYZS_LANG").ok()) {
+            crate::term::i18n::language_from_tag(&lang).unwrap_or(Language::En)
         } else if config.ui.language != "auto" {
-            match config.ui.language.to_lowercase().as_str() {
-                "zh" | "cn" | "zh-cn" => Language::Zh,
-                _ => Language::En,
-            }
+            crate::term::i18n::language_from_tag(&config.ui.language).unwrap_or(Language::En)
         } else {
             crate::term::i18n::detect_environment_language()
         };

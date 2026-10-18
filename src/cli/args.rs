@@ -1,4 +1,16 @@
 //! 命令行参数与子命令定义 (clap 4.x derive)
+//!
+//! # 短语法规范 (本模块是参数面的代码 SSOT)
+//!
+//! 1. 保留字: `-h` (帮助) 与 `-V` (版本) 由 clap 占用, 不得挪用。
+//! 2. 全局参数短形式对全部子命令生效, 字母须避开所有子命令级已用短形式。
+//!    当前全局短形式: `-b` base-url / `-t` timeout / `-l` language / `-c` color /
+//!    `-f` format。`--api-key` 与 `--model-lang` 无短形式: `-k` 已被 `auth login
+//!    --key` 占用, `-m` 已被子命令级 `--model` 约定占用, 且两者均低频。
+//! 3. 子命令级同义参数跨命令统一字母: `--model` 统一 `-m`, `--output` 统一 `-o`;
+//!    不同含义允许复用同一字母 (作用域隔离, clap 惯例), 如 `-p` 在 ocr 为 prompt、
+//!    在 pdf-split 为 pages。
+//! 4. 短形式只增不改不删 (0.x 阶段兼容承诺); 高频参数应有短形式, 低频参数可只留长形式。
 
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
@@ -13,25 +25,28 @@ use clap_complete::Shell;
     after_help = "常用流程:\n  qyzs status                          # 运行环境、凭据与三网关自检\n  qyzs auth login                      # 安全保存 API Key (0600)\n  qyzs chat \"请综述这份材料...\"         # 对话推理 (流式打字机)\n  qyzs models                          # 查看实测可用模型矩阵\n  qyzs markitdown 文档.pdf --dry-run   # 全能转 Markdown: 预览识别与流水线规划\n  qyzs markitdown 文档.pdf -o out.md   # 全能转 Markdown: 执行转换"
 )]
 pub struct Cli {
+    // --api-key 无短形式: -k 已被 auth login --key 占用 (见模块头短语法规范)
     #[arg(long, global = true, help = "覆盖 API Key 认证凭证")]
     pub api_key: Option<String>,
 
-    #[arg(long, global = true, help = "覆盖庆阳智算中心网关 Base URL")]
+    #[arg(short = 'b', long, global = true, help = "覆盖庆阳智算中心网关 Base URL")]
     pub base_url: Option<String>,
 
-    #[arg(long, global = true, help = "请求超时秒数")]
+    #[arg(short = 't', long, global = true, help = "请求超时秒数")]
     pub timeout: Option<u64>,
 
-    #[arg(long, global = true, help = "界面语言: zh (中文) | en (英文)")]
-    pub lang: Option<String>,
+    // 默认取系统界面语言 (QYZS_LANG / locale / Windows 系统语言), 无法识别回退英文; --lang 为兼容别名
+    #[arg(short = 'l', long = "language", alias = "lang", global = true, help = "界面语言: zh (中文) | en (英文) (默认: 系统语言, 无法识别回退 en)")]
+    pub language: Option<String>,
 
+    // --model-lang 无短形式: -m 已被子命令级 --model 约定占用 (见模块头短语法规范)
     #[arg(long, global = true, help = "模型输出语言约束: auto | cn | zh-cn | en")]
     pub model_lang: Option<String>,
 
-    #[arg(long, global = true, help = "终端色彩输出: auto | always | never")]
+    #[arg(short = 'c', long, global = true, help = "终端色彩输出: auto | always | never")]
     pub color: Option<String>,
 
-    #[arg(long, global = true, help = "输出格式: text | json | raw")]
+    #[arg(short = 'f', long, global = true, help = "输出格式: text | json | raw")]
     pub format: Option<String>,
 
     #[command(subcommand)]
@@ -111,7 +126,7 @@ pub enum Commands {
         #[arg(short, long, help = "候选文本 (支持多次指定 -d doc1 -d doc2)")]
         document: Vec<String>,
 
-        #[arg(long, help = "返回置信度最高的前 N 项")]
+        #[arg(long, help = "返回置信度最高的前 N 项", short = 'n')]
         top_n: Option<usize>,
 
         #[arg(short, long, help = "指定重排模型")]
@@ -186,7 +201,7 @@ pub enum Commands {
         #[arg(long, help = "图像内容处理策略: auto | ocr | describe | both | skip (默认 auto)")]
         image_handling: Option<String>,
 
-        #[arg(long, help = "理解/润色阶段 LLM 覆盖 (默认: dsv4)")]
+        #[arg(short = 'm', long, help = "理解/润色阶段 LLM 覆盖 (默认: dsv4)")]
         model: Option<String>,
 
         #[arg(long, help = "交叉验证一致性阈值 0.0~1.0 (默认 0.70, 实测正确段落对文本层相似度 0.57~0.75; 仅 rigor 档生效)")]

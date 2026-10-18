@@ -28,31 +28,54 @@ pub fn current_language() -> Language {
     }
 }
 
-/// 自动探测系统环境语言：包含 zh 判为中文，其余一律回退为英文
-pub fn detect_environment_language() -> Language {
-    // 1. 优先检查环境变量 QYZS_LANG
-    if let Ok(val) = std::env::var("QYZS_LANG") {
-        let lower = val.to_lowercase();
-        if lower.contains("zh") || lower.contains("cn") || lower.contains("chinese") {
-            return Language::Zh;
-        } else if lower.contains("en") {
-            return Language::En;
-        }
+/// 解析 locale/语言标签: 取首个语言子标签精确匹配 (POSIX/BCP-47 均可, 如
+/// zh_CN.UTF-8 / en-US / chinese), zh 系判中文, en 系判英文, 无法识别返回 None
+/// (由调用方决定兜底)。注意不能用子串包含判断——"french" 含 "en" 会被误判。
+pub fn language_from_tag(tag: &str) -> Option<Language> {
+    let lower = tag.trim().to_lowercase();
+    let primary = lower.split(['_', '-', '.']).next()?;
+    match primary {
+        "zh" | "cn" | "chinese" => Some(Language::Zh),
+        "en" | "english" => Some(Language::En),
+        _ => None,
     }
+}
 
-    // 2. Linux / macOS 国际化变量探测: LC_ALL -> LC_MESSAGES -> LANG
-    let check_vars = ["LC_ALL", "LC_MESSAGES", "LANG"];
-    for var in check_vars {
+/// 自动探测界面语言，优先级: QYZS_LANG > 标准 locale 变量 > [Windows] 系统 UI 语言 > 英文兜底
+pub fn detect_environment_language() -> Language {
+    // 1. 项目环境变量与 POSIX 国际化变量 (LC_ALL > LC_MESSAGES > LANGUAGE > LANG)
+    for var in ["QYZS_LANG", "LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"] {
         if let Ok(val) = std::env::var(var) {
-            let lower = val.to_lowercase();
-            if lower.contains("zh") || lower.contains("chinese") {
-                return Language::Zh;
+            if let Some(lang) = language_from_tag(&val) {
+                return lang;
             }
         }
     }
 
-    // 3. 所有非中文一律回退到英文 (English)
+    // 2. Windows 无 POSIX locale 变量, 经 Win32 API 读取系统 UI 语言
+    #[cfg(windows)]
+    if let Some(lang) = windows_ui_language() {
+        return lang;
+    }
+
+    // 3. 所有无法识别的环境一律回退到英文 (English)
     Language::En
+}
+
+#[cfg(windows)]
+fn windows_ui_language() -> Option<Language> {
+    // kernel32 随 Rust std 默认链接, 手写 FFI 避免引入 windows-sys 依赖
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetUserDefaultUILanguage() -> u16;
+    }
+    // 主语言标识为低 10 位; 0x0004 = Chinese
+    let primary = unsafe { GetUserDefaultUILanguage() } & 0x03FF;
+    Some(if primary == 0x0004 {
+        Language::Zh
+    } else {
+        Language::En
+    })
 }
 
 /// 纯 Rust 编译期静态消息枚举
@@ -282,4 +305,23 @@ macro_rules! msgf {
     ($id:ident, $($param:expr),*) => {
         $crate::term::i18n::fill($crate::term::i18n::MsgId::$id.get(), &[$($param.to_string()),*])
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn language_tag_parsing() {
+        assert_eq!(language_from_tag("zh"), Some(Language::Zh));
+        assert_eq!(language_from_tag("zh_CN.UTF-8"), Some(Language::Zh));
+        assert_eq!(language_from_tag("zh-cn"), Some(Language::Zh));
+        assert_eq!(language_from_tag("Chinese"), Some(Language::Zh));
+        assert_eq!(language_from_tag("en"), Some(Language::En));
+        assert_eq!(language_from_tag("en_US.UTF-8"), Some(Language::En));
+        assert_eq!(language_from_tag("fr_FR.UTF-8"), None);
+        assert_eq!(language_from_tag("french"), None);
+        assert_eq!(language_from_tag("C"), None);
+        assert_eq!(language_from_tag(""), None);
+    }
 }

@@ -31,7 +31,7 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
         cli.api_key.as_deref(),
         cli.base_url.as_deref(),
         cli.timeout,
-        cli.lang.as_deref(),
+        cli.language.as_deref(),
         cli.model_lang.as_deref(),
         cli.color.as_deref(),
         cli.format.as_deref(),
