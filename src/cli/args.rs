@@ -4,7 +4,7 @@
 //!
 //! 1. 保留字: `-h` (帮助) 与 `-V` (版本) 由 clap 占用, 不得挪用。
 //! 2. 全局参数短形式对全部子命令生效, 字母须避开所有子命令级已用短形式。
-//!    当前全局短形式: `-b` base-url / `-t` timeout / `-l` language / `-c` color /
+//!    当前全局短形式: `-b` base-url / `-t` timeout / `-l` lang / `-c` color /
 //!    `-f` format。`--api-key` 与 `--model-lang` 无短形式: `-k` 已被 `auth login
 //!    --key` 占用, `-m` 已被子命令级 `--model` 约定占用, 且两者均低频。
 //! 3. 子命令级同义参数跨命令统一字母: `--model` 统一 `-m`, `--output` 统一 `-o`;
@@ -35,9 +35,9 @@ pub struct Cli {
     #[arg(short = 't', long, global = true, help = "请求超时秒数")]
     pub timeout: Option<u64>,
 
-    // 默认取系统界面语言 (QYZS_LANG / locale / Windows 与 macOS 系统语言 API), 无法识别回退英文; --lang 为兼容别名
-    #[arg(short = 'l', long = "language", alias = "lang", global = true, help = "界面语言: zh (中文) | en (英文) (默认: 系统语言, 无法识别回退 en)")]
-    pub language: Option<String>,
+    // 默认取系统界面语言 (QYZS_LANG / locale / Windows 与 macOS 系统语言 API), 无法识别回退英文
+    #[arg(short = 'l', long, global = true, help = "界面语言: zh (中文) | en (英文) (默认: 系统语言, 无法识别回退 en)")]
+    pub lang: Option<String>,
 
     // --model-lang 无短形式: -m 已被子命令级 --model 约定占用 (见模块头短语法规范)
     #[arg(long, global = true, help = "模型输出语言约束: auto | cn | zh-cn | en")]

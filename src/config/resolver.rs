@@ -82,7 +82,7 @@ impl ResolvedConfig {
         let ui_language = if let Some(lang) = cli_lang {
             crate::term::i18n::language_from_tag(lang).ok_or_else(|| {
                 QyzsError::Usage(format!(
-                    "无效的界面语言 '{}': 仅支持 zh | en (示例: qyzs --language zh status)",
+                    "无效的界面语言 '{}': 仅支持 zh | en (示例: qyzs --lang zh status)",
                     lang.trim()
                 ))
             })?

@@ -17,7 +17,7 @@
   - **Windows**: `amd64` (`x86_64-pc-windows-gnu`)。
 - **命令行双形式兼容**：原生支持标准子命令 `qyzs <command>`，且内置 `argv[0]` 自动重写，无缝兼容 `qyzs-<command>`（如软链接调用）。
 - **实测评分最优默认模型**：未指定 `--model` 时，自动装载经基准压测评定最高分的模型（对话默认 `dsv4` 1.0s、实测 51.8 万 Tokens 上下文 100% 召回；多图默认 `qwen3-VL` 16图并发；公文OCR默认 `paddleocrvl` 带800px防崩溃缩放；文档结构化默认 `mineru3.2.3`）。
-- **双语环境自适应 (i18n)**：运行时状态/进度提示自动适配中英文（默认跟随系统语言：POSIX locale 变量优先，Windows 读取系统 UI 语言 API、macOS 读取 CoreFoundation 系统区域，均无法识别回退英文；`--language zh|en` 显式切换，`QYZS_LANG` 环境变量同效），上游模型返回内容原样透传；帮助文本与错误详情以中文为主。
+- **双语环境自适应 (i18n)**：运行时状态/进度提示自动适配中英文（默认跟随系统语言：POSIX locale 变量优先，Windows 读取系统 UI 语言 API、macOS 读取 CoreFoundation 系统区域，均无法识别回退英文；`--lang zh|en` 显式切换，`QYZS_LANG` 环境变量同效），上游模型返回内容原样透传；帮助文本与错误详情以中文为主。
 - **四层级联配置优先级**：`CLI 参数` > `环境变量 (QYZS_*)` > `配置文件 (~/.config/qyzs/)` > `代码基准真值`；敏感 API Key 严格采用 XDG 0600 安全隔离。
 
 ---
@@ -60,7 +60,7 @@ cargo install --path .
 |---|---|---|
 | `-b` | `--base-url` | 覆盖网关 Base URL |
 | `-t` | `--timeout` | 请求超时秒数 |
-| `-l` | `--language` | 界面语言 `zh` \| `en`（默认跟随系统语言，无法识别回退 `en`；`--lang` 为兼容别名） |
+| `-l` | `--lang` | 界面语言 `zh` \| `en`（默认跟随系统语言，无法识别回退 `en`） |
 | `-c` | `--color` | 终端色彩 `auto` \| `always` \| `never` |
 | `-f` | `--format` | 输出格式 `text` \| `json` \| `raw` |
 | — | `--api-key` | 覆盖 API Key（无短形式：`-k` 已被 `auth login --key` 占用） |

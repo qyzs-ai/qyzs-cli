@@ -273,7 +273,7 @@ fn test_global_short_flags_surface() {
     .expect("全局短形式 (子命令前) 应可解析");
     assert_eq!(cli.base_url.as_deref(), Some("http://gw:9200"));
     assert_eq!(cli.timeout, Some(30));
-    assert_eq!(cli.language.as_deref(), Some("zh"));
+    assert_eq!(cli.lang.as_deref(), Some("zh"));
     assert_eq!(cli.color.as_deref(), Some("never"));
     assert_eq!(cli.format.as_deref(), Some("json"));
 
@@ -285,15 +285,19 @@ fn test_global_short_flags_surface() {
 
 #[test]
 fn test_language_flag_canonical_and_alias() {
-    // 规范名 --language / 短形式 -l / 兼容别名 --lang 三者等价可解析
+    // 唯一形式契约: --lang 与 -l 等价可解析; --language 已统一移除, 必须拒绝
     for argv in [
-        vec!["qyzs", "--language", "en", "models"],
-        vec!["qyzs", "-l", "en", "models"],
         vec!["qyzs", "--lang", "en", "models"],
+        vec!["qyzs", "-l", "en", "models"],
     ] {
-        let cli = qyzs::Cli::try_parse_from(argv).expect("语言参数三形式应均可解析");
-        assert_eq!(cli.language.as_deref(), Some("en"));
+        let cli = qyzs::Cli::try_parse_from(argv).expect("语言参数应可解析");
+        assert_eq!(cli.lang.as_deref(), Some("en"));
     }
+
+    assert!(
+        qyzs::Cli::try_parse_from(["qyzs", "--language", "en", "models"]).is_err(),
+        "--language 已统一为 --lang, 不应再可解析"
+    );
 }
 
 #[test]
