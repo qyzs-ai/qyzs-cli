@@ -270,6 +270,15 @@ pub enum Commands {
         #[arg(long, help = "仅统计指定模型 (如 dsv4, bge-m3)")]
         model: Option<String>,
 
+        #[arg(long, help = "仅统计指定调用族 (chat | ocr | asr | embed | rerank)")]
+        kind: Option<String>,
+
+        #[arg(long, help = "仅统计指定凭据 (掩码指纹, 见输出 [按凭据] 段)")]
+        key: Option<String>,
+
+        #[arg(long, help = "按小时分桶展示 (UTC, 替代按日; 归档历史仅按日粒度可见)")]
+        hourly: bool,
+
         #[arg(long, help = "以 JSON 格式输出统计结果")]
         json: bool,
 

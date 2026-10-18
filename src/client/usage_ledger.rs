@@ -6,6 +6,11 @@
 //! (回退链与缓存目录约定一致: XDG > HOME > APPDATA > 当前目录)。
 //!
 //! 时间一律 UTC；无 chrono 依赖，epoch→日期用 civil_from_days 纯算法。
+//!
+//! 行两类:
+//! - 明细行: 一次请求一行, `count`/`key` 缺省;
+//! - 归档行: 历史压实产物 (见 compact_if_needed), 携带 `count` = 聚合请求数,
+//!   ts 取日精度, 键为 (日, 模型, 调用族)。
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -15,7 +20,7 @@ use std::path::PathBuf;
 /// 单次网关调用用量记录 (JSONL 一行一条)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageRecord {
-    /// RFC3339 UTC 时间戳 (秒级, 如 2026-10-18T01:16:56Z)
+    /// RFC3339 UTC 时间戳 (秒级, 如 2026-10-18T01:16:56Z; 归档行为日精度)
     pub ts: String,
     /// 调用族: chat | ocr | asr | embed | rerank (任务型接口 mineru/sam 无 Token 数据, 不记录)
     pub kind: String,
@@ -27,6 +32,12 @@ pub struct UsageRecord {
     pub completion_tokens: Option<u64>,
     #[serde(default)]
     pub total_tokens: Option<u64>,
+    /// 归档行: 聚合的请求数 (存在即标记该行为归档行); 明细行缺省
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u64>,
+    /// 记录时生效的 API Key 掩码指纹 (Credentials::mask_key 同款, 脱敏不落明文)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
 }
 
 impl UsageRecord {
@@ -44,6 +55,8 @@ impl UsageRecord {
             prompt_tokens,
             completion_tokens,
             total_tokens,
+            count: None,
+            key: None,
         }
     }
 
@@ -64,10 +77,30 @@ impl UsageRecord {
         self.ts.get(..10).unwrap_or("")
     }
 
+    /// 该行代表的请求数 (归档行 = count, 明细行 = 1)
+    pub fn request_count(&self) -> u64 {
+        self.count.unwrap_or(1)
+    }
+
+    /// 是否归档行
+    pub fn is_rollup(&self) -> bool {
+        self.count.is_some()
+    }
+
     /// 该记录是否携带 Token 数据 (rerank/流式回退等场景可能缺失)
     pub fn has_tokens(&self) -> bool {
         self.total_tokens.is_some()
     }
+}
+
+/// 查询过滤条件 (days 按 UTC 日界; 其余为精确匹配)
+#[derive(Debug, Default, Clone)]
+pub struct UsageFilter<'a> {
+    pub days: Option<u32>,
+    pub model: Option<&'a str>,
+    pub kind: Option<&'a str>,
+    /// 凭据掩码指纹 (如 sk-***8816), 与台账内 key 字段精确匹配
+    pub key: Option<&'a str>,
 }
 
 /// Unix epoch 秒 → UTC (年, 月, 日, 时, 分, 秒)。civil_from_days 算法 (H. Hinnant)。
@@ -182,26 +215,24 @@ pub fn clear() -> usize {
     n
 }
 
-/// 过滤: days = 仅最近 N 天 (含今天, UTC 日界)；model = 精确匹配模型名
-pub fn filter_records(
-    records: &[UsageRecord],
-    days: Option<u32>,
-    model: Option<&str>,
-) -> Vec<UsageRecord> {
-    let cutoff = days.map(|d| utc_date_days_ago(d as u64));
+/// 过滤: days = 仅最近 N 天 (含今天, UTC 日界)；model/kind/key = 精确匹配
+pub fn filter_records(records: &[UsageRecord], filter: &UsageFilter<'_>) -> Vec<UsageRecord> {
+    let cutoff = filter.days.map(|d| utc_date_days_ago(d as u64));
     records
         .iter()
         .filter(|r| {
             cutoff.as_ref().map_or(true, |c| r.day() >= c.as_str())
-                && model.map_or(true, |m| r.model == m)
+                && filter.model.map_or(true, |m| r.model == m)
+                && filter.kind.map_or(true, |k| r.kind == k)
+                && filter.key.map_or(true, |k| r.key.as_deref() == Some(k))
         })
         .cloned()
         .collect()
 }
 
-/// 按模型分组的累计值
+/// 分组累计值 (按模型 / 按调用族共用)
 #[derive(Debug, Default, Clone)]
-pub struct ModelStat {
+pub struct GroupStat {
     pub requests: u64,
     pub with_tokens: u64,
     pub prompt_tokens: u64,
@@ -224,7 +255,10 @@ pub struct UsageSummary {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
     pub total_tokens: u64,
-    pub by_model: BTreeMap<String, ModelStat>,
+    pub by_model: BTreeMap<String, GroupStat>,
+    pub by_kind: BTreeMap<String, GroupStat>,
+    /// 按凭据掩码指纹分组 (无指纹的旧行不计入)
+    pub by_key: BTreeMap<String, GroupStat>,
     pub by_day: BTreeMap<String, DayStat>,
     pub first_day: Option<String>,
     pub last_day: Option<String>,
@@ -233,7 +267,8 @@ pub struct UsageSummary {
 pub fn summarize(records: &[UsageRecord]) -> UsageSummary {
     let mut s = UsageSummary::default();
     for r in records {
-        s.requests += 1;
+        let n = r.request_count();
+        s.requests += n;
         let prompt = r.prompt_tokens.unwrap_or(0);
         let completion = r.completion_tokens.unwrap_or(0);
         let total = r.total_tokens.unwrap_or(0);
@@ -241,21 +276,40 @@ pub fn summarize(records: &[UsageRecord]) -> UsageSummary {
         s.completion_tokens += completion;
         s.total_tokens += total;
         if r.has_tokens() {
-            s.with_tokens += 1;
+            // 归档行的 Token 数据是整组聚合值, 有则整组计入
+            s.with_tokens += n;
         }
 
         let ms = s.by_model.entry(r.model.clone()).or_default();
-        ms.requests += 1;
+        ms.requests += n;
         ms.prompt_tokens += prompt;
         ms.completion_tokens += completion;
         ms.total_tokens += total;
         if r.has_tokens() {
-            ms.with_tokens += 1;
+            ms.with_tokens += n;
+        }
+        let ks = s.by_kind.entry(r.kind.clone()).or_default();
+        ks.requests += n;
+        ks.prompt_tokens += prompt;
+        ks.completion_tokens += completion;
+        ks.total_tokens += total;
+        if r.has_tokens() {
+            ks.with_tokens += n;
+        }
+        if let Some(fp) = &r.key {
+            let fs = s.by_key.entry(fp.clone()).or_default();
+            fs.requests += n;
+            fs.prompt_tokens += prompt;
+            fs.completion_tokens += completion;
+            fs.total_tokens += total;
+            if r.has_tokens() {
+                fs.with_tokens += n;
+            }
         }
 
         if !r.day().is_empty() {
             let ds = s.by_day.entry(r.day().to_string()).or_default();
-            ds.requests += 1;
+            ds.requests += n;
             ds.total_tokens += total;
             if s.first_day.as_ref().map_or(true, |d| r.day() < d.as_str()) {
                 s.first_day = Some(r.day().to_string());
@@ -266,6 +320,35 @@ pub fn summarize(records: &[UsageRecord]) -> UsageSummary {
         }
     }
     s
+}
+
+/// 按小时聚合 (UTC 小时桶, 如 2026-10-18T01)。
+/// 归档行只有日精度时间戳, 无法归入小时桶, 单独以 archived 计数返回,
+/// 供展示层标注 "另有归档历史"。
+#[derive(Debug, Default)]
+pub struct HourlySummary {
+    pub by_hour: BTreeMap<String, DayStat>,
+    pub archived_requests: u64,
+    pub archived_tokens: u64,
+}
+
+pub fn summarize_hourly(records: &[UsageRecord]) -> HourlySummary {
+    let mut h = HourlySummary::default();
+    for r in records {
+        if r.is_rollup() {
+            h.archived_requests += r.request_count();
+            h.archived_tokens += r.total_tokens.unwrap_or(0);
+            continue;
+        }
+        let bucket = match r.ts.get(..13) {
+            Some(b) if b.len() == 13 => b.to_string(),
+            _ => continue,
+        };
+        let e = h.by_hour.entry(bucket).or_default();
+        e.requests += 1;
+        e.total_tokens += r.total_tokens.unwrap_or(0);
+    }
+    h
 }
 
 #[cfg(test)]
@@ -280,7 +363,15 @@ mod tests {
             prompt_tokens: total.map(|t| t / 2),
             completion_tokens: total.map(|t| t - t / 2),
             total_tokens: total,
+            count: None,
+            key: None,
         }
+    }
+
+    fn rollup(ts: &str, kind: &str, model: &str, total: u64, count: u64) -> UsageRecord {
+        let mut r = rec(ts, kind, model, Some(total));
+        r.count = Some(count);
+        r
     }
 
     #[test]
@@ -312,6 +403,16 @@ mod tests {
     }
 
     #[test]
+    fn old_format_lines_deserialize_without_new_fields() {
+        // 历史台账行无 count/key 字段: serde default 必须兼容
+        let line = r#"{"ts":"2026-10-18T01:28:52Z","kind":"chat","model":"dsv4","prompt_tokens":9,"completion_tokens":2,"total_tokens":11}"#;
+        let r: UsageRecord = serde_json::from_str(line).unwrap();
+        assert_eq!(r.request_count(), 1);
+        assert!(!r.is_rollup());
+        assert_eq!(r.key, None);
+    }
+
+    #[test]
     fn append_read_roundtrip_and_tolerates_broken_lines() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("usage.jsonl");
@@ -332,28 +433,36 @@ mod tests {
     }
 
     #[test]
-    fn filter_by_days_and_model() {
+    fn filter_by_days_model_kind_key() {
+        let mut a = rec("2026-10-17T12:00:00Z", "chat", "dsv4", Some(200));
+        a.key = Some("sk-abc***8816".to_string());
+        let mut b = rec("2026-10-18T08:00:00Z", "embed", "bge-m3", Some(50));
+        b.key = Some("sk-xyz***0001".to_string());
         let records = vec![
             rec("2026-10-01T00:00:00Z", "chat", "dsv4", Some(100)),
-            rec("2026-10-17T12:00:00Z", "chat", "dsv4", Some(200)),
-            rec("2026-10-18T08:00:00Z", "embed", "bge-m3", Some(50)),
+            a,
+            b,
         ];
-        let today = utc_date_days_ago(0);
-        assert_eq!(today, "2026-10-18");
+
+        assert_eq!(utc_date_days_ago(0), "2026-10-18");
 
         // --days 2 (2026-10-17 起)
-        let got = filter_records(&records, Some(2), None);
+        let got = filter_records(
+            &records,
+            &UsageFilter { days: Some(2), ..Default::default() },
+        );
         assert_eq!(got.len(), 2);
         assert!(got.iter().all(|r| r.ts.as_str() >= "2026-10-17"));
 
-        // --model bge-m3
-        let got = filter_records(&records, None, Some("bge-m3"));
+        // --model / --kind / --key
+        assert_eq!(filter_records(&records, &UsageFilter { model: Some("bge-m3"), ..Default::default() }).len(), 1);
+        assert_eq!(filter_records(&records, &UsageFilter { kind: Some("chat"), ..Default::default() }).len(), 2);
+        let got = filter_records(&records, &UsageFilter { key: Some("sk-xyz***0001"), ..Default::default() });
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].kind, "embed");
 
         // 组合过滤
-        assert!(filter_records(&records, Some(2), Some("bge-m3")).len() == 1);
-        assert!(filter_records(&records, Some(2), Some("dsv4")).len() == 1);
+        assert_eq!(filter_records(&records, &UsageFilter { days: Some(2), model: Some("dsv4"), ..Default::default() }).len(), 1);
     }
 
     #[test]
@@ -371,10 +480,44 @@ mod tests {
         assert_eq!(s.by_model.len(), 3);
         assert_eq!(s.by_model["dsv4"].requests, 2);
         assert_eq!(s.by_model["dsv4"].total_tokens, 160);
+        assert_eq!(s.by_kind.len(), 3);
+        assert_eq!(s.by_kind["chat"].total_tokens, 160);
         assert_eq!(s.by_day.len(), 3);
         assert_eq!(s.by_day["2026-10-18"].requests, 2);
         assert_eq!(s.first_day.as_deref(), Some("2026-10-16"));
         assert_eq!(s.last_day.as_deref(), Some("2026-10-18"));
+    }
+
+    #[test]
+    fn summarize_counts_rollup_lines_by_count_field() {
+        let records = vec![
+            rec("2026-10-18T10:00:00Z", "chat", "dsv4", Some(60)),
+            rollup("2026-10-01T00:00:00Z", "chat", "dsv4", 9_000, 57),
+        ];
+        let s = summarize(&records);
+        assert_eq!(s.requests, 58);
+        assert_eq!(s.with_tokens, 58);
+        assert_eq!(s.total_tokens, 9_060);
+        assert_eq!(s.by_model["dsv4"].requests, 58);
+        assert_eq!(s.by_kind["chat"].requests, 58);
+        assert_eq!(s.by_day["2026-10-01"].requests, 57);
+    }
+
+    #[test]
+    fn hourly_buckets_details_and_archives_rollups() {
+        let records = vec![
+            rec("2026-10-18T01:16:56Z", "chat", "dsv4", Some(11)),
+            rec("2026-10-18T01:30:00Z", "chat", "dsv4", Some(22)),
+            rec("2026-10-18T09:00:00Z", "ocr", "paddleocrvl", Some(768)),
+            rollup("2026-10-01T00:00:00Z", "chat", "dsv4", 9_000, 57),
+        ];
+        let h = summarize_hourly(&records);
+        assert_eq!(h.by_hour.len(), 2);
+        assert_eq!(h.by_hour["2026-10-18T01"].requests, 2);
+        assert_eq!(h.by_hour["2026-10-18T01"].total_tokens, 33);
+        assert_eq!(h.by_hour["2026-10-18T09"].total_tokens, 768);
+        assert_eq!(h.archived_requests, 57);
+        assert_eq!(h.archived_tokens, 9_000);
     }
 
     #[test]

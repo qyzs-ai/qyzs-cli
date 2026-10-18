@@ -179,9 +179,23 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
         Commands::Usage {
             days,
             model,
+            kind,
+            key,
+            hourly,
             json,
             clear,
-        } => handlers::system::usage(&ctx, days, model, json, clear)?,
+        } => handlers::system::usage(
+            &ctx,
+            handlers::system::UsageArgs {
+                days,
+                model,
+                kind,
+                key,
+                hourly,
+                json,
+                clear,
+            },
+        )?,
 
         Commands::Upgrade { repo, package } => handlers::system::upgrade(&ctx, repo, package).await?,
 

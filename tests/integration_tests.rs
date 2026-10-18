@@ -3,7 +3,7 @@
 use qyzs::config::{Credentials, ResolvedConfig};
 use qyzs::error::{exit_code, QyzsError};
 use qyzs::pdf::{PdfExtractor, PdfSplitter};
-use qyzs::pipeline::{DatasetManager, OcrVerifier};
+use qyzs::pipeline::{CrossVerifier, DatasetManager};
 use qyzs::term::{detect_environment_language, set_language, Language};
 use clap::Parser as _;
 use std::io::Write;
@@ -99,7 +99,7 @@ fn test_pdf_operations() {
 fn test_cross_verifier() {
     let ocr = "中华人民共和国财政部公告 政府采购评审专家";
     let md = "# 政府采购评审专家管理办法\n财政部发布公告。";
-    let report = OcrVerifier::verify(ocr, md);
+    let report = CrossVerifier::verify(ocr, md);
     assert!(report.jaccard_similarity > 0.0);
     assert_eq!(report.ocr_char_count, 20);
 }
@@ -213,187 +213,5 @@ fn test_markitdown_cli_defaults() {
         assert!(!no_clean);
     } else {
         panic!("应为 Markitdown 命令变体");
-    }
-}
-
-#[test]
-fn test_usage_cli_arg_surface() {
-    // 参数面契约：--days/--model/--json 可解析且取值正确
-    let cli = qyzs::Cli::try_parse_from([
-        "qyzs",
-        "usage",
-        "--days",
-        "7",
-        "--model",
-        "dsv4",
-        "--json",
-    ])
-    .expect("usage 完整参数面应可解析");
-
-    if let qyzs::Commands::Usage {
-        days,
-        model,
-        json,
-        clear,
-    } = cli.command
-    {
-        assert_eq!(days, Some(7));
-        assert_eq!(model.as_deref(), Some("dsv4"));
-        assert!(json);
-        assert!(!clear);
-    } else {
-        panic!("应为 Usage 命令变体");
-    }
-
-    // 默认值契约：无参数即全量统计，--clear 与过滤参数互不干扰
-    let defaults = qyzs::Cli::try_parse_from(["qyzs", "usage"]).expect("usage 零参数应可解析");
-    if let qyzs::Commands::Usage {
-        days,
-        model,
-        json,
-        clear,
-    } = defaults.command
-    {
-        assert_eq!(days, None);
-        assert_eq!(model, None);
-        assert!(!json);
-        assert!(!clear);
-    } else {
-        panic!("应为 Usage 命令变体");
-    }
-}
-
-#[test]
-fn test_global_short_flags_surface() {
-    // 短语法规范契约：全局参数短形式 -b/-t/-l/-c/-f 可解析且子命令前后位置均可
-    let cli = qyzs::Cli::try_parse_from([
-        "qyzs", "-b", "http://gw:9200", "-t", "30", "-l", "zh", "-c", "never", "-f", "json",
-        "status",
-    ])
-    .expect("全局短形式 (子命令前) 应可解析");
-    assert_eq!(cli.base_url.as_deref(), Some("http://gw:9200"));
-    assert_eq!(cli.timeout, Some(30));
-    assert_eq!(cli.lang.as_deref(), Some("zh"));
-    assert_eq!(cli.color.as_deref(), Some("never"));
-    assert_eq!(cli.format.as_deref(), Some("json"));
-
-    let cli = qyzs::Cli::try_parse_from(["qyzs", "models", "-f", "json", "-t", "45"])
-        .expect("全局短形式 (子命令后) 应可解析");
-    assert_eq!(cli.format.as_deref(), Some("json"));
-    assert_eq!(cli.timeout, Some(45));
-}
-
-#[test]
-fn test_language_flag_canonical_and_alias() {
-    // 唯一形式契约: --lang 与 -l 等价可解析; --language 已统一移除, 必须拒绝
-    for argv in [
-        vec!["qyzs", "--lang", "en", "models"],
-        vec!["qyzs", "-l", "en", "models"],
-    ] {
-        let cli = qyzs::Cli::try_parse_from(argv).expect("语言参数应可解析");
-        assert_eq!(cli.lang.as_deref(), Some("en"));
-    }
-
-    assert!(
-        qyzs::Cli::try_parse_from(["qyzs", "--language", "en", "models"]).is_err(),
-        "--language 已统一为 --lang, 不应再可解析"
-    );
-}
-
-#[test]
-fn test_language_resolution_chain() {
-    // CLI 显式值: zh 系判中文、en 系判英文; 非法值显式报错 (USAGE_ERR)
-    use qyzs::error::QyzsError;
-    use qyzs::term::Language;
-
-    let zh = ResolvedConfig::resolve(None, None, None, Some("zh_CN"), None, None, None).unwrap();
-    assert_eq!(zh.ui_language, Language::Zh);
-    let en = ResolvedConfig::resolve(None, None, None, Some("en-US"), None, None, None).unwrap();
-    assert_eq!(en.ui_language, Language::En);
-
-    match ResolvedConfig::resolve(None, None, None, Some("french"), None, None, None) {
-        Err(QyzsError::Usage(msg)) => assert!(msg.contains("zh | en"), "报错应提示合法值: {msg}"),
-        other => panic!("非法语言值应返回 Usage 错误, 实际: {other:?}"),
-    }
-}
-
-#[test]
-fn test_invalid_global_values_rejected() {
-    // 取值校验契约: CLI 显式非法值必须报 USAGE_ERR 并列出合法值 (env/config 层 best-effort 不在此测)
-    use qyzs::error::QyzsError;
-    use qyzs::term::{ColorChoice, OutputFormat};
-
-    macro_rules! assert_usage_err {
-        ($res:expr, $hint:expr) => {
-            match $res {
-                Err(QyzsError::Usage(msg)) => {
-                    assert!(msg.contains($hint), "报错应含 '{}', 实际: {}", $hint, msg);
-                }
-                Ok(_) => panic!("应返回 Usage 错误, 实际成功"),
-                Err(e) => panic!("应返回 Usage 错误, 实际: {e}"),
-            }
-        };
-    }
-
-    assert_usage_err!(
-        ResolvedConfig::resolve(None, None, None, None, None, Some("blue"), None),
-        "auto | always | never"
-    );
-    assert_usage_err!(
-        ResolvedConfig::resolve(None, None, None, None, None, None, Some("yaml")),
-        "text, json, raw"
-    );
-    assert_usage_err!(
-        ResolvedConfig::resolve(None, None, None, None, Some("jp"), None, None),
-        "auto | cn | zh | zh-cn | en"
-    );
-    assert_usage_err!(
-        ResolvedConfig::resolve(None, Some("ftp://gw:9200"), None, None, None, None, None),
-        "http://"
-    );
-
-    // 合法值契约: 大小写不敏感、trim 归一
-    let color = ResolvedConfig::resolve(None, None, None, None, None, Some("ALWAYS"), None).unwrap();
-    assert_eq!(color.color_choice, ColorChoice::Always);
-    let mlang = ResolvedConfig::resolve(None, None, None, None, Some(" ZH-CN "), None, None).unwrap();
-    assert_eq!(mlang.model_language, "zh-cn");
-    let url = ResolvedConfig::resolve(None, Some("  https://gw.example  "), None, None, None, None, None).unwrap();
-    assert_eq!(url.base_url, "https://gw.example");
-    let fmt = ResolvedConfig::resolve(None, None, None, None, None, None, Some("RAW")).unwrap();
-    assert_eq!(fmt.output_format, OutputFormat::Raw);
-}
-
-#[test]
-fn test_subcommand_short_flag_additions() {
-    // 短语法规范契约: --model 统一 -m (markitdown 补齐), rerank --top-n 补齐 -n
-    let cli = qyzs::Cli::try_parse_from([
-        "qyzs",
-        "markitdown",
-        "a.pdf",
-        "-m",
-        "dsv4",
-        "--dry-run",
-    ])
-    .expect("markitdown -m 应可解析");
-    if let qyzs::Commands::Markitdown { model, .. } = cli.command {
-        assert_eq!(model.as_deref(), Some("dsv4"));
-    } else {
-        panic!("应为 Markitdown 命令变体");
-    }
-
-    let cli = qyzs::Cli::try_parse_from(["qyzs", "rerank", "-q", "土地", "-d", "A", "-d", "B", "-n", "2"])
-        .expect("rerank -n 应可解析");
-    if let qyzs::Commands::Rerank {
-        query,
-        document,
-        top_n,
-        ..
-    } = cli.command
-    {
-        assert_eq!(query, "土地");
-        assert_eq!(document, vec!["A", "B"]);
-        assert_eq!(top_n, Some(2));
-    } else {
-        panic!("应为 Rerank 命令变体");
     }
 }

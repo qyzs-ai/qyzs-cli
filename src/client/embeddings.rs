@@ -105,7 +105,7 @@ impl QyzsClient {
         if items.len() == texts.len() && items.len() <= MAX_BATCH_ITEMS {
             // 常规路径：无分块且批量在界内，单请求原样透传
             let resp = self.embed_request(&model, texts, &key).await?;
-            Self::record_usage(&model, resp.usage.as_ref());
+            self.record_embed_usage(&model, resp.usage.as_ref());
             return Ok(resp);
         }
 
@@ -141,7 +141,7 @@ impl QyzsClient {
             prompt_tokens: (prompt_tokens > 0).then_some(prompt_tokens),
             total_tokens: (total_tokens > 0).then_some(total_tokens),
         };
-        Self::record_usage(&model, Some(&aggregate));
+        self.record_embed_usage(&model, Some(&aggregate));
 
         Ok(EmbeddingResponse {
             model: Some(model),
@@ -151,14 +151,14 @@ impl QyzsClient {
     }
 
     /// 用量台账记录 (best-effort; 向量接口无 completion 概念, 恒记 None)
-    fn record_usage(model: &str, usage: Option<&EmbeddingUsage>) {
-        super::usage_ledger::append_record(&super::usage_ledger::UsageRecord::now(
+    fn record_embed_usage(&self, model: &str, usage: Option<&EmbeddingUsage>) {
+        self.record_usage(
             "embed",
             model,
             usage.and_then(|u| u.prompt_tokens.map(|v| v as u64)),
             None,
             usage.and_then(|u| u.total_tokens.map(|v| v as u64)),
-        ));
+        );
     }
 
     async fn embed_request(

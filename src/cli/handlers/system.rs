@@ -345,19 +345,24 @@ pub fn completions(shell: clap_complete::Shell) {
     crate::cli::completions::CompletionGenerator::generate(shell);
 }
 
-/// 本地网关用量统计 (台账在 client 层各接口调用点追加, 此处只读聚合)
-pub fn usage(
-    ctx: &Ctx<'_>,
-    days: Option<u32>,
-    model: Option<String>,
-    json: bool,
-    clear: bool,
-) -> QyzsResult<()> {
-    use crate::client::usage_ledger;
+/// usage 子命令参数聚合
+pub struct UsageArgs {
+    pub days: Option<u32>,
+    pub model: Option<String>,
+    pub kind: Option<String>,
+    pub key: Option<String>,
+    pub hourly: bool,
+    pub json: bool,
+    pub clear: bool,
+}
 
-    if clear {
+/// 本地网关用量统计 (台账在 client 层各接口调用点追加, 此处只读聚合)
+pub fn usage(ctx: &Ctx<'_>, args: UsageArgs) -> QyzsResult<()> {
+    use crate::client::usage_ledger::{self, UsageFilter};
+
+    if args.clear {
         let removed = usage_ledger::clear();
-        if json {
+        if args.json {
             println!("{}", serde_json::json!({ "cleared_records": removed }));
         } else {
             ctx.printer.ok(&crate::msgf!(UsageCleared, removed));
@@ -366,20 +371,20 @@ pub fn usage(
     }
 
     let all = usage_ledger::read_records();
-    let records = usage_ledger::filter_records(&all, days, model.as_deref());
+    let filter = UsageFilter {
+        days: args.days,
+        model: args.model.as_deref(),
+        kind: args.kind.as_deref(),
+        key: args.key.as_deref(),
+    };
+    let records = usage_ledger::filter_records(&all, &filter);
     let summary = usage_ledger::summarize(&records);
 
-    if json {
+    if args.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&usage_json(
-                &records,
-                &summary,
-                all.len(),
-                days,
-                model.as_deref()
-            ))
-            .unwrap_or_default()
+            serde_json::to_string_pretty(&usage_json(&records, &summary, all.len(), &args))
+                .unwrap_or_default()
         );
         return Ok(());
     }
@@ -418,34 +423,70 @@ pub fn usage(
         )
     );
 
-    println!("\n{}", styler.bold(crate::msg!(UsageByModel)));
-    for (name, st) in &summary.by_model {
-        println!(
-            "{}",
-            crate::msgf!(
-                UsageModelRow,
-                format!("{:<22}", name),
-                usage_ledger::format_num(st.requests),
-                usage_ledger::format_num(st.prompt_tokens),
-                usage_ledger::format_num(st.completion_tokens),
-                usage_ledger::format_num(st.total_tokens)
-            )
-        );
+    // 按调用族 (chat/ocr/asr/embed/rerank)
+    println!("\n{}", styler.bold(crate::msg!(UsageByKind)));
+    for (name, st) in &summary.by_kind {
+        print_group_row(name, 14, st);
     }
 
-    println!("\n{}", styler.bold(crate::msg!(UsageByDay)));
-    for (day, st) in &summary.by_day {
-        println!(
-            "{}",
-            crate::msgf!(
-                UsageDayRow,
-                format!("{:<12}", day),
-                usage_ledger::format_num(st.requests),
-                usage_ledger::format_num(st.total_tokens)
-            )
-        );
+    println!("\n{}", styler.bold(crate::msg!(UsageByModel)));
+    for (name, st) in &summary.by_model {
+        print_group_row(name, 22, st);
+    }
+
+    // 按凭据: 仅在匹配记录含多个凭据指纹时展示 (单 key 常态下无信息量)
+    if summary.by_key.len() > 1 {
+        println!("\n{}", styler.bold(crate::msg!(UsageByKey)));
+        for (name, st) in &summary.by_key {
+            print_group_row(name, 16, st);
+        }
+    }
+
+    if args.hourly {
+        println!("\n{}", styler.bold(crate::msg!(UsageByHour)));
+        let hourly = usage_ledger::summarize_hourly(&records);
+        for (bucket, st) in &hourly.by_hour {
+            println!(
+                "{}",
+                crate::msgf!(
+                    UsageDayRow,
+                    format!("{:<16}", bucket),
+                    usage_ledger::format_num(st.requests),
+                    usage_ledger::format_num(st.total_tokens)
+                )
+            );
+        }
+    } else {
+        println!("\n{}", styler.bold(crate::msg!(UsageByDay)));
+        for (day, st) in &summary.by_day {
+            println!(
+                "{}",
+                crate::msgf!(
+                    UsageDayRow,
+                    format!("{:<12}", day),
+                    usage_ledger::format_num(st.requests),
+                    usage_ledger::format_num(st.total_tokens)
+                )
+            );
+        }
     }
     Ok(())
+}
+
+/// 分组行 (调用族/模型/凭据共用): 名称 + 请求数 + 三项 Token
+fn print_group_row(name: &str, width: usize, st: &crate::client::usage_ledger::GroupStat) {
+    use crate::client::usage_ledger as ledger;
+    println!(
+        "{}",
+        crate::msgf!(
+            UsageModelRow,
+            format!("{:<width$}", name, width = width),
+            ledger::format_num(st.requests),
+            ledger::format_num(st.prompt_tokens),
+            ledger::format_num(st.completion_tokens),
+            ledger::format_num(st.total_tokens)
+        )
+    );
 }
 
 /// `--json` 输出结构 (过滤条件原样回显, 便于脚本核对)
@@ -453,16 +494,28 @@ fn usage_json(
     records: &[crate::client::usage_ledger::UsageRecord],
     summary: &crate::client::usage_ledger::UsageSummary,
     total_in_ledger: usize,
-    days: Option<u32>,
-    model: Option<&str>,
+    args: &UsageArgs,
 ) -> serde_json::Value {
-    serde_json::json!({
-        "ledger_path": crate::client::usage_ledger::ledger_path().to_string_lossy(),
+    use crate::client::usage_ledger as ledger;
+    let group_json = |st: &ledger::GroupStat| {
+        serde_json::json!({
+            "requests": st.requests,
+            "requests_with_tokens": st.with_tokens,
+            "prompt_tokens": st.prompt_tokens,
+            "completion_tokens": st.completion_tokens,
+            "total_tokens": st.total_tokens,
+        })
+    };
+
+    let mut root = serde_json::json!({
+        "ledger_path": ledger::ledger_path().to_string_lossy(),
         "records_in_ledger": total_in_ledger,
         "records_matched": records.len(),
         "filter": {
-            "days": days,
-            "model": model,
+            "days": args.days,
+            "model": args.model,
+            "kind": args.kind,
+            "key": args.key,
         },
         "requests": summary.requests,
         "requests_with_tokens": summary.with_tokens,
@@ -473,22 +526,34 @@ fn usage_json(
             "first_day": summary.first_day,
             "last_day": summary.last_day,
         },
-        "by_model": summary.by_model.iter().map(|(name, st)| {
-            (name.clone(), serde_json::json!({
+        "by_kind": summary.by_kind.iter()
+            .map(|(k, st)| (k.clone(), group_json(st)))
+            .collect::<serde_json::Map<String, serde_json::Value>>(),
+        "by_model": summary.by_model.iter()
+            .map(|(k, st)| (k.clone(), group_json(st)))
+            .collect::<serde_json::Map<String, serde_json::Value>>(),
+        "by_key": summary.by_key.iter()
+            .map(|(k, st)| (k.clone(), group_json(st)))
+            .collect::<serde_json::Map<String, serde_json::Value>>(),
+        "by_day": summary.by_day.iter()
+            .map(|(d, st)| (d.clone(), serde_json::json!({
                 "requests": st.requests,
-                "requests_with_tokens": st.with_tokens,
-                "prompt_tokens": st.prompt_tokens,
-                "completion_tokens": st.completion_tokens,
                 "total_tokens": st.total_tokens,
-            }))
-        }).collect::<serde_json::Map<String, serde_json::Value>>(),
-        "by_day": summary.by_day.iter().map(|(day, st)| {
-            (day.clone(), serde_json::json!({
+            })))
+            .collect::<serde_json::Map<String, serde_json::Value>>(),
+    });
+
+    // --hourly: 追加按小时桶 (仅明细行可归桶)
+    if args.hourly {
+        let hourly = ledger::summarize_hourly(records);
+        root["by_hour"] = hourly.by_hour.iter()
+            .map(|(b, st)| (b.clone(), serde_json::json!({
                 "requests": st.requests,
                 "total_tokens": st.total_tokens,
-            }))
-        }).collect::<serde_json::Map<String, serde_json::Value>>(),
-    })
+            })))
+            .collect();
+    }
+    root
 }
 
 #[cfg(test)]

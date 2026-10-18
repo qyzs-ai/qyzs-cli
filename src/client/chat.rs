@@ -1,6 +1,5 @@
 //! 对话与多模态接口封装 (/api/aiCenterChat/v1/chat/completions)
 
-use super::usage_ledger::{UsageRecord, append_record};
 use super::QyzsClient;
 use crate::error::{QyzsError, QyzsResult};
 use futures_util::StreamExt;
@@ -148,7 +147,7 @@ impl QyzsClient {
         }
 
         let chat_resp: ChatResponse = resp.json().await?;
-        append_record(&UsageRecord::from_chat_usage("chat", &req.model, chat_resp.usage.as_ref()));
+        self.record_chat_usage("chat", &req.model, chat_resp.usage.as_ref());
         Ok(chat_resp)
     }
 
@@ -229,7 +228,7 @@ impl QyzsClient {
             }
         }
 
-        append_record(&UsageRecord::from_chat_usage("chat", &req.model, last_usage.as_ref()));
+        self.record_chat_usage("chat", &req.model, last_usage.as_ref());
         Ok(full_content)
     }
 

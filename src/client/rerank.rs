@@ -68,7 +68,7 @@ impl QyzsClient {
         }
 
         let rerank_resp: RerankResponse = resp.json().await?;
-        super::usage_ledger::append_record(&super::usage_ledger::UsageRecord::now(
+        self.record_usage(
             "rerank",
             model,
             None,
@@ -77,7 +77,7 @@ impl QyzsClient {
                 .usage
                 .as_ref()
                 .and_then(|u| u.total_tokens.map(|v| v as u64)),
-        ));
+        );
         Ok(rerank_resp)
     }
 }

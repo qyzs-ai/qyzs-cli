@@ -73,11 +73,7 @@ impl QyzsClient {
         }
 
         let chat_resp: ChatResponse = resp.json().await?;
-        super::usage_ledger::append_record(&super::usage_ledger::UsageRecord::from_chat_usage(
-            "ocr",
-            model,
-            chat_resp.usage.as_ref(),
-        ));
+        self.record_chat_usage("ocr", model, chat_resp.usage.as_ref());
         let text = chat_resp
             .choices
             .first()
