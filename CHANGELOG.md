@@ -35,15 +35,14 @@
 
 ### Changed
 
+- README 子命令速览覆盖全 18 个子命令（新增 `asr`/`sam`/`verify`/`dataset`/
+  `upgrade`/`completions` 展示），markitdown rigor 档示例同步为已接入状态。
 - 破坏性：原"超长 PDF 切片转 Markdown"独立子命令移除，能力同版本被
   `markitdown --mode speed` 吸收（迁移豁免见 docs/RELEASE.md §1）。
   迁移映射: `qyzs <旧命令> --file X -o Y --batch-pages 15` →
   `qyzs markitdown X -o Y`（15 页/批切片为 markitdown 内置默认行为）；
   小文档原始直通继续使用 `qyzs parse`；页面级拆分继续使用 `qyzs pdf-split`。
   argv[0] 双形式调用 (`qyzs-<command>` 软链) 对被移除命令名不再可用。
-
-### Changed
-
 - markitdown 运行时消息全量 i18n 目录化（新增 `msgf!` 序号占位符填充机制，
   format! 不接受非字面量格式串的替代）；修复管道下游关闭 (`| head`) 时的
   Broken pipe panic（Unix 恢复 SIGPIPE 默认行为）。

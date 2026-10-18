@@ -215,3 +215,50 @@ fn test_markitdown_cli_defaults() {
         panic!("应为 Markitdown 命令变体");
     }
 }
+
+#[test]
+fn test_usage_cli_arg_surface() {
+    // 参数面契约：--days/--model/--json 可解析且取值正确
+    let cli = qyzs::Cli::try_parse_from([
+        "qyzs",
+        "usage",
+        "--days",
+        "7",
+        "--model",
+        "dsv4",
+        "--json",
+    ])
+    .expect("usage 完整参数面应可解析");
+
+    if let qyzs::Commands::Usage {
+        days,
+        model,
+        json,
+        clear,
+    } = cli.command
+    {
+        assert_eq!(days, Some(7));
+        assert_eq!(model.as_deref(), Some("dsv4"));
+        assert!(json);
+        assert!(!clear);
+    } else {
+        panic!("应为 Usage 命令变体");
+    }
+
+    // 默认值契约：无参数即全量统计，--clear 与过滤参数互不干扰
+    let defaults = qyzs::Cli::try_parse_from(["qyzs", "usage"]).expect("usage 零参数应可解析");
+    if let qyzs::Commands::Usage {
+        days,
+        model,
+        json,
+        clear,
+    } = defaults.command
+    {
+        assert_eq!(days, None);
+        assert_eq!(model, None);
+        assert!(!json);
+        assert!(!clear);
+    } else {
+        panic!("应为 Usage 命令变体");
+    }
+}

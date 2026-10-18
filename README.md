@@ -123,7 +123,17 @@ qyzs ocr scan.png
 qyzs parse document.pdf
 ```
 
-### 6. 全能文档转 Markdown 与 PDF 拆分 (`markitdown` & `pdf-split`)
+### 6. 语音识别与遥感变化检测 (`asr` & `sam`)
+
+```bash
+# 语音识别转文字 (默认 Qwen3-ASR-1.7B, 16kHz)
+qyzs asr meeting.wav
+
+# 遥感双时相大模型变化检测 (默认 acid-sam3-full, 支持 AOI 多边形与敏感度阈值)
+qyzs sam --before before_2023.tif --after after_2024.tif --aoi aoi.geojson --threshold 0.5
+```
+
+### 7. 全能文档转 Markdown 与 PDF 拆分 (`markitdown` & `pdf-split`)
 
 ```bash
 # 先预览: 自动识别格式与流水线规划 (离线, 零模型调用)
@@ -133,14 +143,14 @@ qyzs markitdown tender_doc.pdf --dry-run
 # 超长 PDF 每 15 页切片聚合, 规则清洗只做结构归一
 qyzs markitdown tender_doc.pdf -o tender.md
 
-# 严谨档 (多轮核验 + 交叉验证): 阶段④⑤接入后可用
-qyzs markitdown report.docx --mode rigor
+# 严谨档: 双通道抽取 + 交叉验证逐段仲裁 + 全局审查 (--report 输出质量报告 JSON)
+qyzs markitdown report.docx --mode rigor --report report.json
 
 # 提取指定页码范围另存为新 PDF (纯 Rust, 零系统 C 依赖)
 qyzs pdf-split --file big.pdf --pages 1-3,5 --output split.pdf
 ```
 
-### 7. 语义表征与重排 (`embed` & `rerank`)
+### 8. 语义表征与重排 (`embed` & `rerank`)
 
 ```bash
 # 向量表征 (默认 bge-m3 1024 维)
@@ -148,6 +158,20 @@ qyzs embed "自然资源资产清查" "国土空间生态修复"
 
 # 语义重排序精排 (默认 qwen3-reranker-8b, Top1置信度>0.90)
 qyzs rerank -q "土地利用现状分类" -d "自然资源部规程..." -d "无关参考文本..." --top-n 3
+```
+
+### 9. 同源互验与运维工具 (`verify` / `dataset` / `upgrade` / `completions`)
+
+```bash
+# OCR 与 MinerU 解析结果同源互验仲裁 (Jaccard 相似度对账)
+qyzs verify --ocr ocr_result.txt --markdown parsed.md
+
+# 从 GitHub 下载官方基准测试数据集 (默认解压到 tests/data)
+qyzs dataset
+
+# 版本自更新 (GitHub Release 拉取最新二进制) / 生成 Shell 补全脚本
+qyzs upgrade
+qyzs completions bash
 ```
 
 ---
