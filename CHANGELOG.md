@@ -66,6 +66,14 @@
   best-effort，存量脏配置不阻断命令。校验器下沉至 `config/resolver.rs`
   （`validate_base_url`/`parse_model_language`/`parse_color_choice`）供 CLI
   与配置两路复用；timeout 整数校验与 `model.default_*` 模型名（无枚举）不变。
+- `config set` 支持 per-model 超参表写入：`config set model.params.<模型名>.<参数名> <数值>`
+  （如 `model.params.dsv4.temperature 0.7`），此前只能手编 config.toml。模型名按
+  消费端主查找形态归一化（`qwen3.6-27b` → `qwen3_6_27b`），参数值仅接受数值
+  （i64 优先其次 f64，与 temperature/top_p/max_tokens/top_n/max_dim 消费点一致）；
+  供 `chat --temperature/--top-p` 等未显式传参时级联取用。
+- `--model-lang` help 与 README 注明「仅 chat 生效」：该参数当前唯一消费点是
+  chat 的 system prompt 语言注入，对其余子命令为静默 no-op（markitdown 润色
+  阶段语言由流水线内部 prompt 控制，不受此参数影响）。
 - README 子命令速览覆盖全 18 个子命令（新增 `asr`/`sam`/`verify`/`dataset`/
   `upgrade`/`completions` 展示），markitdown rigor 档示例同步为已接入状态。
 - 破坏性：原"超长 PDF 切片转 Markdown"独立子命令移除，能力同版本被

@@ -43,7 +43,7 @@ pub struct Cli {
     pub lang: Option<String>,
 
     // --model-lang 无短形式: -m 已被子命令级 --model 约定占用 (见模块头短语法规范)
-    #[arg(long, global = true, help = "模型输出语言约束: auto | cn | zh | zh-cn | en")]
+    #[arg(long, global = true, help = "模型输出语言约束: auto | cn | zh | zh-cn | en (仅 chat 生效)")]
     pub model_lang: Option<String>,
 
     #[arg(short = 'c', long, global = true, help = "终端色彩输出: auto | always | never")]

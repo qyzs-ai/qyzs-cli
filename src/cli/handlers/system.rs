@@ -120,6 +120,37 @@ fn validate_config_value(key: &str, value: &str) -> QyzsResult<()> {
     }
 }
 
+/// 解析 per-model 超参键 `model.params.<模型名>.<参数名>` 为 (归一化模型名, TOML 值)。
+/// 模型名本身可含点号 (如 qwen3.6-27b), 故取前缀剥离 + 右侧最后一次分割;
+/// 模型名按 get_model_param_* 的主查找形态归一 (./- → _)。参数值仅接受数值
+/// (i64 优先, 其次 f64), 与现有消费点 (temperature/top_p/max_tokens/top_n/max_dim) 一致。
+fn parse_model_params_entry(key: &str, value: &str) -> QyzsResult<(String, String, toml::Value)> {
+    let rest = key
+        .strip_prefix("model.params.")
+        .ok_or_else(|| QyzsError::Usage(format!("未知配置项: '{}'", key)))?;
+    let (model, param) = rest.rsplit_once('.').ok_or_else(|| {
+        QyzsError::Usage(format!(
+            "配置项 '{}' 格式应为 model.params.<模型名>.<参数名>",
+            key
+        ))
+    })?;
+    if model.is_empty() || param.is_empty() {
+        return Err(QyzsError::Usage(format!(
+            "配置项 '{}' 格式应为 model.params.<模型名>.<参数名>",
+            key
+        )));
+    }
+    let parsed = value
+        .parse::<i64>()
+        .map(toml::Value::Integer)
+        .or_else(|_| value.parse::<f64>().map(toml::Value::Float))
+        .map_err(|_| {
+            QyzsError::Usage(format!("超参 '{}' 必须为数值 (当前: '{}')", param, value))
+        })?;
+    let normalized = model.replace('.', "_").replace('-', "_");
+    Ok((normalized, param.to_string(), parsed))
+}
+
 pub fn config(
     ctx: &Ctx<'_>,
     action: crate::cli::args::ConfigAction,
@@ -165,6 +196,14 @@ pub fn config(
                 "model.default_parse" => conf.model.default_parse = value.clone(),
                 "model.default_embed" => conf.model.default_embed = value.clone(),
                 "model.default_rerank" => conf.model.default_rerank = value.clone(),
+                key_str if key_str.starts_with("model.params.") => {
+                    let (model, param, parsed) = parse_model_params_entry(key_str, &value)?;
+                    conf.model
+                        .params
+                        .entry(model)
+                        .or_default()
+                        .insert(param, parsed);
+                }
                 _ => return Err(QyzsError::Usage(format!("未知配置项: '{}'", key))),
             }
             conf.save()?;
@@ -475,5 +514,28 @@ mod tests {
         assert!(validate_config_value("model.default_chat", "任意模型名").is_ok());
         assert!(validate_config_value("network.timeout", "abc").is_ok());
         assert!(validate_config_value("未知键", "任意值").is_ok());
+    }
+
+    #[test]
+    fn model_params_entry_parsing() {
+        use super::parse_model_params_entry;
+
+        // 常规: i64 优先, 其次 f64
+        let (m, p, v) = parse_model_params_entry("model.params.dsv4.max_tokens", "4096").unwrap();
+        assert_eq!((m.as_str(), p.as_str()), ("dsv4", "max_tokens"));
+        assert_eq!(v, toml::Value::Integer(4096));
+        let (m, p, v) = parse_model_params_entry("model.params.dsv4.temperature", "0.7").unwrap();
+        assert_eq!((m.as_str(), p.as_str()), ("dsv4", "temperature"));
+        assert_eq!(v, toml::Value::Float(0.7));
+
+        // 模型名含点号/连字符: 右侧最后一次分割 + 归一化为查找主形态
+        let (m, p, _) = parse_model_params_entry("model.params.qwen3.6-27b.temperature", "0.4").unwrap();
+        assert_eq!((m.as_str(), p.as_str()), ("qwen3_6_27b", "temperature"));
+
+        // 非法形态与非数值
+        assert!(parse_model_params_entry("model.params.dsv4", "0.7").is_err());
+        assert!(parse_model_params_entry("model.params..temperature", "0.7").is_err());
+        assert!(parse_model_params_entry("model.params.dsv4.temperature.", "0.7").is_err());
+        assert!(parse_model_params_entry("model.params.dsv4.temperature", "auto").is_err());
     }
 }
