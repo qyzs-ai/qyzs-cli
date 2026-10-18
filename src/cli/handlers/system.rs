@@ -282,3 +282,149 @@ pub async fn upgrade(
 pub fn completions(shell: clap_complete::Shell) {
     crate::cli::completions::CompletionGenerator::generate(shell);
 }
+
+/// 本地网关用量统计 (台账在 client 层各接口调用点追加, 此处只读聚合)
+pub fn usage(
+    ctx: &Ctx<'_>,
+    days: Option<u32>,
+    model: Option<String>,
+    json: bool,
+    clear: bool,
+) -> QyzsResult<()> {
+    use crate::client::usage_ledger;
+
+    if clear {
+        let removed = usage_ledger::clear();
+        if json {
+            println!("{}", serde_json::json!({ "cleared_records": removed }));
+        } else {
+            ctx.printer.ok(&crate::msgf!(UsageCleared, removed));
+        }
+        return Ok(());
+    }
+
+    let all = usage_ledger::read_records();
+    let records = usage_ledger::filter_records(&all, days, model.as_deref());
+    let summary = usage_ledger::summarize(&records);
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&usage_json(
+                &records,
+                &summary,
+                all.len(),
+                days,
+                model.as_deref()
+            ))
+            .unwrap_or_default()
+        );
+        return Ok(());
+    }
+
+    let styler = ctx.printer.styler();
+    println!(
+        "{}",
+        styler.bold(&format!("[{}]", crate::msg!(UsageHeader)))
+    );
+    println!(
+        "{}",
+        crate::msgf!(UsageLedgerLine, usage_ledger::ledger_path().display(), all.len(), records.len())
+    );
+    if records.is_empty() {
+        println!("  {}", crate::msg!(UsageNoData));
+        return Ok(());
+    }
+
+    println!(
+        "{}",
+        crate::msgf!(
+            UsageRange,
+            summary.first_day.as_deref().unwrap_or("—"),
+            summary.last_day.as_deref().unwrap_or("—")
+        )
+    );
+    println!(
+        "{}",
+        crate::msgf!(
+            UsageTotalLine,
+            usage_ledger::format_num(summary.requests),
+            usage_ledger::format_num(summary.prompt_tokens),
+            usage_ledger::format_num(summary.completion_tokens),
+            usage_ledger::format_num(summary.total_tokens),
+            usage_ledger::format_num(summary.with_tokens)
+        )
+    );
+
+    println!("\n{}", styler.bold(crate::msg!(UsageByModel)));
+    for (name, st) in &summary.by_model {
+        println!(
+            "{}",
+            crate::msgf!(
+                UsageModelRow,
+                format!("{:<22}", name),
+                usage_ledger::format_num(st.requests),
+                usage_ledger::format_num(st.prompt_tokens),
+                usage_ledger::format_num(st.completion_tokens),
+                usage_ledger::format_num(st.total_tokens)
+            )
+        );
+    }
+
+    println!("\n{}", styler.bold(crate::msg!(UsageByDay)));
+    for (day, st) in &summary.by_day {
+        println!(
+            "{}",
+            crate::msgf!(
+                UsageDayRow,
+                format!("{:<12}", day),
+                usage_ledger::format_num(st.requests),
+                usage_ledger::format_num(st.total_tokens)
+            )
+        );
+    }
+    Ok(())
+}
+
+/// `--json` 输出结构 (过滤条件原样回显, 便于脚本核对)
+fn usage_json(
+    records: &[crate::client::usage_ledger::UsageRecord],
+    summary: &crate::client::usage_ledger::UsageSummary,
+    total_in_ledger: usize,
+    days: Option<u32>,
+    model: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "ledger_path": crate::client::usage_ledger::ledger_path().to_string_lossy(),
+        "records_in_ledger": total_in_ledger,
+        "records_matched": records.len(),
+        "filter": {
+            "days": days,
+            "model": model,
+        },
+        "requests": summary.requests,
+        "requests_with_tokens": summary.with_tokens,
+        "prompt_tokens": summary.prompt_tokens,
+        "completion_tokens": summary.completion_tokens,
+        "total_tokens": summary.total_tokens,
+        "range": {
+            "first_day": summary.first_day,
+            "last_day": summary.last_day,
+        },
+        "by_model": summary.by_model.iter().map(|(name, st)| {
+            (name.clone(), serde_json::json!({
+                "requests": st.requests,
+                "requests_with_tokens": st.with_tokens,
+                "prompt_tokens": st.prompt_tokens,
+                "completion_tokens": st.completion_tokens,
+                "total_tokens": st.total_tokens,
+            }))
+        }).collect::<serde_json::Map<String, serde_json::Value>>(),
+        "by_day": summary.by_day.iter().map(|(day, st)| {
+            (day.clone(), serde_json::json!({
+                "requests": st.requests,
+                "total_tokens": st.total_tokens,
+            }))
+        }).collect::<serde_json::Map<String, serde_json::Value>>(),
+    })
+}

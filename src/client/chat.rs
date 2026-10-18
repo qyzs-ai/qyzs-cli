@@ -1,5 +1,6 @@
 //! 对话与多模态接口封装 (/api/aiCenterChat/v1/chat/completions)
 
+use super::usage_ledger::{UsageRecord, append_record};
 use super::QyzsClient;
 use crate::error::{QyzsError, QyzsResult};
 use futures_util::StreamExt;
@@ -44,6 +45,15 @@ pub struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f64>,
     pub stream: bool,
+    /// 流式请求附带 include_usage: 网关在最后一个 chunk (choices 为空) 回传
+    /// 完整 usage (2026-10-18 实测确认)。非流式响应本就带 usage, 无需设置。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<StreamOptions>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamOptions {
+    pub include_usage: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,6 +148,7 @@ impl QyzsClient {
         }
 
         let chat_resp: ChatResponse = resp.json().await?;
+        append_record(&UsageRecord::from_chat_usage("chat", &req.model, chat_resp.usage.as_ref()));
         Ok(chat_resp)
     }
 
@@ -151,6 +162,7 @@ impl QyzsClient {
     ) -> QyzsResult<String> {
         let mut req = self.build_chat_request(prompt, system_prompt, &opts)?;
         req.stream = true;
+        req.stream_options = Some(StreamOptions { include_usage: true });
         let key = self.config.ensure_auth()?;
 
         let resp = self
@@ -169,6 +181,7 @@ impl QyzsClient {
         let mut stream = resp.bytes_stream();
         let mut full_content = String::new();
         let mut buffer = String::new();
+        let mut last_usage: Option<ChatUsage> = None;
 
         while let Some(chunk_res) = stream.next().await {
             let chunk = chunk_res.map_err(|e| QyzsError::Network(format!("读取流中断: {}", e)))?;
@@ -188,6 +201,10 @@ impl QyzsClient {
                         break;
                     }
                     if let Ok(choice_val) = serde_json::from_str::<ChatResponse>(data) {
+                        // include_usage 的收尾 chunk: choices 为空, 仅携带 usage
+                        if choice_val.usage.is_some() {
+                            last_usage = choice_val.usage;
+                        }
                         if let Some(first_choice) = choice_val.choices.first() {
                             if let Some(delta) = &first_choice.delta {
                                 // 检查是否有思维链 reasoning
@@ -212,6 +229,7 @@ impl QyzsClient {
             }
         }
 
+        append_record(&UsageRecord::from_chat_usage("chat", &req.model, last_usage.as_ref()));
         Ok(full_content)
     }
 
@@ -314,6 +332,7 @@ impl QyzsClient {
             max_tokens,
             top_p,
             stream: opts.stream,
+            stream_options: None,
         })
     }
 }

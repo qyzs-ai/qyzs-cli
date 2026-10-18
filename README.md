@@ -63,7 +63,26 @@ qyzs status --json
 qyzs models
 ```
 
-### 2. 凭据与配置管理
+### 2. 本地用量统计 (`usage`)
+
+```bash
+# 本地网关用量台账: 请求次数与 Token 消耗 (chat/ocr/asr/embed/rerank 自动记录)
+qyzs usage
+
+# 只看最近 7 天 / 只看指定模型
+qyzs usage --days 7
+qyzs usage --model dsv4
+
+# 机器可读输出 / 清空台账
+qyzs usage --json
+qyzs usage --clear
+```
+
+> 台账为本地 JSONL（`$XDG_STATE_HOME/qyzs/usage.jsonl`，回退 `~/.local/state/qyzs/`），
+> 仅统计本机发起的调用；流式 chat 经 `stream_options.include_usage` 获取 Token 数据
+> （2026-10 实测网关支持）。MinerU/SAM 为任务型接口，无 Token 数据，不记录。
+
+### 3. 凭据与配置管理
 
 ```bash
 # 方式一：环境变量（推荐，优先级：CLI 参数 > QYZS_APIKEY > 已保存凭据）
@@ -81,7 +100,7 @@ qyzs config set model.language zh-cn
 qyzs config path
 ```
 
-### 3. 对话与多模态推理 (`chat`)
+### 4. 对话与多模态推理 (`chat`)
 
 ```bash
 # 纯文本对话 (默认调用 dsv4，开启流式打字机输出)
@@ -94,7 +113,7 @@ qyzs chat -m qwen3.6-27b --reasoning "核算以下建设用地指标与争议仲
 qyzs chat -i p1.png -i p2.png -i p3.png "对比数张公文扫描件，指出印章盖章单位与签字页位置。"
 ```
 
-### 4. 公文文字 OCR 与结构化解析 (`ocr` & `parse`)
+### 5. 公文文字 OCR 与结构化解析 (`ocr` & `parse`)
 
 ```bash
 # 公文 OCR 版面文字提取 (paddleocrvl，内置长边 <= 800px 自动等比缩放，规避 2048 崩溃)
@@ -104,7 +123,7 @@ qyzs ocr scan.png
 qyzs parse document.pdf
 ```
 
-### 5. 全能文档转 Markdown 与 PDF 拆分 (`markitdown` & `pdf-split`)
+### 6. 全能文档转 Markdown 与 PDF 拆分 (`markitdown` & `pdf-split`)
 
 ```bash
 # 先预览: 自动识别格式与流水线规划 (离线, 零模型调用)
@@ -121,7 +140,7 @@ qyzs markitdown report.docx --mode rigor
 qyzs pdf-split --file big.pdf --pages 1-3,5 --output split.pdf
 ```
 
-### 6. 语义表征与重排 (`embed` & `rerank`)
+### 7. 语义表征与重排 (`embed` & `rerank`)
 
 ```bash
 # 向量表征 (默认 bge-m3 1024 维)

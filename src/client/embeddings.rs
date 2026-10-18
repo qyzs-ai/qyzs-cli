@@ -104,17 +104,21 @@ impl QyzsClient {
         let (items, _) = plan_chunks(&texts, char_limit_for(&model));
         if items.len() == texts.len() && items.len() <= MAX_BATCH_ITEMS {
             // 常规路径：无分块且批量在界内，单请求原样透传
-            return self.embed_request(&model, texts, &key).await;
+            let resp = self.embed_request(&model, texts, &key).await?;
+            Self::record_usage(&model, resp.usage.as_ref());
+            return Ok(resp);
         }
 
         // 分块/拆批路径：按 ≤256 物理条分请求，再按原输入下标均值池化回填
         let mut collected: Vec<Vec<Vec<f64>>> = vec![Vec::new(); texts.len()];
         let mut total_tokens = 0u32;
+        let mut prompt_tokens = 0u32;
         for batch in items.chunks(MAX_BATCH_ITEMS) {
             let batch_inputs: Vec<String> = batch.iter().map(|(_, t)| t.clone()).collect();
             let resp = self.embed_request(&model, batch_inputs, &key).await?;
             if let Some(usage) = &resp.usage {
                 total_tokens += usage.total_tokens.unwrap_or(0);
+                prompt_tokens += usage.prompt_tokens.unwrap_or(0);
             }
             for (pos, item) in resp.data.into_iter().enumerate() {
                 let slot = if item.index < batch.len() { item.index } else { pos };
@@ -133,14 +137,28 @@ impl QyzsClient {
             })
             .collect();
 
+        let aggregate = EmbeddingUsage {
+            prompt_tokens: (prompt_tokens > 0).then_some(prompt_tokens),
+            total_tokens: (total_tokens > 0).then_some(total_tokens),
+        };
+        Self::record_usage(&model, Some(&aggregate));
+
         Ok(EmbeddingResponse {
             model: Some(model),
             data,
-            usage: Some(EmbeddingUsage {
-                prompt_tokens: None,
-                total_tokens: (total_tokens > 0).then_some(total_tokens),
-            }),
+            usage: Some(aggregate),
         })
+    }
+
+    /// 用量台账记录 (best-effort; 向量接口无 completion 概念, 恒记 None)
+    fn record_usage(model: &str, usage: Option<&EmbeddingUsage>) {
+        super::usage_ledger::append_record(&super::usage_ledger::UsageRecord::now(
+            "embed",
+            model,
+            usage.and_then(|u| u.prompt_tokens.map(|v| v as u64)),
+            None,
+            usage.and_then(|u| u.total_tokens.map(|v| v as u64)),
+        ));
     }
 
     async fn embed_request(

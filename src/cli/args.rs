@@ -244,6 +244,21 @@ pub enum Commands {
         online_only: bool,
     },
 
+    #[command(about = "本地网关用量统计 (请求次数与 Token 消耗台账)")]
+    Usage {
+        #[arg(long, help = "仅统计最近 N 天 (含今天, 按 UTC 日界)")]
+        days: Option<u32>,
+
+        #[arg(long, help = "仅统计指定模型 (如 dsv4, bge-m3)")]
+        model: Option<String>,
+
+        #[arg(long, help = "以 JSON 格式输出统计结果")]
+        json: bool,
+
+        #[arg(long, help = "清空本地用量台账后退出")]
+        clear: bool,
+    },
+
     #[command(about = "版本自更新与在线升级 (支持安装即更新)")]
     Upgrade {
         #[arg(long, default_value = "qyzs-ai/qyzs-cli", help = "GitHub 仓库标识")]

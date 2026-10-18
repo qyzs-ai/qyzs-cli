@@ -176,6 +176,13 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
 
         Commands::Models { online_only: _ } => handlers::system::models(&ctx)?,
 
+        Commands::Usage {
+            days,
+            model,
+            json,
+            clear,
+        } => handlers::system::usage(&ctx, days, model, json, clear)?,
+
         Commands::Upgrade { repo, package } => handlers::system::upgrade(&ctx, repo, package).await?,
 
         Commands::Completions { shell } => handlers::system::completions(shell),

@@ -16,6 +16,13 @@ pub struct RerankRequest {
 pub struct RerankResponse {
     pub model: Option<String>,
     pub results: Vec<RerankItem>,
+    /// 实测网关返回 {"total_tokens": N} (仅总量, 无 prompt/completion 拆分)
+    pub usage: Option<RerankUsage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RerankUsage {
+    pub total_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +68,16 @@ impl QyzsClient {
         }
 
         let rerank_resp: RerankResponse = resp.json().await?;
+        super::usage_ledger::append_record(&super::usage_ledger::UsageRecord::now(
+            "rerank",
+            model,
+            None,
+            None,
+            rerank_resp
+                .usage
+                .as_ref()
+                .and_then(|u| u.total_tokens.map(|v| v as u64)),
+        ));
         Ok(rerank_resp)
     }
 }

@@ -9,6 +9,14 @@
 
 ### Added
 
+- `usage` 本地网关用量统计子命令：client 层在 chat（流式/非流式）/ocr/asr/
+  embed/rerank 成功调用点自动追加 JSONL 台账
+  （`$XDG_STATE_HOME/qyzs/usage.jsonl`），`qyzs usage` 聚合展示请求数与
+  prompt/completion/total Token（按模型/按日分组），支持 `--days N`
+  （UTC 日界）、`--model`、`--json`、`--clear`；记录为 best-effort，
+  写失败静默不影响主命令。流式 Token 经 `stream_options.include_usage`
+  获取（2026-10-18 实测网关支持）；rerank 响应新增 `usage.total_tokens`
+  解析（实测网关仅回总量）。MinerU/SAM 为任务型接口无 Token 数据，不记录。
 - `markitdown` 全能文档转 Markdown 流水线子命令（阶段①）：本地/URL 输入自动
   格式嗅探（PDF 魔数、OOXML 条目名、OLE2 目录流名、图像魔数、HTML，扩展名兜底）、
   格式通道路由、三档流水线（speed/balanced/rigor）规划、`--dry-run` 预览；
@@ -39,6 +47,8 @@
 - markitdown 运行时消息全量 i18n 目录化（新增 `msgf!` 序号占位符填充机制，
   format! 不接受非字面量格式串的替代）；修复管道下游关闭 (`| head`) 时的
   Broken pipe panic（Unix 恢复 SIGPIPE 默认行为）。
+- 修复 rigor 仲裁告警模板 `{0:.2}` 占位符与 `msgf!` 纯序号替换机制不匹配
+  导致相似度以字面量 `{0:.2}` 显示的缺陷（调用点已先行 `{:.2}` 格式化）。
 - CI：tag 触发时校验 tag 与 `Cargo.toml` 版本一致性；Release 资产新增
   tests_data.zip 基准数据集打包（`qyzs dataset` 默认 URL 同步指向 v0.2.0）。
 - 新增网关依赖集成测试 `tests/gateway_tests.rs`（`#[ignore]` 门控，CI 自动

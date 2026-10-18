@@ -9,6 +9,7 @@ pub mod ocr;
 pub mod probe;
 pub mod rerank;
 pub mod sam;
+pub mod usage_ledger;
 
 pub use chat::{ChatOptions, ChatResponse, Message, MessageContent};
 pub use embeddings::EmbeddingResponse;

@@ -61,6 +61,12 @@ impl QyzsClient {
             .unwrap_or_default()
             .to_string();
 
+        let usage = res_json.get("usage");
+        let tok = |k: &str| usage.and_then(|u| u.get(k)).and_then(|v| v.as_u64());
+        super::usage_ledger::append_record(&super::usage_ledger::UsageRecord::now(
+            "asr", model, tok("prompt_tokens"), tok("completion_tokens"), tok("total_tokens"),
+        ));
+
         Ok(text)
     }
 }

@@ -56,6 +56,13 @@ max_tokens = 2048
 # qwen3-reranker-8b：0.42s@10 篇 → 3.46s@200 篇（大候选集延迟约 2.3 倍，Top1 > 0.90）。
 # bge-reranker-large：同 v2-m3 量级，但同质语料下 Top1 漂移，仅作基础过滤。
 
+# ── 响应 usage 字段（2026-10-18 实测，qyzs usage 台账数据源）─────────────────
+# chat/completions：非流式响应自带 usage；流式经 stream_options.include_usage
+#   在收尾 chunk（choices 为空）回传完整 usage（prompt/completion/total）。
+# embeddings：usage 含 prompt_tokens/total_tokens（长文本分块后客户端聚合）。
+# rerank：usage 仅 total_tokens，无 prompt/completion 拆分。
+# mineru/sam：任务型接口，无 Token 数据。
+
 # ── 文档解析 ─────────────────────────────────────────────────────────────
 # mineru3.2.3：同步通道实测 30 页（0.2 MB）7.7s 无断点，约 0.26 s/页；
 #   CLI 同步/异步切换阈值：页数 >30 或体积 >10 MB 转异步轮询。
