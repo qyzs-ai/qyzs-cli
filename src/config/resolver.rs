@@ -27,9 +27,21 @@ fn normalize_env_value(raw: Option<String>) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// 校验网关 Base URL 协议前缀 (http/https)
+pub(crate) fn validate_base_url(v: &str) -> QyzsResult<()> {
+    if v.starts_with("http://") || v.starts_with("https://") {
+        Ok(())
+    } else {
+        Err(QyzsError::Usage(format!(
+            "无效的 Base URL '{}': 需以 http:// 或 https:// 开头",
+            v
+        )))
+    }
+}
+
 /// 解析模型输出语言约束: auto | cn | zh | zh-cn | en。
 /// 值集与 chat.rs 注入逻辑对齐 (cn/zh/zh-cn → 中文约束, en → 英文约束, auto → 不注入)。
-fn parse_model_language(v: &str) -> QyzsResult<String> {
+pub(crate) fn parse_model_language(v: &str) -> QyzsResult<String> {
     let lower = v.trim().to_lowercase();
     match lower.as_str() {
         "auto" | "cn" | "zh" | "zh-cn" | "en" => Ok(lower),
@@ -41,7 +53,7 @@ fn parse_model_language(v: &str) -> QyzsResult<String> {
 }
 
 /// 解析终端色彩偏好: auto | always | never
-fn parse_color_choice(v: &str) -> QyzsResult<ColorChoice> {
+pub(crate) fn parse_color_choice(v: &str) -> QyzsResult<ColorChoice> {
     match v.trim().to_lowercase().as_str() {
         "always" => Ok(ColorChoice::Always),
         "never" => Ok(ColorChoice::Never),
@@ -79,14 +91,8 @@ impl ResolvedConfig {
 
         // 2. 解析 Base URL (CLI 显式值校验协议前缀; 环境变量/配置文件沿用历史行为)
         let base_url = if let Some(url) = cli_base_url.map(str::trim).filter(|s| !s.is_empty()) {
-            if url.starts_with("http://") || url.starts_with("https://") {
-                url.to_string()
-            } else {
-                return Err(QyzsError::Usage(format!(
-                    "无效的 Base URL '{}': 需以 http:// 或 https:// 开头",
-                    url
-                )));
-            }
+            validate_base_url(url)?;
+            url.to_string()
         } else if let Ok(url) = std::env::var("QYZS_BASE_URL") {
             let trimmed = url.trim().to_string();
             if !trimmed.is_empty() {

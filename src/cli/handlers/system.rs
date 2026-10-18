@@ -100,6 +100,26 @@ fn print_probe_line(printer: &Printer, probe: &ProbeResult) {
     }
 }
 
+/// config set 写入前校验: 枚举类配置项复用 resolver 校验器, 与 CLI 参数同一套合法值集;
+/// timeout 整数校验在赋值处, model.default_* 为模型名不设枚举限制
+fn validate_config_value(key: &str, value: &str) -> QyzsResult<()> {
+    match key {
+        "network.base_url" => crate::config::resolver::validate_base_url(value),
+        "ui.language" if value != "auto" => crate::term::i18n::language_from_tag(value)
+            .map(|_| ())
+            .ok_or_else(|| {
+                QyzsError::Usage(format!("无效的界面语言 '{}': 仅支持 auto | zh | en", value))
+            }),
+        "ui.color" => crate::config::resolver::parse_color_choice(value).map(|_| ()),
+        "ui.format" => value
+            .parse::<crate::term::OutputFormat>()
+            .map(|_| ())
+            .map_err(QyzsError::Usage),
+        "model.language" => crate::config::resolver::parse_model_language(value).map(|_| ()),
+        _ => Ok(()),
+    }
+}
+
 pub fn config(
     ctx: &Ctx<'_>,
     action: crate::cli::args::ConfigAction,
@@ -127,6 +147,9 @@ pub fn config(
             }
         }
         crate::cli::args::ConfigAction::Set { key, value } => {
+            // 写入前校验: 枚举类配置项与 CLI 参数共用同一套合法值集
+            // (读取时仍 best-effort, 存量脏配置不阻断命令)
+            validate_config_value(&key, &value)?;
             let mut conf = Config::load().unwrap_or_default();
             match key.as_str() {
                 "network.base_url" => conf.network.base_url = value.clone(),
@@ -427,4 +450,30 @@ fn usage_json(
             }))
         }).collect::<serde_json::Map<String, serde_json::Value>>(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_config_value;
+
+    #[test]
+    fn config_set_validates_enum_values() {
+        // 与 CLI 参数同一套合法值集
+        assert!(validate_config_value("ui.language", "auto").is_ok());
+        assert!(validate_config_value("ui.language", "zh_CN").is_ok());
+        assert!(validate_config_value("ui.language", "french").is_err());
+        assert!(validate_config_value("ui.color", "never").is_ok());
+        assert!(validate_config_value("ui.color", "blue").is_err());
+        assert!(validate_config_value("ui.format", "json").is_ok());
+        assert!(validate_config_value("ui.format", "yaml").is_err());
+        assert!(validate_config_value("model.language", "zh-cn").is_ok());
+        assert!(validate_config_value("model.language", "jp").is_err());
+        assert!(validate_config_value("network.base_url", "https://gw:9200").is_ok());
+        assert!(validate_config_value("network.base_url", "ftp://gw").is_err());
+
+        // 非枚举键不设限 (timeout 整数校验在赋值处, default_* 为模型名)
+        assert!(validate_config_value("model.default_chat", "任意模型名").is_ok());
+        assert!(validate_config_value("network.timeout", "abc").is_ok());
+        assert!(validate_config_value("未知键", "任意值").is_ok());
+    }
 }

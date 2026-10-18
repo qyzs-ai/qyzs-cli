@@ -60,6 +60,12 @@
   `--base-url` 非 http(s) 前缀此前拖到请求时才失败，现启动即报错。
   markitdown 子命令参数（`--mode`/`--type`/`--image-handling`/`--min-confidence`）
   经审计本已有显式校验，未改动。校验策略写入 `src/cli/args.rs` 模块头注释。
+- `config set` 写入路径取值校验：枚举类配置项（`ui.language` 含 `auto`、
+  `ui.color`、`ui.format`、`model.language`、`network.base_url`）与 CLI 参数
+  共用同一套校验器与合法值集，非法值拒绝写入并报 USAGE_ERR；读取时保持
+  best-effort，存量脏配置不阻断命令。校验器下沉至 `config/resolver.rs`
+  （`validate_base_url`/`parse_model_language`/`parse_color_choice`）供 CLI
+  与配置两路复用；timeout 整数校验与 `model.default_*` 模型名（无枚举）不变。
 - README 子命令速览覆盖全 18 个子命令（新增 `asr`/`sam`/`verify`/`dataset`/
   `upgrade`/`completions` 展示），markitdown rigor 档示例同步为已接入状态。
 - 破坏性：原"超长 PDF 切片转 Markdown"独立子命令移除，能力同版本被
