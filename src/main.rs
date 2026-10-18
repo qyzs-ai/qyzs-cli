@@ -4,6 +4,14 @@ use std::path::Path;
 
 #[tokio::main]
 async fn main() {
+    // Unix 下恢复 SIGPIPE 默认行为: Rust 进程默认忽略 SIGPIPE, 管道下游关闭
+    // (如 `qyzs models | head`) 时 println! 会触发 Broken pipe panic;
+    // SIG_DFL 让进程收到 SIGPIPE 直接终止, 符合 CLI 惯例
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     let mut args: Vec<String> = std::env::args().collect();
 
     // 别名形式兼容路由：若程序以 qyzs-<子命令> 形式被调用 (软链接等)，内部自动重写为 qyzs <子命令>

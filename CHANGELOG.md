@@ -36,6 +36,13 @@
 
 ### Changed
 
+- markitdown 运行时消息全量 i18n 目录化（新增 `msgf!` 序号占位符填充机制，
+  format! 不接受非字面量格式串的替代）；修复管道下游关闭 (`| head`) 时的
+  Broken pipe panic（Unix 恢复 SIGPIPE 默认行为）。
+- CI：tag 触发时校验 tag 与 `Cargo.toml` 版本一致性；Release 资产新增
+  tests_data.zip 基准数据集打包（`qyzs dataset` 默认 URL 同步指向 v0.2.0）。
+- 新增网关依赖集成测试 `tests/gateway_tests.rs`（`#[ignore]` 门控，CI 自动
+  跳过；本地注入凭证后 `cargo test -- --ignored` 放行）。
 - 骨架重构：dispatch 分发层拆分为 `handlers/{inference,documents,system}`
   按域处理器（分发层只留"解析→映射→调用"）；`QyzsError` 迁移 thiserror
   声明式派生；`qyzs models` 矩阵改为 `capability_matrix.toml` 数据驱动渲染

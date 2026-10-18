@@ -78,6 +78,33 @@ pub enum MsgId {
     PdfSplitSuccess,
     StatusDiagnosticsHeader,
     StatusGatewayHeader,
+    // ── markitdown ──
+    MdPlanHeader,
+    MdInputLocal,
+    MdInputUrl,
+    MdDetectContent,
+    MdDetectExtension,
+    MdDetectManual,
+    MdUnsupportedStatus,
+    MdReason,
+    MdPolishModel,
+    MdOutputTarget,
+    MdDefaultBalanced,
+    MdSliceProgress,
+    MdSaved,
+    MdPolishFallback,
+    MdCrossVerifySummary,
+    MdSecondaryTooThin,
+    MdArbitrateConfirmed,
+    MdArbitrateCorrected,
+    MdArbitrateUnverified,
+    MdGlobalReview,
+    MdLabelInput,
+    MdLabelFormat,
+    MdLabelMode,
+    MdLabelChannel,
+    MdLabelStages,
+    MdLabelPdfPages,
 }
 
 impl MsgId {
@@ -143,6 +170,60 @@ impl MsgId {
 
             (MsgId::StatusGatewayHeader, Language::Zh) => "远程网关连通性探针",
             (MsgId::StatusGatewayHeader, Language::En) => "Remote Gateway Connectivity Probes",
+
+            (MsgId::MdPlanHeader, Language::Zh) => "[markitdown] 流水线规划预览 (--dry-run)",
+            (MsgId::MdPlanHeader, Language::En) => "[markitdown] Pipeline plan preview (--dry-run)",
+            (MsgId::MdInputLocal, Language::Zh) => "本地文件",
+            (MsgId::MdInputLocal, Language::En) => "local file",
+            (MsgId::MdInputUrl, Language::Zh) => "网络下载",
+            (MsgId::MdInputUrl, Language::En) => "downloaded from URL",
+            (MsgId::MdDetectContent, Language::Zh) => "内容嗅探",
+            (MsgId::MdDetectContent, Language::En) => "content sniffing",
+            (MsgId::MdDetectExtension, Language::Zh) => "扩展名兜底",
+            (MsgId::MdDetectExtension, Language::En) => "extension fallback",
+            (MsgId::MdDetectManual, Language::Zh) => "手动指定",
+            (MsgId::MdDetectManual, Language::En) => "manually specified",
+            (MsgId::MdUnsupportedStatus, Language::Zh) => "  状态:        ✗ 该格式暂不支持转换",
+            (MsgId::MdUnsupportedStatus, Language::En) => "  Status:       ✗ conversion not supported for this format",
+            (MsgId::MdReason, Language::Zh) => "  原因:        ",
+            (MsgId::MdReason, Language::En) => "  Reason:       ",
+            (MsgId::MdPolishModel, Language::Zh) => "  润色模型:    ",
+            (MsgId::MdPolishModel, Language::En) => "  Polish model: ",
+            (MsgId::MdOutputTarget, Language::Zh) => "  输出目标:    ",
+            (MsgId::MdOutputTarget, Language::En) => "  Output:       ",
+            (MsgId::MdDefaultBalanced, Language::Zh) => "默认 balanced 档 (单通道 + dsv4 单轮排版润色 + 轻量质检)",
+            (MsgId::MdDefaultBalanced, Language::En) => "Default balanced mode (single channel + dsv4 single-pass polish + light check)",
+            (MsgId::MdSliceProgress, Language::Zh) => "── 片段进度 {0}/{1} ──",
+            (MsgId::MdSliceProgress, Language::En) => "── segment {0}/{1} ──",
+            (MsgId::MdSaved, Language::Zh) => "Markdown 结果已保存至: {0}",
+            (MsgId::MdSaved, Language::En) => "Markdown result saved to: {0}",
+            (MsgId::MdPolishFallback, Language::Zh) => "润色质检回退",
+            (MsgId::MdPolishFallback, Language::En) => "polish quality-check fallback",
+            (MsgId::MdCrossVerifySummary, Language::Zh) => "交叉验证: {0} 段参与, {1} 段低于阈值 {2}",
+            (MsgId::MdCrossVerifySummary, Language::En) => "Cross-verify: {0} paragraph(s) checked, {1} below threshold {2}",
+            (MsgId::MdSecondaryTooThin, Language::Zh) => "第二通道文本层过薄 ({0} 字符 vs 主通道 {1} 字符), 交叉验证不可用, rigor 降级为 balanced 行为",
+            (MsgId::MdSecondaryTooThin, Language::En) => "Secondary channel too thin ({0} chars vs {1} in primary); cross-verify unavailable, rigor falls back to balanced",
+            (MsgId::MdArbitrateConfirmed, Language::Zh) => "段落与证据一致 (相似度 {0:.2}), 保留原文",
+            (MsgId::MdArbitrateConfirmed, Language::En) => "Paragraph matches evidence (similarity {0:.2}), kept as-is",
+            (MsgId::MdArbitrateCorrected, Language::Zh) => "段落已按第二通道证据修正 (相似度 {0:.2})",
+            (MsgId::MdArbitrateCorrected, Language::En) => "Paragraph corrected against secondary evidence (similarity {0:.2})",
+            (MsgId::MdArbitrateUnverified, Language::Zh) => "段落仲裁不可决, 已标记 qyzs:unverified (相似度 {0:.2})",
+            (MsgId::MdArbitrateUnverified, Language::En) => "Arbitration unresolved, paragraph marked qyzs:unverified (similarity {0:.2})",
+            (MsgId::MdGlobalReview, Language::Zh) => "全局审查建议",
+            (MsgId::MdGlobalReview, Language::En) => "Global review suggestions",
+
+            (MsgId::MdLabelInput, Language::Zh) => "  输入:        ",
+            (MsgId::MdLabelInput, Language::En) => "  Input:        ",
+            (MsgId::MdLabelFormat, Language::Zh) => "  识别格式:    ",
+            (MsgId::MdLabelFormat, Language::En) => "  Format:       ",
+            (MsgId::MdLabelMode, Language::Zh) => "  处理档位:    ",
+            (MsgId::MdLabelMode, Language::En) => "  Mode:         ",
+            (MsgId::MdLabelChannel, Language::Zh) => "  规划通道:    ",
+            (MsgId::MdLabelChannel, Language::En) => "  Channel:      ",
+            (MsgId::MdLabelStages, Language::Zh) => "  执行阶段:    ",
+            (MsgId::MdLabelStages, Language::En) => "  Stages:       ",
+            (MsgId::MdLabelPdfPages, Language::Zh) => "  PDF 页数:    {0} 页 → {1} 批切片 (每批 ≤{2} 页)",
+            (MsgId::MdLabelPdfPages, Language::En) => "  PDF pages:    {0} → {1} slice batch(es) (≤{2} pages each)",
         }
     }
 }
@@ -151,5 +232,22 @@ impl MsgId {
 macro_rules! msg {
     ($id:ident) => {
         $crate::term::i18n::MsgId::$id.get()
+    };
+}
+
+/// 用序号占位符 ({0},{1},...) 填充目录消息。
+/// format! 不接受非字面量格式串, 参数化目录消息统一走本函数。
+pub fn fill(template: &str, params: &[String]) -> String {
+    let mut out = template.to_string();
+    for (i, p) in params.iter().enumerate() {
+        out = out.replace(&format!("{{{}}}", i), p);
+    }
+    out
+}
+
+#[macro_export]
+macro_rules! msgf {
+    ($id:ident, $($param:expr),*) => {
+        $crate::term::i18n::fill($crate::term::i18n::MsgId::$id.get(), &[$($param.to_string()),*])
     };
 }

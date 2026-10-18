@@ -26,15 +26,15 @@ pub async fn markitdown(ctx: &Ctx<'_>, opts: MarkitdownOptions) -> QyzsResult<()
             ctx.config.timeout_seconds,
             Some(&|done: usize, total: usize| {
                 if total > 1 {
-                    ctx.printer.info(&format!("── 片段进度 {}/{} ──", done, total));
+                    ctx.printer
+                        .info(&crate::msgf!(MdSliceProgress, done, total));
                 }
             }),
         )
         .await?;
         if let Some(out_p) = run_output {
             std::fs::write(&out_p, &md)?;
-            ctx.printer
-                .ok(&format!("Markdown 结果已保存至: {}", out_p));
+                        ctx.printer.ok(&crate::msgf!(MdSaved, out_p));
         } else {
             println!("{}", md);
         }
@@ -127,47 +127,59 @@ pub async fn dataset(ctx: &Ctx<'_>, url: String, dest: String) -> QyzsResult<()>
 
 fn print_markitdown_plan(printer: &crate::term::Printer, plan: &ConversionPlan) {
     let styler = printer.styler();
+    println!("{}", styler.bold(crate::msg!(MdPlanHeader)));
     println!(
-        "{}",
-        styler.bold("[markitdown] 流水线规划预览 (--dry-run)")
-    );
-    println!(
-        "  输入:        {} ({}, {})",
+        "{}{} ({}, {})",
+        crate::msg!(MdLabelInput),
         plan.input,
         if plan.input_source == "url" {
-            "网络下载"
+            crate::msg!(MdInputUrl)
         } else {
-            "本地文件"
+            crate::msg!(MdInputLocal)
         },
         crate::pipeline::markitdown::human_size(plan.size_bytes)
     );
     println!(
-        "  识别格式:    {} ({})",
+        "{}{} ({})",
+        crate::msg!(MdLabelFormat),
         plan.detected_label,
         match plan.detect_method {
-            "content-sniff" => "内容嗅探",
-            "extension-fallback" => "扩展名兜底",
-            _ => "手动指定",
+            "content-sniff" => crate::msg!(MdDetectContent),
+            "extension-fallback" => crate::msg!(MdDetectExtension),
+            _ => crate::msg!(MdDetectManual),
         }
     );
     if let (Some(pages), Some(slices)) = (plan.page_count, plan.slice_count) {
-        println!("  PDF 页数:    {} 页 → {} 批切片 (每批 ≤15 页)", pages, slices);
-    }
-    println!("  处理档位:    {}", plan.mode);
-    println!("  规划通道:    {}", plan.channel.unwrap_or("—"));
-    if plan.supported {
-        println!("  执行阶段:    {}", plan.stages.join(" → "));
-    } else {
-        printer.err("  状态:        ✗ 该格式暂不支持转换");
         println!(
-            "  原因:        {}",
+            "{}",
+            crate::msgf!(
+                MdLabelPdfPages,
+                pages,
+                slices,
+                crate::pipeline::markitdown::pdf::SLICE_BATCH_PAGES
+            )
+        );
+    }
+    println!("{}{}", crate::msg!(MdLabelMode), plan.mode);
+    println!("{}{}", crate::msg!(MdLabelChannel), plan.channel.unwrap_or("—"));
+    if plan.supported {
+        println!(
+            "{}{}",
+            crate::msg!(MdLabelStages),
+            plan.stages.join(" → ")
+        );
+    } else {
+        printer.err(crate::msg!(MdUnsupportedStatus));
+        println!(
+            "{}{}",
+            crate::msg!(MdReason),
             plan.unsupported_reason.as_deref().unwrap_or("—")
         );
     }
     if plan.mode != "speed" {
-        println!("  润色模型:    {}", plan.polish_model);
+        println!("{}{}", crate::msg!(MdPolishModel), plan.polish_model);
     }
-    println!("  输出目标:    {}", plan.output_target);
+    println!("{}{}", crate::msg!(MdOutputTarget), plan.output_target);
     for w in &plan.warnings {
         printer.warn(&format!("  ⚠ {}", w));
     }

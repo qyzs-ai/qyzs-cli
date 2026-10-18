@@ -43,8 +43,9 @@
 1. `main` 分支 CI 绿（离线 `cargo check` + `cargo test`）。
 2. 发布准备提交：`Cargo.toml` 版本号 + CHANGELOG（`Unreleased` 段落固化为版本段）
    + 需要时的 README 更新。
-3. 打 tag `vX.Y.Z` 并推送 tag → CI 自动：六平台二进制上传 Release、
-   安装脚本上传、npm 包族 provenance 发布（依赖 `NPM_TOKEN` secret）。
+3. 打 tag `vX.Y.Z` 并推送 tag → CI 自动：版本一致性校验、六平台二进制上传
+   Release、安装脚本与 tests_data.zip 数据集上传、npm 包族 provenance 发布
+   （依赖 `NPM_TOKEN` secret）。
 4. 执行发布后验证清单（§3）。
 
 ## 3. 发布条件清单
@@ -63,7 +64,7 @@
 | C8 | `NPM_TOKEN` secret 配置 + npm provenance 流水线端到端实跑 | ⬜ | 0.1.0 从未打 tag，发布链路一次都没跑过 |
 | C9 | 六平台二进制首次真实发布并抽查安装 | ⬜ | install.sh / install.ps1 / npm 三种方式各至少一台真实机器 |
 | C10 | `qyzs upgrade` 自更新链路实测 | ⬜ | 依赖 C9 的已发布版本 |
-| C11 | CI 版本一致性守卫 | ⬜ | 候选：tag 与 `Cargo.toml` 版本不符时 CI 直接失败 |
+| C11 | CI 版本一致性守卫 | ✅ | tag 触发时校验 tag == Cargo.toml 版本，不符即失败；数据集 tests_data.zip 已纳入 Release 资产打包（`qyzs dataset` 默认 URL 指向 v0.2.0，首个 tag 发布后生效） |
 | C12 | 命令参考与 i18n 覆盖 | 🔄 | 全子命令 `--help` 文案齐备；新命令的双语提示纳入 i18n 目录 |
 | C13 | 1.0.0 门槛 | ⬜ | CLI 契约稳定承诺 + 连续两个版本的发布实践 + 安全审查通过（依赖 C7-C10） |
 

@@ -638,7 +638,7 @@ impl MarkitdownPipeline {
         }
 
         for w in &warnings {
-            eprintln!("\x1b[33m[WARN]\x1b[0m 润色质检回退: {}", w);
+            eprintln!("\x1b[33m[WARN]\x1b[0m {}: {}", crate::msg!(MdPolishFallback), w);
         }
 
         Ok(clean::rule_clean(&polished_doc))
@@ -689,9 +689,8 @@ impl MarkitdownPipeline {
         let usable_secondary = secondary_chars >= 200 && secondary_chars * 5 >= primary_chars;
         let mut warnings: Vec<String> = Vec::new();
         if !usable_secondary {
-            warnings.push(format!(
-                "第二通道文本层过薄 ({} 字符 vs 主通道 {} 字符), 交叉验证不可用, rigor 降级为 balanced 行为",
-                secondary_chars, primary_chars
+            warnings.push(crate::msgf!(
+                MdSecondaryTooThin, secondary_chars, primary_chars
             ));
             for w in &warnings {
                 eprintln!("\x1b[33m[WARN]\x1b[0m {}", w);
@@ -710,10 +709,8 @@ impl MarkitdownPipeline {
             .filter(|(_, score, _)| *score < threshold)
             .collect();
         eprintln!(
-            "\x1b[36m[INFO]\x1b[0m 交叉验证: {} 段参与, {} 段低于阈值 {}",
-            paragraphs.len(),
-            conflicts.len(),
-            threshold
+            "\x1b[36m[INFO]\x1b[0m {}",
+            crate::msgf!(MdCrossVerifySummary, paragraphs.len(), conflicts.len(), threshold)
         );
 
         // 5. 冲突仲裁 (≤2 轮; manifest 阶段 "arbitrate")
@@ -757,13 +754,10 @@ impl MarkitdownPipeline {
             match resolved {
                 Some(corrected) if corrected != *paragraph => {
                     final_md = final_md.replace(paragraph.as_str(), &corrected);
-                    warnings.push(format!(
-                        "段落已按第二通道证据修正 (相似度 {:.2})",
-                        score
-                    ));
+                    warnings.push(crate::msgf!(MdArbitrateCorrected, format!("{:.2}", score)));
                 }
                 Some(_) => {
-                    warnings.push(format!("段落与证据一致 (阈值边缘 {:.2}), 保留原文", score));
+                    warnings.push(crate::msgf!(MdArbitrateConfirmed, format!("{:.2}", score)));
                 }
                 None => {
                     let marker = format!("<!-- qyzs:unverified (相似度 {:.2}) -->\n\n", score);
@@ -771,10 +765,7 @@ impl MarkitdownPipeline {
                         paragraph.as_str(),
                         &format!("{}{}", marker, paragraph),
                     );
-                    warnings.push(format!(
-                        "段落仲裁不可决, 已标记 qyzs:unverified (相似度 {:.2})",
-                        score
-                    ));
+                    warnings.push(crate::msgf!(MdArbitrateUnverified, format!("{:.2}", score)));
                 }
             }
             ws.complete_stage(&seg_id, "arbitrate", &[])?;
@@ -783,7 +774,7 @@ impl MarkitdownPipeline {
         // 6. 全局结构审查 (目录树 + 段摘要, 规模无关; 建议仅报告不自动应用)
         match Self::global_review(client, &arbitrate_model, &final_md).await {
             Ok(review_notes) if !review_notes.is_empty() => {
-                warnings.push(format!("全局审查建议: {}", review_notes));
+                warnings.push(format!("{}: {}", crate::msg!(MdGlobalReview), review_notes));
             }
             Ok(_) => {}
             Err(e) => warnings.push(format!("全局审查调用失败: {}", e)),

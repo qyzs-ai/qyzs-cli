@@ -213,7 +213,7 @@ pub enum Commands {
 
     #[command(about = "从 GitHub 官方仓库下载并准备基准测试数据集")]
     Dataset {
-        #[arg(long, default_value = "https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.1.0/tests_data.zip", help = "数据集下载地址")]
+        #[arg(long, default_value = "https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/tests_data.zip", help = "数据集下载地址")]
         url: String,
 
         #[arg(short, long, default_value = "tests/data", help = "数据集解压保存目录")]

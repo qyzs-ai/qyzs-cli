@@ -16,6 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Version consistency (tag vs Cargo.toml)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          CARGO_VER="$(grep -m1 '^version' Cargo.toml | sed 's/version = "\(.*\)"/\1/')"
+          if [ "$TAG" != "$CARGO_VER" ]; then
+            echo "::error::tag v${TAG} != Cargo.toml ${CARGO_VER}: 打 tag 前需在发布准备提交中对齐版本号 (docs/RELEASE.md §2)"
+            exit 1
+          fi
       - name: Cargo Check
         run: cargo check --verbose
       - name: Cargo Test
@@ -75,13 +84,18 @@ jobs:
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
           echo "Release version: $TAG"
 
-      - name: Upload Install Scripts to GitHub Release
+      - name: Package benchmark dataset (tests_data.zip)
+        run: |
+          cd tests && zip -qr "${{ github.workspace }}/tests_data.zip" data
+
+      - name: Upload Release Assets (install scripts + dataset)
         uses: softprops/action-gh-release@v2
         with:
           files: |
             scripts/install.sh
             scripts/install.ps1
             scripts/install.cmd
+            tests_data.zip
           generate_release_notes: true
 
       - name: Pack npm packages
