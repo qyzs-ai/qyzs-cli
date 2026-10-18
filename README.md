@@ -64,7 +64,7 @@ cargo install --path .
 | `-c` | `--color` | 终端色彩 `auto` \| `always` \| `never` |
 | `-f` | `--format` | 输出格式 `text` \| `json` \| `raw` |
 | — | `--api-key` | 覆盖 API Key（无短形式：`-k` 已被 `auth login --key` 占用） |
-| — | `--model-lang` | 模型输出语言约束 `auto` \| `cn` \| `zh-cn` \| `en`（无短形式：`-m` 已被 `--model` 约定占用） |
+| — | `--model-lang` | 模型输出语言约束 `auto` \| `cn` \| `zh` \| `zh-cn` \| `en`（无短形式：`-m` 已被 `--model` 约定占用） |
 
 ### 1. 运行诊断与模型可用矩阵
 

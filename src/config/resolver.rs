@@ -27,6 +27,32 @@ fn normalize_env_value(raw: Option<String>) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// 解析模型输出语言约束: auto | cn | zh | zh-cn | en。
+/// 值集与 chat.rs 注入逻辑对齐 (cn/zh/zh-cn → 中文约束, en → 英文约束, auto → 不注入)。
+fn parse_model_language(v: &str) -> QyzsResult<String> {
+    let lower = v.trim().to_lowercase();
+    match lower.as_str() {
+        "auto" | "cn" | "zh" | "zh-cn" | "en" => Ok(lower),
+        other => Err(QyzsError::Usage(format!(
+            "无效的模型输出语言 '{}': 仅支持 auto | cn | zh | zh-cn | en",
+            other
+        ))),
+    }
+}
+
+/// 解析终端色彩偏好: auto | always | never
+fn parse_color_choice(v: &str) -> QyzsResult<ColorChoice> {
+    match v.trim().to_lowercase().as_str() {
+        "always" => Ok(ColorChoice::Always),
+        "never" => Ok(ColorChoice::Never),
+        "auto" => Ok(ColorChoice::Auto),
+        other => Err(QyzsError::Usage(format!(
+            "无效的色彩偏好 '{}': 仅支持 auto | always | never",
+            other
+        ))),
+    }
+}
+
 impl ResolvedConfig {
     pub fn resolve(
         cli_key: Option<&str>,
@@ -51,9 +77,16 @@ impl ResolvedConfig {
             (String::new(), "None".to_string())
         };
 
-        // 2. 解析 Base URL
-        let base_url = if let Some(url) = cli_base_url.filter(|s| !s.is_empty()) {
-            url.to_string()
+        // 2. 解析 Base URL (CLI 显式值校验协议前缀; 环境变量/配置文件沿用历史行为)
+        let base_url = if let Some(url) = cli_base_url.map(str::trim).filter(|s| !s.is_empty()) {
+            if url.starts_with("http://") || url.starts_with("https://") {
+                url.to_string()
+            } else {
+                return Err(QyzsError::Usage(format!(
+                    "无效的 Base URL '{}': 需以 http:// 或 https:// 开头",
+                    url
+                )));
+            }
         } else if let Ok(url) = std::env::var("QYZS_BASE_URL") {
             let trimmed = url.trim().to_string();
             if !trimmed.is_empty() {
@@ -94,22 +127,19 @@ impl ResolvedConfig {
             crate::term::i18n::detect_environment_language()
         };
 
-        // 5. 解析模型语言
+        // 5. 解析模型语言 (CLI 显式非法值报错; 环境变量/配置文件沿用历史行为:
+        //    未识别值等价 auto, 不注入语言约束)
         let model_language = if let Some(ml) = cli_model_lang {
-            ml.to_lowercase()
-        } else if let Ok(ml) = std::env::var("QYZS_MODEL_LANG") {
+            parse_model_language(ml)?
+        } else if let Some(ml) = normalize_env_value(std::env::var("QYZS_MODEL_LANG").ok()) {
             ml.to_lowercase()
         } else {
             config.model.language.to_lowercase()
         };
 
-        // 6. 解析色彩偏好
+        // 6. 解析色彩偏好 (CLI 显式非法值报错; 配置文件 best-effort 回退 auto)
         let color_choice = if let Some(c) = cli_color {
-            match c.to_lowercase().as_str() {
-                "always" => ColorChoice::Always,
-                "never" => ColorChoice::Never,
-                _ => ColorChoice::Auto,
-            }
+            parse_color_choice(c)?
         } else {
             match config.ui.color.to_lowercase().as_str() {
                 "always" => ColorChoice::Always,
@@ -118,9 +148,9 @@ impl ResolvedConfig {
             }
         };
 
-        // 7. 解析输出格式
+        // 7. 解析输出格式 (CLI 显式非法值报错; 配置文件 best-effort 回退 text)
         let output_format = if let Some(f) = cli_format {
-            f.parse().unwrap_or(OutputFormat::Text)
+            f.parse().map_err(QyzsError::Usage)?
         } else {
             config.ui.format.parse().unwrap_or(OutputFormat::Text)
         };

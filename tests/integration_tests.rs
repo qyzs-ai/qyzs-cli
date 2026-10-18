@@ -318,6 +318,52 @@ fn test_language_resolution_chain() {
 }
 
 #[test]
+fn test_invalid_global_values_rejected() {
+    // 取值校验契约: CLI 显式非法值必须报 USAGE_ERR 并列出合法值 (env/config 层 best-effort 不在此测)
+    use qyzs::error::QyzsError;
+    use qyzs::term::{ColorChoice, OutputFormat};
+
+    macro_rules! assert_usage_err {
+        ($res:expr, $hint:expr) => {
+            match $res {
+                Err(QyzsError::Usage(msg)) => {
+                    assert!(msg.contains($hint), "报错应含 '{}', 实际: {}", $hint, msg);
+                }
+                Ok(_) => panic!("应返回 Usage 错误, 实际成功"),
+                Err(e) => panic!("应返回 Usage 错误, 实际: {e}"),
+            }
+        };
+    }
+
+    assert_usage_err!(
+        ResolvedConfig::resolve(None, None, None, None, None, Some("blue"), None),
+        "auto | always | never"
+    );
+    assert_usage_err!(
+        ResolvedConfig::resolve(None, None, None, None, None, None, Some("yaml")),
+        "text, json, raw"
+    );
+    assert_usage_err!(
+        ResolvedConfig::resolve(None, None, None, None, Some("jp"), None, None),
+        "auto | cn | zh | zh-cn | en"
+    );
+    assert_usage_err!(
+        ResolvedConfig::resolve(None, Some("ftp://gw:9200"), None, None, None, None, None),
+        "http://"
+    );
+
+    // 合法值契约: 大小写不敏感、trim 归一
+    let color = ResolvedConfig::resolve(None, None, None, None, None, Some("ALWAYS"), None).unwrap();
+    assert_eq!(color.color_choice, ColorChoice::Always);
+    let mlang = ResolvedConfig::resolve(None, None, None, None, Some(" ZH-CN "), None, None).unwrap();
+    assert_eq!(mlang.model_language, "zh-cn");
+    let url = ResolvedConfig::resolve(None, Some("  https://gw.example  "), None, None, None, None, None).unwrap();
+    assert_eq!(url.base_url, "https://gw.example");
+    let fmt = ResolvedConfig::resolve(None, None, None, None, None, None, Some("RAW")).unwrap();
+    assert_eq!(fmt.output_format, OutputFormat::Raw);
+}
+
+#[test]
 fn test_subcommand_short_flag_additions() {
     // 短语法规范契约: --model 统一 -m (markitdown 补齐), rerank --top-n 补齐 -n
     let cli = qyzs::Cli::try_parse_from([

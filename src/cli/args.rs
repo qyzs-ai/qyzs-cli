@@ -11,6 +11,9 @@
 //!    不同含义允许复用同一字母 (作用域隔离, clap 惯例), 如 `-p` 在 ocr 为 prompt、
 //!    在 pdf-split 为 pages。
 //! 4. 短形式只增不改不删 (0.x 阶段兼容承诺); 高频参数应有短形式, 低频参数可只留长形式。
+//! 5. 取值校验策略 (与 `config/resolver.rs` 分工): CLI 显式传入的枚举类取值
+//!    (语言/色彩/格式/模型语言/协议前缀) 非法即报 USAGE_ERR 并列出合法值;
+//!    环境变量与配置文件层保持 best-effort 回退默认值, 不因存量脏配置阻断命令。
 
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
@@ -40,7 +43,7 @@ pub struct Cli {
     pub lang: Option<String>,
 
     // --model-lang 无短形式: -m 已被子命令级 --model 约定占用 (见模块头短语法规范)
-    #[arg(long, global = true, help = "模型输出语言约束: auto | cn | zh-cn | en")]
+    #[arg(long, global = true, help = "模型输出语言约束: auto | cn | zh | zh-cn | en")]
     pub model_lang: Option<String>,
 
     #[arg(short = 'c', long, global = true, help = "终端色彩输出: auto | always | never")]

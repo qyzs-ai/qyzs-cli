@@ -52,6 +52,14 @@
 
 ### Changed
 
+- 全局参数取值校验收紧（与语言参数同一策略：CLI 显式非法值报 USAGE_ERR 并列出
+  合法值，环境变量/配置文件层保持 best-effort 回退）：`--color` 非法值此前静默
+  回退 auto，现报错；`--format` 非法值此前静默回退 text，现报错；`--model-lang`
+  非法值此前原样透传（等价 auto 不注入），现报错，合法值集对齐 chat 注入逻辑
+  为 `auto|cn|zh|zh-cn|en`（`zh` 为消费端本已支持而文档缺失的值，help/README 同步）；
+  `--base-url` 非 http(s) 前缀此前拖到请求时才失败，现启动即报错。
+  markitdown 子命令参数（`--mode`/`--type`/`--image-handling`/`--min-confidence`）
+  经审计本已有显式校验，未改动。校验策略写入 `src/cli/args.rs` 模块头注释。
 - README 子命令速览覆盖全 18 个子命令（新增 `asr`/`sam`/`verify`/`dataset`/
   `upgrade`/`completions` 展示），markitdown rigor 档示例同步为已接入状态。
 - 破坏性：原"超长 PDF 切片转 Markdown"独立子命令移除，能力同版本被
