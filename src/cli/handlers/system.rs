@@ -370,6 +370,9 @@ pub fn usage(ctx: &Ctx<'_>, args: UsageArgs) -> QyzsResult<()> {
         return Ok(());
     }
 
+    // 读取前时机性压实 (best-effort): 保留期内明细 + 归档行
+    usage_ledger::compact_if_needed();
+
     let all = usage_ledger::read_records();
     let filter = UsageFilter {
         days: args.days,
@@ -379,12 +382,21 @@ pub fn usage(ctx: &Ctx<'_>, args: UsageArgs) -> QyzsResult<()> {
     };
     let records = usage_ledger::filter_records(&all, &filter);
     let summary = usage_ledger::summarize(&records);
+    // 归档行贡献 (按小时桶无法容纳, 单独口径展示; 明细超 30 天后也并入此处)
+    let archived: (u64, u64) = records
+        .iter()
+        .filter(|r| r.is_rollup())
+        .fold((0, 0), |(n, t), r| {
+            (n + r.request_count(), t + r.total_tokens.unwrap_or(0))
+        });
 
     if args.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&usage_json(&records, &summary, all.len(), &args))
-                .unwrap_or_default()
+            serde_json::to_string_pretty(&usage_json(
+                &records, &summary, all.len(), &args, archived
+            ))
+            .unwrap_or_default()
         );
         return Ok(());
     }
@@ -456,6 +468,17 @@ pub fn usage(ctx: &Ctx<'_>, args: UsageArgs) -> QyzsResult<()> {
                 )
             );
         }
+        if hourly.archived_requests > 0 {
+            println!(
+                "{}",
+                crate::msgf!(
+                    UsageArchivedNote,
+                    usage_ledger::format_num(hourly.archived_requests),
+                    usage_ledger::format_num(hourly.archived_tokens),
+                    usage_ledger::DETAIL_RETENTION_DAYS
+                )
+            );
+        }
     } else {
         println!("\n{}", styler.bold(crate::msg!(UsageByDay)));
         for (day, st) in &summary.by_day {
@@ -495,6 +518,7 @@ fn usage_json(
     summary: &crate::client::usage_ledger::UsageSummary,
     total_in_ledger: usize,
     args: &UsageArgs,
+    archived: (u64, u64),
 ) -> serde_json::Value {
     use crate::client::usage_ledger as ledger;
     let group_json = |st: &ledger::GroupStat| {
@@ -535,6 +559,11 @@ fn usage_json(
         "by_key": summary.by_key.iter()
             .map(|(k, st)| (k.clone(), group_json(st)))
             .collect::<serde_json::Map<String, serde_json::Value>>(),
+        // 归档行 (日粒度历史) 的贡献; 按小时桶无法容纳, 单列口径
+        "archived": {
+            "requests": archived.0,
+            "total_tokens": archived.1,
+        },
         "by_day": summary.by_day.iter()
             .map(|(d, st)| (d.clone(), serde_json::json!({
                 "requests": st.requests,

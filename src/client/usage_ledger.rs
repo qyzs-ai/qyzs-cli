@@ -215,6 +215,163 @@ pub fn clear() -> usize {
     n
 }
 
+/// 明细行保留天数: 超期明细在 usage 读取路径被时机性压实为归档行
+pub const DETAIL_RETENTION_DAYS: u32 = 30;
+
+/// 锁文件认定僵尸的时长 (持有进程崩溃后自动解锁)
+const LOCK_STALE_SECS: u64 = 60;
+
+/// 时机性压实 (best-effort): 将超过保留期的明细行折叠为
+/// (日 × 模型 × 调用族 × 凭据) 归档行, 原有归档行同组合并。
+/// 锁被占用即跳过 (下次 usage 再试); 重写失败静默放弃。
+pub fn compact_if_needed() -> bool {
+    compact_at(&ledger_path(), DETAIL_RETENTION_DAYS)
+}
+
+fn compact_at(path: &std::path::Path, retain_days: u32) -> bool {
+    compact_stale(path, retain_days, std::time::Duration::from_secs(LOCK_STALE_SECS))
+}
+
+fn compact_stale(
+    path: &std::path::Path,
+    retain_days: u32,
+    stale_after: std::time::Duration,
+) -> bool {
+    let cutoff = utc_date_days_ago(retain_days as u64);
+    let needs = read_from(path).iter().any(|r| {
+        !r.is_rollup() && r.day().len() == 10 && r.day() < cutoff.as_str()
+    });
+    if !needs {
+        return false;
+    }
+
+    // 锁内重读以缩小与并发追加者的竞态窗口。追加路径不加锁 (记录是
+    // best-effort 单行 append), 毫秒级窗口内落入的追加行可能丢失, 接受。
+    let Some(_lock) = LedgerLock::acquire_stale(lock_path_for(path), stale_after) else {
+        return false;
+    };
+    let records = read_from(path);
+    let cutoff = utc_date_days_ago(retain_days as u64);
+
+    // 保留: 保留期内明细 + 时间戳异常无法归日的行 (宁留不删)
+    let mut kept: Vec<UsageRecord> = Vec::new();
+    // 折叠池: 超期明细 + 既有归档行, 按 (日, 模型, 调用族, 凭据) 合并
+    let mut pool: std::collections::BTreeMap<
+        (String, String, String, Option<String>),
+        UsageRecord,
+    > = std::collections::BTreeMap::new();
+
+    for r in records {
+        let archivable = r.day().len() == 10 && r.day() < cutoff.as_str();
+        if !r.is_rollup() && !archivable {
+            kept.push(r);
+            continue;
+        }
+        let entry = pool
+            .entry((r.day().to_string(), r.model.clone(), r.kind.clone(), r.key.clone()))
+            .or_insert_with(|| {
+                let mut rollup = UsageRecord::now(&r.kind, &r.model, None, None, None);
+                rollup.ts = format!("{}T00:00:00Z", r.day());
+                rollup.count = Some(0);
+                rollup.key = r.key.clone();
+                rollup
+            });
+        entry.count = Some(entry.count.unwrap_or(0) + r.request_count());
+        entry.prompt_tokens = sum_opt(entry.prompt_tokens, r.prompt_tokens);
+        entry.completion_tokens = sum_opt(entry.completion_tokens, r.completion_tokens);
+        entry.total_tokens = sum_opt(entry.total_tokens, r.total_tokens);
+    }
+
+    let mut out: Vec<UsageRecord> = pool.into_values().collect();
+    out.extend(kept);
+    out.sort_by(|a, b| a.ts.cmp(&b.ts));
+
+    let mut body = String::new();
+    for r in &out {
+        if let Ok(line) = serde_json::to_string(r) {
+            body.push_str(&line);
+            body.push('\n');
+        }
+    }
+
+    // 同目录临时文件 + rename 原子替换; 失败静默放弃 (下次再压实)
+    let tmp = path.with_file_name("usage.jsonl.tmp");
+    if std::fs::write(&tmp, body).is_ok() && std::fs::rename(&tmp, path).is_ok() {
+        true
+    } else {
+        let _ = std::fs::remove_file(&tmp);
+        false
+    }
+}
+
+/// Option<u64> 聚合: 任一有值则求和, 全无则 None
+fn sum_opt(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (None, None) => None,
+        (x, y) => Some(x.unwrap_or(0) + y.unwrap_or(0)),
+    }
+}
+
+fn lock_path_for(path: &std::path::Path) -> PathBuf {
+    path.with_file_name(format!(
+        "{}.lock",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("usage.jsonl")
+    ))
+}
+
+/// 压实互斥锁: create_new 抢占; 既有锁超过 stale_after 视为僵尸删除重试一次,
+/// 仍占用则放弃本次压实。Drop 时释放。
+struct LedgerLock {
+    path: PathBuf,
+}
+
+impl LedgerLock {
+    fn acquire_stale(path: PathBuf, stale_after: std::time::Duration) -> Option<Self> {
+        for _ in 0..2 {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut f) => {
+                    let _ = writeln!(
+                        f,
+                        "pid={} ts={}",
+                        std::process::id(),
+                        now_rfc3339()
+                    );
+                    return Some(Self { path });
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if lock_is_stale(&path, stale_after) {
+                        let _ = std::fs::remove_file(&path);
+                        continue;
+                    }
+                    return None;
+                }
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+}
+
+impl Drop for LedgerLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn lock_is_stale(path: &std::path::Path, stale_after: std::time::Duration) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return true;
+    };
+    let Ok(modified) = meta.modified() else {
+        return true;
+    };
+    modified.elapsed().map(|age| age >= stale_after).unwrap_or(true)
+}
+
 /// 过滤: days = 仅最近 N 天 (含今天, UTC 日界)；model/kind/key = 精确匹配
 pub fn filter_records(records: &[UsageRecord], filter: &UsageFilter<'_>) -> Vec<UsageRecord> {
     let cutoff = filter.days.map(|d| utc_date_days_ago(d as u64));
@@ -526,5 +683,143 @@ mod tests {
         assert_eq!(s.requests, 0);
         assert_eq!(s.first_day, None);
         assert!(s.by_model.is_empty());
+    }
+
+    // ── 压实 ──
+
+    fn write_lines(path: &std::path::Path, lines: &[UsageRecord]) {
+        let body: String = lines
+            .iter()
+            .map(|r| serde_json::to_string(r).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        std::fs::write(path, body).unwrap();
+    }
+
+    #[test]
+    fn compaction_folds_expired_details_merges_existing_rollups() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.jsonl");
+        // 超期明细 3 行 (同日同模型同族同凭据) + 既有归档行 (同组合并) + 保留期明细 2 行
+        write_lines(
+            &path,
+            &[
+                rec("2026-09-01T01:00:00Z", "chat", "dsv4", Some(10)),
+                rec("2026-09-01T02:00:00Z", "chat", "dsv4", Some(20)),
+                rollup("2026-09-01T00:00:00Z", "chat", "dsv4", 9_000, 57),
+                rec("2026-09-02T03:00:00Z", "ocr", "paddleocrvl", Some(768)),
+                rec("2026-10-18T10:00:00Z", "chat", "dsv4", Some(60)),
+                rec("2026-10-17T10:00:00Z", "embed", "bge-m3", Some(6)),
+            ],
+        );
+
+        assert!(compact_at(&path, 30));
+        let out = read_from(&path);
+        // 期望: 2 条归档行 (09-01 chat 合并 59+57=116 次请求, 09-02 ocr 1 次) + 2 条保留明细
+        assert_eq!(out.len(), 4);
+        let chat_arch = out
+            .iter()
+            .find(|r| r.is_rollup() && r.kind == "chat")
+            .expect("chat 归档行应存在");
+        // 既有归档 57 次 + 超期明细 2 次
+        assert_eq!(chat_arch.count, Some(59));
+        assert_eq!(chat_arch.total_tokens, Some(9_030));
+        assert_eq!(chat_arch.ts, "2026-09-01T00:00:00Z");
+        let ocr_arch = out
+            .iter()
+            .find(|r| r.is_rollup() && r.kind == "ocr")
+            .expect("ocr 归档行应存在");
+        assert_eq!(ocr_arch.count, Some(1));
+        assert!(out.iter().any(|r| r.ts == "2026-10-18T10:00:00Z"));
+        assert!(out.iter().any(|r| r.ts == "2026-10-17T10:00:00Z"));
+
+        // 幂等: 二次压实无变化
+        assert!(!compact_at(&path, 30));
+        assert_eq!(read_from(&path).len(), 4);
+    }
+
+    #[test]
+    fn compaction_groups_by_kind_and_key_separately() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.jsonl");
+        let mut keyed = rec("2026-09-01T01:00:00Z", "chat", "dsv4", Some(10));
+        keyed.key = Some("sk-a***1111".to_string());
+        let mut other_key = rec("2026-09-01T02:00:00Z", "chat", "dsv4", Some(20));
+        other_key.key = Some("sk-b***2222".to_string());
+        let plain = rec("2026-09-01T03:00:00Z", "embed", "bge-m3", Some(5));
+        write_lines(&path, &[keyed, other_key, plain]);
+
+        assert!(compact_at(&path, 30));
+        let out = read_from(&path);
+        assert_eq!(out.len(), 3, "不同 (调用族, 凭据) 各自成行");
+        let chat_a = out.iter().find(|r| r.key.as_deref() == Some("sk-a***1111")).unwrap();
+        assert_eq!(chat_a.count, Some(1));
+        let chat_b = out.iter().find(|r| r.key.as_deref() == Some("sk-b***2222")).unwrap();
+        assert_eq!(chat_b.count, Some(1));
+        assert!(out.iter().any(|r| r.kind == "embed" && r.key.is_none()));
+    }
+
+    #[test]
+    fn compaction_preserves_malformed_timestamp_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.jsonl");
+        let mut broken = rec("garbage", "chat", "dsv4", Some(1));
+        broken.count = None;
+        write_lines(
+            &path,
+            &[
+                rec("2026-01-01T00:00:00Z", "chat", "dsv4", Some(10)),
+                broken,
+            ],
+        );
+        assert!(compact_at(&path, 30));
+        let out = read_from(&path);
+        assert_eq!(out.len(), 2, "异常时间戳行宁留不删");
+        assert!(out.iter().any(|r| r.ts == "garbage"));
+    }
+
+    #[test]
+    fn compaction_skips_when_lock_held_proceeds_when_stale() {
+        use std::time::Duration;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.jsonl");
+        write_lines(
+            &path,
+            &[rec("2026-01-01T00:00:00Z", "chat", "dsv4", Some(10))],
+        );
+        let lock_path = lock_path_for(&path);
+
+        // 活锁占用: 跳过压实
+        let _held = LedgerLock::acquire_stale(lock_path.clone(), Duration::from_secs(60));
+        assert!(std::fs::metadata(&lock_path).is_ok());
+        assert!(!compact_stale(&path, 30, Duration::from_secs(60)));
+        assert_eq!(read_from(&path).len(), 1);
+        drop(_held);
+        assert!(!lock_path.exists(), "Drop 应释放锁");
+
+        // 僵尸锁 (stale_after=0 视为必过期): 删除并完成压实
+        std::fs::write(&lock_path, "pid=999999\n").unwrap();
+        assert!(compact_stale(&path, 30, Duration::ZERO));
+        let out = read_from(&path);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].is_rollup());
+        assert!(!lock_path.exists(), "压实完成后锁应释放");
+    }
+
+    #[test]
+    fn compaction_noop_without_expired_details() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.jsonl");
+        write_lines(
+            &path,
+            &[
+                rec("2026-10-18T10:00:00Z", "chat", "dsv4", Some(10)),
+                rollup("2026-09-01T00:00:00Z", "chat", "dsv4", 9_000, 57),
+            ],
+        );
+        let before = std::fs::read_to_string(&path).unwrap();
+        assert!(!compact_at(&path, 30), "无超期明细不应触发重写");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
     }
 }

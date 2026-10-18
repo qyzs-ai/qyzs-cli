@@ -195,6 +195,7 @@ pub enum MsgId {
     UsageByHour,
     UsageModelRow,
     UsageDayRow,
+    UsageArchivedNote,
     UsageNoData,
     UsageCleared,
 }
@@ -339,6 +340,8 @@ impl MsgId {
             (MsgId::UsageModelRow, Language::En) => "  {0}  {1} request(s) | prompt {2} | completion {3} | overall {4} tk",
             (MsgId::UsageDayRow, Language::Zh) => "  {0}  {1} 次请求 | 总计 {2} tk",
             (MsgId::UsageDayRow, Language::En) => "  {0}  {1} request(s) | overall {2} tk",
+            (MsgId::UsageArchivedNote, Language::Zh) => "  另有归档历史 {0} 次请求 | 总计 {1} tk (超 {2} 天明细已按日折叠, 仅按日/模型/调用族粒度可查)",
+            (MsgId::UsageArchivedNote, Language::En) => "  Plus archived history: {0} request(s) | overall {1} tk (details older than {2} days folded by day; day/model/family granularity only)",
             (MsgId::UsageNoData, Language::Zh) => "本地用量台账暂无匹配记录 (发起一次 chat/embed 等网关调用后此处将显示统计)",
             (MsgId::UsageNoData, Language::En) => "No matching usage records yet (run a chat/embed gateway call to populate statistics)",
             (MsgId::UsageCleared, Language::Zh) => "已清空本地用量台账 (删除 {0} 条记录)",
