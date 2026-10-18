@@ -41,7 +41,7 @@ pub fn language_from_tag(tag: &str) -> Option<Language> {
     }
 }
 
-/// 自动探测界面语言，优先级: QYZS_LANG > 标准 locale 变量 > [Windows] 系统 UI 语言 > 英文兜底
+/// 自动探测界面语言，优先级: QYZS_LANG > 标准 locale 变量 > [Windows/macOS] 系统语言 API > 英文兜底
 pub fn detect_environment_language() -> Language {
     // 1. 项目环境变量与 POSIX 国际化变量 (LC_ALL > LC_MESSAGES > LANGUAGE > LANG)
     for var in ["QYZS_LANG", "LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"] {
@@ -58,7 +58,14 @@ pub fn detect_environment_language() -> Language {
         return lang;
     }
 
-    // 3. 所有无法识别的环境一律回退到英文 (English)
+    // 3. macOS 图形会话 (launchd 直启等) 同样常无 locale 环境变量, 经
+    //    CoreFoundation 读取系统区域标识
+    #[cfg(target_os = "macos")]
+    if let Some(lang) = macos_system_language() {
+        return lang;
+    }
+
+    // 4. 所有无法识别的环境一律回退到英文 (English)
     Language::En
 }
 
@@ -76,6 +83,54 @@ fn windows_ui_language() -> Option<Language> {
     } else {
         Language::En
     })
+}
+
+#[cfg(target_os = "macos")]
+fn macos_system_language() -> Option<Language> {
+    // CoreFoundation 为 macOS 系统自带框架, 手写 FFI 零第三方依赖;
+    // allocator 传 NULL 即 kCFAllocatorDefault (CF 惯例)
+    use std::ffi::{c_long, c_void};
+
+    type CFStringRef = *mut c_void;
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFLocaleCopyCurrent(allocator: *mut c_void) -> CFStringRef;
+        fn CFLocaleCopyIdentifier(locale: CFStringRef) -> CFStringRef;
+        fn CFStringGetCString(
+            string: CFStringRef,
+            buffer: *mut u8,
+            buffer_size: c_long,
+            encoding: u32,
+        ) -> bool;
+        fn CFRelease(cf: *mut c_void);
+    }
+
+    const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+
+    unsafe {
+        let locale = CFLocaleCopyCurrent(std::ptr::null_mut());
+        if locale.is_null() {
+            return None;
+        }
+        let mut result = None;
+        let identifier = CFLocaleCopyIdentifier(locale);
+        if !identifier.is_null() {
+            let mut buf = [0u8; 128];
+            if CFStringGetCString(
+                identifier,
+                buf.as_mut_ptr(),
+                buf.len() as c_long,
+                K_CF_STRING_ENCODING_UTF8,
+            ) {
+                let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+                result = std::str::from_utf8(&buf[..end]).ok().and_then(language_from_tag);
+            }
+            CFRelease(identifier);
+        }
+        CFRelease(locale);
+        result
+    }
 }
 
 /// 纯 Rust 编译期静态消息枚举

@@ -35,7 +35,7 @@ pub struct Cli {
     #[arg(short = 't', long, global = true, help = "请求超时秒数")]
     pub timeout: Option<u64>,
 
-    // 默认取系统界面语言 (QYZS_LANG / locale / Windows 系统语言), 无法识别回退英文; --lang 为兼容别名
+    // 默认取系统界面语言 (QYZS_LANG / locale / Windows 与 macOS 系统语言 API), 无法识别回退英文; --lang 为兼容别名
     #[arg(short = 'l', long = "language", alias = "lang", global = true, help = "界面语言: zh (中文) | en (英文) (默认: 系统语言, 无法识别回退 en)")]
     pub language: Option<String>,
 

@@ -14,7 +14,10 @@
   系统探测扩展两处：locale 标签改为按子标签精确解析（`zh_CN.UTF-8`/`en-US`，
   修复旧子串匹配把 `french` 误判为英文类的问题，且 `LC_ALL=en_*` 不再穿透到
   下一层变量）；Windows 无 POSIX locale 变量，新增 Win32 `GetUserDefaultUILanguage`
-  FFI 读取系统 UI 语言（手写 kernel32 声明，零新增依赖）。**默认语言行为变更**：
+  FFI 读取系统 UI 语言；macOS 图形会话（launchd 直启等）同样常无 locale 变量，
+  新增 CoreFoundation `CFLocaleCopyCurrent` FFI 读取系统区域标识（两者均为
+  手写系统框架声明，零新增依赖；已对 windows-gnu 与 aarch64/x86_64-apple-darwin
+  目标完成类型检查）。**默认语言行为变更**：
   此前一律默认中文，现跟随系统语言。CLI 显式非法值（如 `french`）报
   USAGE_ERR 并提示合法值；环境变量/配置文件层保持 best-effort 回退英文。
 - 全局参数短形式补齐与短语法规范文档化：`-b` base-url / `-t` timeout /
