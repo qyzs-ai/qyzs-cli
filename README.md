@@ -83,9 +83,14 @@ qyzs models
 # 本地网关用量台账: 请求次数与 Token 消耗 (chat/ocr/asr/embed/rerank 自动记录)
 qyzs usage
 
-# 只看最近 7 天 / 只看指定模型
+# 只看最近 7 天 / 只看指定模型 / 指定调用族
 qyzs usage --days 7
 qyzs usage --model dsv4
+qyzs usage --kind embed        # chat | ocr | asr | embed | rerank
+
+# 按小时分桶 (UTC) / 指定凭据 (掩码指纹见 [按凭据] 段, 多凭据使用时自动展示)
+qyzs usage --hourly
+qyzs usage --key 'sk-***8816'
 
 # 机器可读输出 / 清空台账
 qyzs usage --json
@@ -95,6 +100,9 @@ qyzs usage --clear
 > 台账为本地 JSONL（`$XDG_STATE_HOME/qyzs/usage.jsonl`，回退 `~/.local/state/qyzs/`），
 > 仅统计本机发起的调用；流式 chat 经 `stream_options.include_usage` 获取 Token 数据
 > （2026-10 实测网关支持）。MinerU/SAM 为任务型接口，无 Token 数据，不记录。
+> 明细保留 30 天（UTC 日界），超期明细在 `usage` 调用时时机性压实为
+> 日 × 模型 × 调用族 × 凭据 归档行（`--hourly` 模式以标注行单列；
+> `--json` 以 `archived` 口径单列），压实幂等且带锁防并发。
 
 ### 3. 凭据与配置管理
 

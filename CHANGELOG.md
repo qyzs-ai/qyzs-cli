@@ -34,6 +34,14 @@
   写失败静默不影响主命令。流式 Token 经 `stream_options.include_usage`
   获取（2026-10-18 实测网关支持）；rerank 响应新增 `usage.total_tokens`
   解析（实测网关仅回总量）。MinerU/SAM 为任务型接口无 Token 数据，不记录。
+- `usage` 统计维度扩展：调用族（`--kind` 过滤 + [按调用族] 段）、凭据
+  （每行记录掩码指纹，`--key` 过滤 + 多凭据时自动展示 [按凭据] 段）、
+  小时窗口（`--hourly` UTC 小时桶替代按日）；归档历史单列标注/`archived`
+  口径，不与小时桶混淆。
+- `usage` 历史压实：明细保留 30 天（UTC 日界），超期明细在 `usage` 调用时
+  时机性压实为 日×模型×调用族×凭据 归档行（`count` 字段承载聚合请求数），
+  与既有归档行同组合并；create_new 锁 + 60s 僵尸锁清除，活锁占用跳过本次；
+  同目录 tmp+rename 原子重写，幂等。
 - `markitdown` 全能文档转 Markdown 流水线子命令（阶段①）：本地/URL 输入自动
   格式嗅探（PDF 魔数、OOXML 条目名、OLE2 目录流名、图像魔数、HTML，扩展名兜底）、
   格式通道路由、三档流水线（speed/balanced/rigor）规划、`--dry-run` 预览；
