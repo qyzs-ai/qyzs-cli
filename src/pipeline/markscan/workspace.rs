@@ -110,21 +110,14 @@ impl Workspace {
             Self::fresh_manifest(&input_sha256, format_key, mode_key)
         };
 
-        // 并发互斥: create_new 失败即视为另一进程在处理相同输入
-        let lock = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&lock_path)
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::AlreadyExists {
-                    QyzsError::Usage(format!(
-                        "相同输入的转换似乎正在另一进程进行 (锁文件: {})；确认无并发后可删除该锁文件",
-                        lock_path.display()
-                    ))
-                } else {
-                    QyzsError::Io(format!("无法创建锁文件 {}: {}", lock_path.display(), e))
-                }
-            })?;
+        // 并发互斥: create_new 失败即视为另一进程在处理相同输入。
+        // 但锁可能因持锁进程被强杀 (SIGKILL/崩溃) 而残留 —— 此时锁里的 PID 已不存在,
+        // 继续拒绝会让该文档**永久无法转换** (实测强杀一轮批测后留下 26 个僵死锁,
+        // 后续全部报"另一进程进行")。故先检测陈旧锁: 持锁 PID 已死 → 清理并接管。
+        let lock = match Self::try_acquire_lock(&lock_path) {
+            Ok(l) => l,
+            Err(e) => return Err(e),
+        };
         let mut lock = lock;
         let _ = writeln!(lock, "pid={}", std::process::id());
 
@@ -232,6 +225,60 @@ impl Workspace {
     /// 读取所有已收集的非致命警告
     pub fn warnings(&self) -> &[String] {
         &self.manifest.warnings
+    }
+
+    /// 获取并发锁; 锁的持锁进程已死 (陈旧锁) 时清理并接管
+    fn try_acquire_lock(lock_path: &Path) -> QyzsResult<std::fs::File> {
+        let attempt = || {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(lock_path)
+        };
+        match attempt() {
+            Ok(f) => Ok(f),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if Self::lock_is_stale(lock_path) {
+                    // 持锁进程已死 → 陈旧锁, 清理后接管
+                    let _ = std::fs::remove_file(lock_path);
+                    attempt().map_err(|_| {
+                        QyzsError::Usage(format!(
+                            "相同输入的转换正在另一进程进行 (锁文件: {})；确认无并发后可删除该锁文件",
+                            lock_path.display()
+                        ))
+                    })
+                } else {
+                    Err(QyzsError::Usage(format!(
+                        "相同输入的转换正在另一进程进行 (锁文件: {})；确认无并发后可删除该锁文件",
+                        lock_path.display()
+                    )))
+                }
+            }
+            Err(e) => Err(QyzsError::Io(format!(
+                "无法创建锁文件 {}: {}",
+                lock_path.display(),
+                e
+            ))),
+        }
+    }
+
+    /// 判定锁是否陈旧: 锁文件里记录的 PID 已不存在
+    fn lock_is_stale(lock_path: &Path) -> bool {
+        let Ok(content) = std::fs::read_to_string(lock_path) else {
+            return false; // 读不出内容 (如刚被创建) → 不判定为陈旧
+        };
+        let Some(pid) = content
+            .lines()
+            .find_map(|l| l.strip_prefix("pid="))
+            .and_then(|p| p.trim().parse::<u32>().ok())
+        else {
+            return false; // 无 PID 记录 → 无法判定, 保守当作活跃
+        };
+        if pid == std::process::id() {
+            return false;
+        }
+        // /proc 不存在 (非 Linux) → 无法判定, 保守当作活跃
+        !Path::new(&format!("/proc/{}", pid)).exists()
     }
 
     /// 读取已完成的段级文本产物
@@ -481,5 +528,48 @@ mod tests {
         assert_eq!(hex, sha256_file(&input2).unwrap());
         let input3 = sample_file(cache.path(), "big3.bin", b"different");
         assert_ne!(hex, sha256_file(&input3).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod stale_lock_tests {
+    use super::*;
+
+    /// 陈旧锁 (持锁 PID 已死) 应被识别
+    #[test]
+    fn test_stale_lock_detected() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let lock = dir.path().join("lock");
+        // 不存在的 PID (极大值)
+        std::fs::write(&lock, "pid=4294967290\n").expect("写锁");
+        assert!(Workspace::lock_is_stale(&lock), "不存在的 PID 应判为陈旧锁");
+    }
+
+    /// 活跃锁 (当前 PID) 不应被判为陈旧
+    #[test]
+    fn test_live_lock_not_stale() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let lock = dir.path().join("lock");
+        std::fs::write(&lock, format!("pid={}\n", std::process::id())).expect("写锁");
+        assert!(!Workspace::lock_is_stale(&lock), "自身 PID 不应判为陈旧");
+    }
+
+    /// 无 PID 记录 → 保守当作活跃 (不误接管)
+    #[test]
+    fn test_lock_without_pid_not_stale() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let lock = dir.path().join("lock");
+        std::fs::write(&lock, "junk\n").expect("写锁");
+        assert!(!Workspace::lock_is_stale(&lock), "无 PID 记录应保守当作活跃");
+    }
+
+    /// 陈旧锁应被接管 (而不是报"另一进程进行")
+    #[test]
+    fn test_stale_lock_taken_over() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let lock = dir.path().join("lock");
+        std::fs::write(&lock, "pid=4294967290\n").expect("写锁");
+        let f = Workspace::try_acquire_lock(&lock).expect("陈旧锁应被接管");
+        drop(f);
     }
 }

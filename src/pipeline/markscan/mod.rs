@@ -1396,7 +1396,15 @@ impl MarkScanPipeline {
         let similarity = cross_verify::verify_paragraphs(client, &paragraphs, &evidence_chunks).await?;
         metrics.record("cross-verify", verify_started.elapsed().as_secs_f64());
 
-        let threshold = opts.min_confidence.unwrap_or(0.70);
+        // 交叉验证阈值 (默认 0.55)。
+        //
+        // 2026-10-21 极限测试实测 (L005 数据安全法等 6 份法律文本): 实际被判冲突的
+        // 段落相似度全部落在 0.44~0.69 (中位 0.65) —— 旧默认 0.70 恰好切在分布
+        // **之上**, 等于把每一段正常同源段落都误判为冲突, 触发第二轮仲裁重试,
+        // 单文档耗时暴涨到 666~1132s (speed 的 100 倍) 且 92% 段落最终标记
+        // unverified。降到 0.55 后, 冲突段从 13 降到 1 量级, 真正有分歧的段落
+        // 仍会被捕获。
+        let threshold = opts.min_confidence.unwrap_or(0.55);
         let conflicts: Vec<(usize, f64, usize)> = similarity
             .into_iter()
             .filter(|(_, score, _)| *score < threshold)

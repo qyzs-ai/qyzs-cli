@@ -106,6 +106,20 @@ pub fn chunk_secondary(text: &str) -> Vec<String> {
         if trimmed.is_empty() {
             continue;
         }
+        // 超长单段: 按字符上限二次切分。单段不被切会整块直送 embed,
+        // 中文 1 字≈1 token 时必然越过 bge-m3 的 8192 token 上限
+        // (2026-10-21 极限测试实测报 input_tokens=8193 越界)。
+        if trimmed.chars().count() > SECONDARY_CHUNK_CHARS {
+            // 先把已累积的 buf 落块, 再切这一段
+            if !buf.is_empty() {
+                chunks.push(std::mem::take(&mut buf));
+            }
+            let chars: Vec<char> = trimmed.chars().collect();
+            for piece in chars.chunks(SECONDARY_CHUNK_CHARS) {
+                chunks.push(piece.iter().collect());
+            }
+            continue;
+        }
         if !buf.is_empty() && buf.chars().count() + trimmed.chars().count() > SECONDARY_CHUNK_CHARS {
             chunks.push(std::mem::take(&mut buf));
         }

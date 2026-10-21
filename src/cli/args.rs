@@ -196,7 +196,7 @@ pub enum Commands {
         #[arg(short = 'm', long, help = "理解/润色阶段 LLM 覆盖 (默认: dsv4)")]
         model: Option<String>,
 
-        #[arg(long, help = "交叉验证一致性阈值 0.0~1.0 (默认 0.70, 实测正确段落对文本层相似度 0.57~0.75; 仅 rigor 档生效)")]
+        #[arg(long, help = "交叉验证一致性阈值 0.0~1.0 (默认 0.55; 实测正常同源段落相似度落在 0.44~0.69, 阈值高于此区间会把所有段落误判为冲突; 仅 rigor 档生效)")]
         min_confidence: Option<f64>,
 
         #[arg(long, help = "输出质量报告 JSON 路径 (检测格式/各通道置信度/冲突清单/轮次耗时)")]

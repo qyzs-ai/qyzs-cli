@@ -12,13 +12,18 @@ use serde::{Deserialize, Serialize};
 const MAX_BATCH_ITEMS: usize = 256;
 
 /// 各模型单条输入的字符分块阈值。
-/// 实测边界：bge-m3 13,000 通过 / 16,000 拒绝；qwen3-embadding-8b 12,000 通过 /
-/// 13,000 拒绝；bge-large-zh-v1.5 约 500 通过 / 约 800 拒绝（512 Token 级短向量模型）。
+///
+/// 注意单位: 网关限制的是 **token** 数 (bge-m3 为 8192), 而此处按**字符**切分。
+/// 中文一字约一 token, 纯中文 12,000 字符即约 12,000 token —— 远超 8192。
+/// 2026-10-21 极限测试实测: 12,000 字符的中文证据块报
+/// `input_tokens=8193` 越界 (HTTP 400)。故按最坏比��� (1 字符 = 1 token) 取阈值:
+/// bge-m3 / qwen3-embadding-8b 取 6,000 字符 → 最多 6,000 token, 留足余量。
+/// bge-large-zh-v1.5 上下文小 (512 token 级), 仍按 500 字符。
 fn char_limit_for(model: &str) -> usize {
     match model {
         "bge-large-zh-v1.5" => 500,
-        // bge-m3 / qwen3-embadding-8b 及未知模型统一按 12,000 字符分块
-        _ => 12_000,
+        // bge-m3 / qwen3-embadding-8b: 8192 token 上限 → 中文按 6,000 字符封顶
+        _ => 6_000,
     }
 }
 
