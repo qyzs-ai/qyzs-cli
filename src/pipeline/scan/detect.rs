@@ -1,4 +1,4 @@
-//! markitdown 输入格式嗅探 (阶段①)
+//! scan 输入格式嗅探 (阶段①)
 //!
 //! 识别优先级：内容魔数 > 容器内部结构 (ZIP 条目名 / OLE2 目录流名) > 扩展名兜底。
 //! 零新增依赖：ZIP 家族在头部字节内直接解析本地文件头条目名；
@@ -34,6 +34,10 @@ pub enum SourceFormat {
     Pptx,
     Vsdx,
     Vs,
+    Csv,
+    Json,
+    Xml,
+    Zip,
     Image(ImageKind),
     Html,
     Unknown,
@@ -90,6 +94,10 @@ impl SourceFormat {
             Self::Pptx => "pptx",
             Self::Vsdx => "vsdx",
             Self::Vs => "vsd",
+            Self::Csv => "csv",
+            Self::Json => "json",
+            Self::Xml => "xml",
+            Self::Zip => "zip",
             Self::Image(_) => "image",
             Self::Html => "html",
             Self::Unknown => "unknown",
@@ -108,6 +116,10 @@ impl SourceFormat {
             Self::Pptx => "PowerPoint 演示文稿 (.pptx, OOXML)".into(),
             Self::Vsdx => "Visio 绘图 (.vsdx, OOXML)".into(),
             Self::Vs => "Visio 绘图 (.vsd, 旧版二进制)".into(),
+            Self::Csv => "CSV 文本表格".into(),
+            Self::Json => "JSON 数据".into(),
+            Self::Xml => "XML 文档".into(),
+            Self::Zip => "ZIP 压缩容器".into(),
             Self::Image(k) => format!("图像 ({})", k.label()),
             Self::Html => "HTML 网页".into(),
             Self::Unknown => "未知格式".into(),
@@ -126,10 +138,14 @@ impl SourceFormat {
             "pptx" => Ok(Self::Pptx),
             "vsd" => Ok(Self::Vs),
             "vsdx" => Ok(Self::Vsdx),
+            "csv" => Ok(Self::Csv),
+            "json" => Ok(Self::Json),
+            "xml" => Ok(Self::Xml),
+            "zip" => Ok(Self::Zip),
             "image" => Ok(Self::Image(ImageKind::Unspecified)),
             "html" => Ok(Self::Html),
             other => Err(QyzsError::Usage(format!(
-                "未知输入格式 '{}'，可选: pdf|doc|docx|xls|xlsx|ppt|pptx|vsd|vsdx|image|html",
+                "未知输入格式 '{}'，可选: pdf|doc|docx|xls|xlsx|ppt|pptx|vsd|vsdx|csv|json|xml|zip|image|html",
                 other
             ))),
         }
@@ -217,7 +233,8 @@ impl FormatDetector {
             return SourceFormat::Pdf;
         }
         if head.starts_with(b"PK\x03\x04") {
-            return Self::zip_entry_kind(head).unwrap_or(SourceFormat::Unknown);
+            // OOXML 家族优先 (docx/xlsx/pptx/vsdx); 非 OOXML 的纯 ZIP 容器兜底为 Zip
+            return Self::zip_entry_kind(head).unwrap_or(SourceFormat::Zip);
         }
         if head.starts_with(&OLE2_MAGIC) {
             return Self::ole_stream_kind(head).unwrap_or(SourceFormat::Unknown);
@@ -225,8 +242,14 @@ impl FormatDetector {
         if let Some(kind) = Self::image_kind(head) {
             return SourceFormat::Image(kind);
         }
+        if Self::is_xml(head) {
+            return SourceFormat::Xml;
+        }
         if Self::is_html(head) {
             return SourceFormat::Html;
+        }
+        if Self::is_json(head) {
+            return SourceFormat::Json;
         }
         SourceFormat::Unknown
     }
@@ -252,6 +275,38 @@ impl FormatDetector {
             .windows(14)
             .any(|w| w == b"<!doctype html")
             || lower.windows(5).any(|w| w == b"<html")
+    }
+
+    /// XML 嗅探: `<?xml ...?>` 声明优先; 否则 `<` 开头 + 元素名首字符为字母/下划线/中文
+    /// (排除 `<!doctype` 避免与 HTML 误撞)
+    fn is_xml(head: &[u8]) -> bool {
+        let start = usize::from(head.starts_with(&[0xEF, 0xBB, 0xBF]));
+        let window = &head[start..head.len().min(start + 512)];
+        let lower = window.to_ascii_lowercase();
+        if lower.starts_with(b"<?xml") {
+            return true;
+        }
+        if window.len() > 1 && window[0] == b'<' {
+            let next = window[1];
+            if (next.is_ascii_alphabetic() || next == b'_' || next >= 0x80)
+                && !lower.starts_with(b"<!doctype")
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// JSON 嗅探: 第一个非空白字符为 `{` 或 `[` 且整文件能完整解析
+    fn is_json(head: &[u8]) -> bool {
+        let start = usize::from(head.starts_with(&[0xEF, 0xBB, 0xBF]));
+        let body = &head[start..];
+        let first = body.iter().find(|b| !b.is_ascii_whitespace()).copied();
+        match first {
+            Some(b'{') | Some(b'[') => {}
+            _ => return false,
+        }
+        serde_json::from_slice::<serde_json::Value>(body).is_ok()
     }
 
     fn image_kind(head: &[u8]) -> Option<ImageKind> {
@@ -383,6 +438,10 @@ impl FormatDetector {
             "pptx" => SourceFormat::Pptx,
             "vsd" => SourceFormat::Vs,
             "vsdx" => SourceFormat::Vsdx,
+            "csv" => SourceFormat::Csv,
+            "json" => SourceFormat::Json,
+            "xml" => SourceFormat::Xml,
+            "zip" => SourceFormat::Zip,
             "htm" | "html" => SourceFormat::Html,
             other => SourceFormat::Image(ImageKind::from_extension(other)?),
         };
@@ -473,10 +532,10 @@ mod tests {
             FormatDetector::detect_bytes(&make_zip(&[("visio/document.xml", "<x/>")])),
             SourceFormat::Vsdx
         );
-        // 非 OOXML 的普通 zip 不误判
+        // 非 OOXML 的普通 zip → 判定为 Zip 容器
         assert_eq!(
             FormatDetector::detect_bytes(&make_zip(&[("random.txt", "hello")])),
-            SourceFormat::Unknown
+            SourceFormat::Zip
         );
     }
 
@@ -536,6 +595,75 @@ mod tests {
     }
 
     #[test]
+    fn test_xml_detection() {
+        // XML 声明
+        assert_eq!(
+            FormatDetector::detect_bytes(b"<?xml version=\"1.0\"?>"),
+            SourceFormat::Xml
+        );
+        // 元素根
+        assert_eq!(
+            FormatDetector::detect_bytes(b"<root><child/></root>"),
+            SourceFormat::Xml
+        );
+        // 命名空间
+        assert_eq!(
+            FormatDetector::detect_bytes(b"<soap:Envelope></soap:Envelope>"),
+            SourceFormat::Xml
+        );
+        // 中文根
+        assert_eq!(
+            FormatDetector::detect_bytes("<文档><标题>x</标题></文档>".as_bytes()),
+            SourceFormat::Xml
+        );
+        // doctype html 不被 XML 误判
+        assert_eq!(
+            FormatDetector::detect_bytes(b"<!doctype html><html>"),
+            SourceFormat::Html
+        );
+    }
+
+    #[test]
+    fn test_json_detection() {
+        // 对象
+        assert_eq!(
+            FormatDetector::detect_bytes(br#"{"a":1,"b":2}"#),
+            SourceFormat::Json
+        );
+        // 数组
+        assert_eq!(
+            FormatDetector::detect_bytes(br#"[1,2,3]"#),
+            SourceFormat::Json
+        );
+        // 前后空白
+        assert_eq!(
+            FormatDetector::detect_bytes(b"  \n\t{\"x\":true}"),
+            SourceFormat::Json
+        );
+        // 顶层非 { 或 [ → 不算 JSON
+        assert_eq!(
+            FormatDetector::detect_bytes(b"not json"),
+            SourceFormat::Unknown
+        );
+        // 不完整 JSON
+        assert_eq!(
+            FormatDetector::detect_bytes(b"{\"a\":"),
+            SourceFormat::Unknown
+        );
+    }
+
+    #[test]
+    fn test_csv_extension_fallback() {
+        // CSV 内容不可靠嗅探, 仅依赖扩展名
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.csv");
+        std::fs::write(&path, b"a,b\n1,2\n").unwrap();
+        let det = FormatDetector::detect_file(&path).unwrap();
+        assert_eq!(det.format, SourceFormat::Csv);
+        assert_eq!(det.method, DetectMethod::ExtensionFallback);
+    }
+
+    #[test]
     fn test_extension_fallback() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mystery.xlsx");
@@ -559,6 +687,10 @@ mod tests {
             SourceFormat::parse("image").unwrap(),
             SourceFormat::Image(ImageKind::Unspecified)
         );
+        assert_eq!(SourceFormat::parse("CSV").unwrap(), SourceFormat::Csv);
+        assert_eq!(SourceFormat::parse("json").unwrap(), SourceFormat::Json);
+        assert_eq!(SourceFormat::parse("XML").unwrap(), SourceFormat::Xml);
+        assert_eq!(SourceFormat::parse("ZIP").unwrap(), SourceFormat::Zip);
         assert!(SourceFormat::parse("docxx").is_err());
     }
 

@@ -8,8 +8,14 @@ use crate::term::Printer;
 use crate::updater::UpdateManager;
 use std::io::Write;
 
-pub async fn status(ctx: &Ctx<'_>, json: bool) -> QyzsResult<()> {
-    let probes = ctx.client.run_probes().await;
+pub async fn status(ctx: &Ctx<'_>, json: bool, no_probe: bool) -> QyzsResult<()> {
+    // --no-probe: 跳过远程三网关探活 (每端点 5s 超时), 离线脚本秒回;
+    // 未跳过时保持原有全链路诊断行为不变
+    let probes = if no_probe {
+        None
+    } else {
+        Some(ctx.client.run_probes().await)
+    };
     let creds_path = Credentials::default_path();
     let is_secure = Credentials::is_permission_secure(&creds_path);
     let is_npm = UpdateManager::is_running_under_npm();
@@ -27,11 +33,7 @@ pub async fn status(ctx: &Ctx<'_>, json: bool) -> QyzsResult<()> {
             "credentials_secure": is_secure,
             "api_key_source": config.api_key_source,
             "api_key_masked": Credentials::mask_key(&config.api_key),
-            "probes": {
-                "public_api": { "ok": probes.public_api.ok, "status": probes.public_api.status_code, "latency_ms": probes.public_api.latency_ms },
-                "mineru_api": { "ok": probes.mineru_api.ok, "status": probes.mineru_api.status_code, "latency_ms": probes.mineru_api.latency_ms },
-                "sam_api": { "ok": probes.sam_api.ok, "status": probes.sam_api.status_code, "latency_ms": probes.sam_api.latency_ms }
-            }
+            "probes": probes_json(probes.as_ref())
         });
         println!("{}", serde_json::to_string_pretty(&status_json).unwrap_or_default());
     } else {
@@ -67,23 +69,43 @@ pub async fn status(ctx: &Ctx<'_>, json: bool) -> QyzsResult<()> {
             styler.bold(&format!("[{}]", crate::msg!(StatusGatewayHeader)))
         );
         println!("  Gateway Origin: {}", config.base_url);
-        print_probe_line(printer, &probes.public_api);
-        print_probe_line(printer, &probes.mineru_api);
-        print_probe_line(printer, &probes.sam_api);
+        match &probes {
+            Some(p) => {
+                print_probe_line(printer, &p.public_api);
+                print_probe_line(printer, &p.mineru_api);
+                print_probe_line(printer, &p.sam_api);
+            }
+            // 无探针数据时不输出全局健康结论: 跳过探针 ≠ 全链路正常
+            None => printer.dim("  (--no-probe: 已跳过远程探针, 无网关健康数据)"),
+        }
 
-        if probes.all_ok {
-            println!(
-                "\n{}",
-                styler.green(&format!("[STATUS] {}", crate::msg!(AllSystemsOperational)))
-            );
-        } else {
-            println!(
-                "\n{}",
-                styler.yellow(&format!("[STATUS] {}", crate::msg!(StatusDegraded)))
-            );
+        if let Some(p) = &probes {
+            if p.all_ok {
+                println!(
+                    "\n{}",
+                    styler.green(&format!("[STATUS] {}", crate::msg!(AllSystemsOperational)))
+                );
+            } else {
+                println!(
+                    "\n{}",
+                    styler.yellow(&format!("[STATUS] {}", crate::msg!(StatusDegraded)))
+                );
+            }
         }
     }
     Ok(())
+}
+
+/// `status --json` 的 `probes` 段: 未跳过探针时展开三个网关, `--no-probe` 时为 null
+fn probes_json(probes: Option<&crate::client::probe::GatewayProbes>) -> serde_json::Value {
+    match probes {
+        None => serde_json::Value::Null,
+        Some(p) => serde_json::json!({
+            "public_api": { "ok": p.public_api.ok, "status": p.public_api.status_code, "latency_ms": p.public_api.latency_ms },
+            "mineru_api": { "ok": p.mineru_api.ok, "status": p.mineru_api.status_code, "latency_ms": p.mineru_api.latency_ms },
+            "sam_api": { "ok": p.sam_api.ok, "status": p.sam_api.status_code, "latency_ms": p.sam_api.latency_ms }
+        }),
+    }
 }
 
 fn print_probe_line(printer: &Printer, probe: &ProbeResult) {
@@ -171,6 +193,12 @@ pub fn config(
                 "model.default_embed" => println!("{}", conf.model.default_embed),
                 "model.default_rerank" => println!("{}", conf.model.default_rerank),
                 _ => {
+                    // 未知键 fallback: 走 stderr 提示用户键名未在已知表里,
+                    // 再将整文件 TOML 输出到 stdout 供参考 (与 read 工具的副作用约定)
+                    eprintln!(
+                        "# 未识别的配置键 '{}', 输出整文件 TOML 供查阅",
+                        key
+                    );
                     let toml_val =
                         toml::Value::try_from(&conf).map_err(|e| QyzsError::Config(e.to_string()))?;
                     println!("{}", toml_val);
@@ -215,6 +243,9 @@ pub fn config(
             println!("Credentials: {}", Credentials::default_path().display());
         }
         crate::cli::args::ConfigAction::Reset => {
+            // 破坏性操作前警告 (替代交互式确认)
+            ctx.printer
+                .warn(crate::msg!(WarnConfigResetDestructive));
             Config::reset()?;
             ctx.printer.ok(crate::msg!(ConfigReset));
         }
@@ -267,6 +298,9 @@ pub fn auth(
             }
         }
         crate::cli::args::AuthAction::Logout => {
+            // 破坏性操作前警告 (替代交互式确认, 适配无 TTY 场景)
+            ctx.printer
+                .warn(crate::msg!(WarnAuthLogoutDestructive));
             let purged = Credentials::purge()?;
             if purged {
                 ctx.printer.ok(crate::msg!(AuthLogoutSuccess));
@@ -324,19 +358,57 @@ pub async fn upgrade(
     ctx: &Ctx<'_>,
     repo: String,
     package: Option<String>,
+    check: bool,
 ) -> QyzsResult<()> {
+    // --check 与 --package 互斥语义: --package 是「就地装」的语义,
+    // --check 只读查询版本, 不应被本地包路径触发
+    if check && package.is_some() {
+        return Err(QyzsError::Usage(
+            "--check 与 --package 互斥: --check 仅查询远程版本, 不接受本地安装包路径".to_string(),
+        ));
+    }
+
     if let Some(pkg) = package {
         UpdateManager::install_from_local_package(&pkg)?;
         ctx.printer
             .ok(&format!("已从本地安装包 '{}' 完成就地安装/更新！", pkg));
     } else {
         ctx.printer.info(crate::msg!(SelfUpdateChecking));
+        if check {
+            // 仅检查: 复用 self_update 的远程查询路径, 但在替换前终止
+            // 这里直接调底层查询, 不进入下载/替换分支
+            return upgrade_check_only(ctx, &repo).await;
+        }
         let updated = UpdateManager::self_update(&repo).await?;
         if updated {
             ctx.printer.ok(crate::msg!(SelfUpdateSuccess));
         } else {
             ctx.printer.info(crate::msg!(SelfUpdateUpToDate));
         }
+    }
+    Ok(())
+}
+
+/// `--check` 仅查询: 取 GitHub 最新 release, 与当前版本对比并打印, 不下载不替换。
+/// 复用 `installer.rs::GitHubClient` 但避免走 `self_update` 的下载与原子替换分支
+async fn upgrade_check_only(ctx: &Ctx<'_>, repo: &str) -> QyzsResult<()> {
+    use crate::updater::github::GitHubClient;
+
+    if UpdateManager::is_running_under_npm() {
+        return Err(QyzsError::Usage(crate::msg!(SelfUpdateNpmWarning).to_string()));
+    }
+
+    let release = GitHubClient::get_latest_release(repo).await?;
+    let remote_tag = release.tag_name.trim_start_matches('v').to_string();
+    let current = env!("CARGO_PKG_VERSION").to_string();
+
+    if remote_tag == current {
+        ctx.printer.info(crate::msg!(SelfUpdateUpToDate));
+    } else {
+        ctx.printer.ok(&format!(
+            "可升级: 当前 v{} → 远程 v{} (运行 `qyzs upgrade` 执行就地更新)",
+            current, remote_tag
+        ));
     }
     Ok(())
 }
@@ -361,6 +433,9 @@ pub fn usage(ctx: &Ctx<'_>, args: UsageArgs) -> QyzsResult<()> {
     use crate::client::usage_ledger::{self, UsageFilter};
 
     if args.clear {
+        // 破坏性操作前警告 (替代交互式确认; --json 模式下静默走数据通道, 警告仍 stderr 输出)
+        ctx.printer
+            .warn(crate::msg!(WarnUsageClearDestructive));
         let removed = usage_ledger::clear();
         if args.json {
             println!("{}", serde_json::json!({ "cleared_records": removed }));
@@ -537,9 +612,10 @@ fn usage_json(
         "records_matched": records.len(),
         "filter": {
             "days": args.days,
-            "model": args.model,
-            "kind": args.kind,
-            "key": args.key,
+            // 回显实际生效的过滤值 (已 trim, 与 filter_records 同口径)
+            "model": args.model.as_deref().map(str::trim),
+            "kind": args.kind.as_deref().map(str::trim),
+            "key": args.key.as_deref().map(str::trim),
         },
         "requests": summary.requests,
         "requests_with_tokens": summary.with_tokens,
@@ -587,7 +663,42 @@ fn usage_json(
 
 #[cfg(test)]
 mod tests {
+    use super::probes_json;
     use super::validate_config_value;
+    use crate::client::probe::{GatewayProbes, ProbeResult};
+
+    fn probe(name: &str, ok: bool, status: u16, latency: u64) -> ProbeResult {
+        ProbeResult {
+            name: name.to_string(),
+            endpoint: "ep".to_string(),
+            ok,
+            status_code: status,
+            latency_ms: latency,
+            error_msg: None,
+        }
+    }
+
+    #[test]
+    fn status_json_probes_contract() {
+        // --no-probe: probes 段为 null (脚本据此判断"未探测"而非"全部失败")
+        assert!(probes_json(None).is_null());
+
+        // 正常探测: 三网关平铺
+        let p = GatewayProbes {
+            base_url: "http://gw".to_string(),
+            public_api: probe("public", true, 400, 12),
+            mineru_api: probe("mineru", false, 500, 30),
+            sam_api: probe("sam", true, 405, 8),
+            all_ok: false,
+        };
+        let v = probes_json(Some(&p));
+        assert_eq!(v["public_api"]["ok"], serde_json::json!(true));
+        assert_eq!(v["public_api"]["status"], serde_json::json!(400));
+        assert_eq!(v["public_api"]["latency_ms"], serde_json::json!(12));
+        assert_eq!(v["mineru_api"]["ok"], serde_json::json!(false));
+        assert_eq!(v["mineru_api"]["status"], serde_json::json!(500));
+        assert_eq!(v["sam_api"]["ok"], serde_json::json!(true));
+    }
 
     #[test]
     fn config_set_validates_enum_values() {

@@ -1,4 +1,4 @@
-//! markitdown 表格抽取通道 (xlsx/xls → Markdown 表格, 纯 Rust 零 C 依赖)
+//! scan 表格抽取通道 (xlsx/xls → Markdown 表格, 纯 Rust 零 C 依赖)
 //!
 //! calamine 读取工作簿; 每个工作表输出一张 Markdown 表格:
 //! - 首个非空行作为表头;
@@ -164,7 +164,7 @@ pub fn extract_xls(ws: &mut Workspace, path: &str) -> QyzsResult<String> {
     Ok(output)
 }
 
-fn extract_xlsx_impl(path: &str) -> QyzsResult<String> {
+pub fn extract_xlsx_impl(path: &str) -> QyzsResult<String> {
     let mut workbook: Xlsx<BufReader<File>> = open_workbook(path)
         .map_err(|e| QyzsError::Usage(format!("无法打开 xlsx 文件 {}: {}", path, e)))?;
 
@@ -380,7 +380,7 @@ mod tests {
         let cache = tempfile::tempdir().unwrap();
         let input = cache.path().join("in.xlsx");
         std::fs::write(&input, b"dummy").unwrap();
-        let mut ws = crate::pipeline::markitdown::workspace::Workspace::open_in(
+        let mut ws = crate::pipeline::scan::workspace::Workspace::open_in(
             cache.path().join("ws"),
             &input,
             "xlsx",
@@ -416,7 +416,7 @@ mod tests {
         let cache = tempfile::tempdir().unwrap();
         let input = cache.path().join("in.xlsx");
         std::fs::write(&input, b"dummy").unwrap();
-        let mut ws = crate::pipeline::markitdown::workspace::Workspace::open_in(
+        let mut ws = crate::pipeline::scan::workspace::Workspace::open_in(
             cache.path().join("ws"),
             &input,
             "xlsx",

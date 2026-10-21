@@ -2,8 +2,8 @@
 
 pub mod ocr_verify;
 pub mod dataset;
-pub mod markitdown;
+pub mod scan;
 
 pub use ocr_verify::OcrVerifier;
 pub use dataset::DatasetManager;
-pub use markitdown::MarkitdownPipeline;
+pub use scan::ScanPipeline;

@@ -25,7 +25,7 @@ use clap_complete::Shell;
     version,
     about = "自然资源部庆阳智算中心大模型统一命令行工具",
     long_about = "自然资源部庆阳智算中心统一命令行工具 (qyzs)，提供全量模型调用、公文与大文档结构化解析、同源互验与跨平台自更新能力。",
-    after_help = "常用流程:\n  qyzs status                          # 运行环境、凭据与三网关自检\n  qyzs auth login                      # 安全保存 API Key (0600)\n  qyzs chat \"请综述这份材料...\"         # 对话推理 (流式打字机)\n  qyzs models                          # 查看实测可用模型矩阵\n  qyzs markitdown 文档.pdf --dry-run   # 全能转 Markdown: 预览识别与流水线规划\n  qyzs markitdown 文档.pdf -o out.md   # 全能转 Markdown: 执行转换"
+    after_help = "常用流程:\n  qyzs status                          # 运行环境、凭据与三网关自检\n  qyzs auth login                      # 安全保存 API Key (0600)\n  qyzs chat \"请综述这份材料...\"         # 对话推理 (流式打字机)\n  qyzs models                          # 查看实测可用模型矩阵\n  qyzs scan 文档.pdf --dry-run   # 全能转 Markdown: 预览识别与流水线规划\n  qyzs scan 文档.pdf -o out.md   # 全能转 Markdown: 执行转换"
 )]
 pub struct Cli {
     // --api-key 无短形式: -k 已被 auth login --key 占用 (见模块头短语法规范)
@@ -72,22 +72,22 @@ pub enum Commands {
         #[arg(long, help = "采样温度 (0.0~2.0)")]
         temperature: Option<f64>,
 
-        #[arg(long, help = "最大生成 Token 数量")]
+        #[arg(long, help = "最大生成 Token 数量 (≥ 1)")]
         max_tokens: Option<u32>,
 
-        #[arg(long, help = "Top-P 核采样概率")]
+        #[arg(long, help = "Top-P 核采样概率 (0.0~1.0)")]
         top_p: Option<f64>,
 
-        #[arg(long, default_value_t = true, help = "启用打字机流式输出 (默认开启)")]
+        #[arg(long, default_value_t = true, conflicts_with = "no_stream", help = "启用打字机流式输出 (默认开启; 与 --no-stream 互斥, 不可同时指定)")]
         stream: bool,
 
-        #[arg(long, help = "禁用流式输出")]
+        #[arg(long, conflicts_with = "stream", help = "禁用流式输出 (与 --stream 互斥)")]
         no_stream: bool,
 
-        #[arg(long, default_value_t = true, help = "是否展示 qwen3.6-27b 的思维链思考过程")]
+        #[arg(long, default_value_t = true, help = "是否展示 qwen3.6-27b 的思维链思考过程 (默认开启)")]
         reasoning: bool,
 
-        #[arg(short, long, help = "附带图像路径 (支持同时传入 1~16 张图片)")]
+        #[arg(short, long, value_delimiter = ',', help = "附带图像路径 (支持同时传入 1~16 张图片, dispatch 校验; 可逗号分隔 -i a.png,b.png 或重复 -i a.png -i b.png)")]
         image: Vec<String>,
     },
 
@@ -101,15 +101,6 @@ pub enum Commands {
 
         #[arg(long, help = "限制长边最大像素尺寸 (默认 800px 防越界)")]
         max_dim: Option<u32>,
-    },
-
-    #[command(about = "PDF/Word 文档结构化解析转 Markdown (默认: mineru3.2.3 专线)")]
-    Parse {
-        #[arg(help = "待解析文档文件路径 (.pdf, .doc, .docx)")]
-        file: String,
-
-        #[arg(long, default_value_t = true, help = "是否开启内部 OCR 模式")]
-        is_ocr: bool,
     },
 
     #[command(about = "语义向量表征生成 (默认: bge-m3 1024维 / 备选: qwen3-embadding 4096维)")]
@@ -145,7 +136,7 @@ pub enum Commands {
         model: Option<String>,
     },
 
-    #[command(about = "遥感双时相大模型变化检测流水线 (默认: acid-sam3-full)")]
+    #[command(about = "遥感双时相大模型变化检测流水线 (默认: acid-sam3-full; 当前不支持自定义模型)")]
     Sam {
         #[arg(long, help = "前时相遥感影像文件路径")]
         before: String,
@@ -153,7 +144,7 @@ pub enum Commands {
         #[arg(long, help = "后时相遥感影像文件路径")]
         after: String,
 
-        #[arg(long, help = "AOI 多边形 GeoJSON 字符串或文件路径")]
+        #[arg(long, help = "AOI 多边形 (支持两种形式: GeoJSON 字符串直接传入, 或 .geojson/.json 文件路径; handler 端按文件存在性自动分支)")]
         aoi: Option<String>,
 
         #[arg(long, help = "变化检测判定敏感度阈值 (0.0~1.0)")]
@@ -165,13 +156,13 @@ pub enum Commands {
         #[arg(help = "待拆分 PDF 原始文件路径")]
         file: String,
 
-        #[arg(short, long, help = "提取指定页码范围 (如 '1-3,5,7-9')")]
+        #[arg(short, long, conflicts_with = "chunk_size", help = "提取指定页码范围 (如 '1-3,5,7-9')")]
         pages: Option<String>,
 
         #[arg(short, long, help = "拆分后的独立 PDF 输出路径")]
         output: Option<String>,
 
-        #[arg(long, help = "将整个 PDF 按每 N 页分块切片并保存到目录")]
+        #[arg(long, conflicts_with = "pages", help = "将整个 PDF 按每 N 页分块切片并保存到目录")]
         chunk_size: Option<usize>,
 
         #[arg(long, help = "分块输出保存目录")]
@@ -180,28 +171,31 @@ pub enum Commands {
 
     #[command(about = "OCR 与 MinerU 解析结果同源互验仲裁")]
     Verify {
-        #[arg(long, help = "OCR 纯文本或包含识别结果的文件路径")]
+        #[arg(long, help = "OCR 纯文本或包含识别结果的文件路径 (handler 端先尝试按文件读取, 失败回退为直接传入的文本内容)")]
         ocr: String,
 
-        #[arg(long, help = "MinerU 结构化 Markdown 文件路径")]
+        #[arg(long, help = "MinerU 结构化 Markdown 文件路径 (handler 端先尝试按文件读取, 失败回退为直接传入的文本内容)")]
         markdown: String,
     },
 
-    #[command(about = "全能文档转 Markdown 流水线 (自动识别格式 + 多通道抽取 + 交叉验证排版)")]
-    Markitdown {
-        #[arg(help = "输入: 本地文件路径或 http(s):// 在线地址 (自动识别格式)")]
-        input: String,
+    #[command(about = "智能文档转 Markdown (类型识别 + 多模型抽取 + 交叉验证 + 图片资产落盘)")]
+    Scan {
+        #[arg(required = true, help = "输入: 可多次传入本地文件/目录 (顶层自动遍历, --recursive 递归) 或 http(s):// 在线地址 (ZIP 容器会迭代内部条目)")]
+        input: Vec<String>,
 
-        #[arg(short, long, help = "输出 Markdown 文件保存路径 (默认输出到 stdout)")]
+        #[arg(short, long, help = "输出路径: 多文件/目录输入时为输出目录 (自动创建, 每个输入一个 .md); 单文件输入为输出文件 (默认 stdout)")]
         output: Option<String>,
 
-        #[arg(long, help = "流水线档位: speed (单通道+规则清洗) | balanced (+LLM润色+自检) | rigor (双通道+交叉验证+仲裁) (默认 balanced)")]
+        #[arg(long, default_value_t = false, help = "目录输入时递归遍历子目录 (默认仅顶层)")]
+        recursive: bool,
+
+        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["speed", "balanced", "rigor"]), help = "流水线档位: speed (单通道+规则清洗) | balanced (+LLM润色+自检) | rigor (双通道+交叉验证+仲裁) (默认 balanced)")]
         mode: Option<String>,
 
-        #[arg(long, help = "手动指定输入格式覆盖自动识别 (pdf|docx|xls|xlsx|ppt|pptx|vsd|vsdx|image|html)")]
+        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "vsd", "vsdx", "csv", "json", "xml", "zip", "image", "html"]), help = "手动指定输入格式覆盖自动识别 (pdf|docx|xls|xlsx|ppt|pptx|vsd|vsdx|csv|json|xml|zip|image|html)")]
         r#type: Option<String>,
 
-        #[arg(long, help = "图像内容处理策略: auto | ocr | describe | both | skip (默认 auto)")]
+        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["auto", "ocr", "describe", "both", "skip"]), help = "图像内容处理策略: auto | ocr | describe | both | skip (默认 auto)")]
         image_handling: Option<String>,
 
         #[arg(short = 'm', long, help = "理解/润色阶段 LLM 覆盖 (默认: dsv4)")]
@@ -213,10 +207,10 @@ pub enum Commands {
         #[arg(long, help = "输出质量报告 JSON 路径 (检测格式/各通道置信度/冲突清单/轮次耗时)")]
         report: Option<String>,
 
-        #[arg(long, help = "工作目录 (默认 ~/.cache/qyzs/markitdown/<输入内容哈希>/)")]
+        #[arg(long, help = "工作目录 (默认 ~/.cache/qyzs/scan/<输入内容哈希>/)")]
         work_dir: Option<String>,
 
-        #[arg(long, default_value_t = 24_000, help = "章节分段目标字符数 (0 = 禁用结构分段, 仅按切片边界分段)")]
+        #[arg(long, default_value_t = 24_000, help = "章节分段目标字符数 (1~100000, 0 已被 dispatch 拒, 100001+ 同上)")]
         segment_chars: usize,
 
         #[arg(long, default_value_t = false, help = "从上次中断的工作目录断点续跑 (输入内容一致时生效)")]
@@ -225,13 +219,28 @@ pub enum Commands {
         #[arg(long, default_value_t = false, help = "成功后也保留全部中间产物 (默认成功即流式清理, 失败自动保留)")]
         no_clean: bool,
 
+        #[arg(long, default_value_t = false, help = "关闭 YAML front matter (默认开启, 便于 RAG 链路消费元信息)")]
+        no_front_matter: bool,
+
         #[arg(long, default_value_t = false, help = "仅输出格式识别结果与规划流水线, 不执行转换")]
         dry_run: bool,
+
+        #[arg(long, help = "图片附件输出目录 (默认与输出 .md 同级的 assets/); 单文件输出到 stdout 时不落盘")]
+        assets_dir: Option<String>,
+
+        #[arg(long, default_value_t = false, help = "不抽取图片附件 (默认抽取并写入 assets/)")]
+        no_assets: bool,
+
+        #[arg(long, default_value_t = false, help = "跳过文档类型识别 (默认识别公文/标准/表格/演示/图片, 并据此优化排版)")]
+        no_classify: bool,
+
+        #[arg(long, help = "体裁识别模型: 规则弱命中或判不出时调用模型仲裁/兜底 (默认 dsv4); 指定后改为模型优先、规则兜底 (如 --classify-model qwen3.6-27b)")]
+        classify_model: Option<String>,
     },
 
     #[command(about = "从 GitHub 官方仓库下载并准备基准测试数据集")]
     Dataset {
-        #[arg(long, default_value = "https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/tests_data.zip", help = "数据集下载地址")]
+        #[arg(long, default_value = "https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/tests_data.zip", help = "数据集下载地址 (默认 v0.2.0 快照; 新版本请用 --url 显式覆盖, 如 https://github.com/qyzs-ai/qyzs-cli/releases/download/v<X.Y.Z>/tests_data.zip)")]
         url: String,
 
         #[arg(short, long, default_value = "tests/data", help = "数据集解压保存目录")]
@@ -242,6 +251,9 @@ pub enum Commands {
     Status {
         #[arg(long, help = "以 JSON 格式输出诊断结果")]
         json: bool,
+
+        #[arg(long, help = "跳过远程三网关探活, 仅输出本地环境与凭据状态 (离线秒回, JSON 的 probes 段为 null)")]
+        no_probe: bool,
     },
 
     #[command(about = "配置文件持久化管理 (~/.config/qyzs/config.toml)")]
@@ -258,8 +270,11 @@ pub enum Commands {
 
     #[command(about = "查看庆阳智算中心真实可用模型矩阵与性能指标")]
     Models {
-        #[arg(long, default_value_t = true, help = "仅显示经实测在线 (ONLINE) 的高可用模型")]
+        #[arg(long, default_value_t = true, conflicts_with = "all_models", help = "仅显示经实测在线 (ONLINE) 的高可用模型 (默认开启; 与 --all-models 互斥)")]
         online_only: bool,
+
+        #[arg(long, conflicts_with = "online_only", help = "显示全量模型矩阵 (含 OFFLINE/DEPRECATED; 与 --online-only 互斥)")]
+        all_models: bool,
     },
 
     #[command(about = "本地网关用量统计 (请求次数与 Token 消耗台账)")]
@@ -282,7 +297,7 @@ pub enum Commands {
         #[arg(long, help = "以 JSON 格式输出统计结果")]
         json: bool,
 
-        #[arg(long, help = "清空本地用量台账后退出")]
+        #[arg(long, conflicts_with_all = ["days", "model", "kind", "key"], help = "清空本地用量台账后退出 (与过滤参数互斥)")]
         clear: bool,
     },
 
@@ -293,6 +308,9 @@ pub enum Commands {
 
         #[arg(long, help = "若本地已有安装包，可直接从本地包安装/更新")]
         package: Option<String>,
+
+        #[arg(long, help = "仅检查远程版本, 不实际执行升级 (返回是否需要更新)")]
+        check: bool,
     },
 
     #[command(about = "生成 Shell 自动补全脚本 (Bash / Zsh / Fish / PowerShell)")]
@@ -326,7 +344,7 @@ pub enum ConfigAction {
 pub enum AuthAction {
     #[command(about = "登录并安全存储 API Key (Unix 下自动设置 0600)")]
     Login {
-        #[arg(short, long, help = "API Key (未提供时依次读取环境变量 QYZS_APIKEY 与已保存凭据)")]
+        #[arg(short, long, help = "API Key (未提供时依次读取环境变量 QYZS_APIKEY 与已保存凭据; 经 -k/--key 传入的值会出现在进程命令行列表中, 敏感场景推荐省略此参数改为交互输入或 stdin)")]
         key: Option<String>,
     },
     #[command(about = "查看当前生效 API Key 掩码与凭据文件权限安全性")]

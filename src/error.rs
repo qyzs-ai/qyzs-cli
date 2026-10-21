@@ -2,6 +2,9 @@
 
 
 /// 标准退出码定义
+///
+/// `USAGE_ERR`/`AUTH_ERR`/`TIMEOUT_ERR`/`IO_ERR` 为本项目自定义语义码;
+/// `EX_UNAVAILABLE`/`EX_SOFTWARE`/`EX_CONFIG` 取自 BSD sysexits.h, 供外部脚本做诊断分流。
 pub mod exit_code {
     pub const SUCCESS: i32 = 0;
     pub const FAILURE: i32 = 1;
@@ -9,6 +12,12 @@ pub mod exit_code {
     pub const AUTH_ERR: i32 = 3;
     pub const TIMEOUT_ERR: i32 = 4;
     pub const IO_ERR: i32 = 5;
+    /// 服务不可达 (sysexits.h EX_UNAVAILABLE) — 网络层无法连接/握手失败
+    pub const EX_UNAVAILABLE: i32 = 69;
+    /// 内部软件错误 (sysexits.h EX_SOFTWARE) — 网关 5xx / 响应解析失败
+    pub const EX_SOFTWARE: i32 = 70;
+    /// 配置错误 (sysexits.h EX_CONFIG) — TOML 格式错误、配置键非法
+    pub const EX_CONFIG: i32 = 78;
 }
 
 pub type QyzsResult<T> = Result<T, QyzsError>;
@@ -31,6 +40,10 @@ pub enum QyzsError {
     Pdf(String),
     #[error("配置异常: {0}")]
     Config(String),
+    /// 非错误的中途放弃 (如 scan 判定输入为真实照片而跳过)。
+    /// 与失败区分: 退出码 0, 批量处理时继续后续文件而不中止整批。
+    #[error("已跳过: {0}")]
+    Skipped(String),
 }
 
 impl QyzsError {
@@ -50,6 +63,7 @@ impl QyzsError {
             Self::Io(m) => Self::Io(attach(m, hint)),
             Self::Pdf(m) => Self::Pdf(attach(m, hint)),
             Self::Config(m) => Self::Config(attach(m, hint)),
+            Self::Skipped(m) => Self::Skipped(attach(m, hint)),
         }
     }
 
@@ -59,7 +73,10 @@ impl QyzsError {
             Self::Auth(_) => exit_code::AUTH_ERR,
             Self::Timeout(_) => exit_code::TIMEOUT_ERR,
             Self::Io(_) | Self::Pdf(_) => exit_code::IO_ERR,
-            Self::Network(_) | Self::Server(_) | Self::Config(_) => exit_code::FAILURE,
+            Self::Network(_) => exit_code::EX_UNAVAILABLE,
+            Self::Server(_) => exit_code::EX_SOFTWARE,
+            Self::Config(_) => exit_code::EX_CONFIG,
+            Self::Skipped(_) => 0,
         }
     }
 }

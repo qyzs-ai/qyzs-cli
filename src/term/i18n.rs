@@ -141,6 +141,9 @@ pub enum MsgId {
     StatusDegraded,
     ConfigSaved,
     ConfigReset,
+    WarnConfigResetDestructive,
+    WarnAuthLogoutDestructive,
+    WarnUsageClearDestructive,
     AuthLoginSuccess,
     AuthLogoutSuccess,
     AuthMissingKey,
@@ -156,7 +159,7 @@ pub enum MsgId {
     PdfSplitSuccess,
     StatusDiagnosticsHeader,
     StatusGatewayHeader,
-    // ── markitdown ──
+    // ── scan ──
     MdPlanHeader,
     MdInputLocal,
     MdInputUrl,
@@ -218,6 +221,14 @@ impl MsgId {
 
             (MsgId::ConfigReset, Language::Zh) => "配置已恢复默认初始值",
             (MsgId::ConfigReset, Language::En) => "Configuration reset to defaults",
+            (MsgId::WarnConfigResetDestructive, Language::Zh) =>
+                "⚠ 即将把配置文件恢复为初始默认值, 全部自定义项 (含 per-model 超参表) 将丢失",
+            (MsgId::WarnConfigResetDestructive, Language::En) =>
+                "⚠ About to reset the config file to defaults; all custom entries (incl. per-model param table) will be lost",
+            (MsgId::WarnAuthLogoutDestructive, Language::Zh) =>
+                "⚠ 即将清除本地保存的 API Key 凭据文件, 操作不可撤销",
+            (MsgId::WarnAuthLogoutDestructive, Language::En) =>
+                "⚠ About to purge the locally saved API Key credentials file; this cannot be undone",
 
             (MsgId::AuthLoginSuccess, Language::Zh) => "凭据已安全保存 (权限 0600)",
             (MsgId::AuthLoginSuccess, Language::En) => "Credentials securely saved (mode 0600)",
@@ -264,8 +275,8 @@ impl MsgId {
             (MsgId::StatusGatewayHeader, Language::Zh) => "远程网关连通性探针",
             (MsgId::StatusGatewayHeader, Language::En) => "Remote Gateway Connectivity Probes",
 
-            (MsgId::MdPlanHeader, Language::Zh) => "[markitdown] 流水线规划预览 (--dry-run)",
-            (MsgId::MdPlanHeader, Language::En) => "[markitdown] Pipeline plan preview (--dry-run)",
+            (MsgId::MdPlanHeader, Language::Zh) => "[scan] 流水线规划预览 (--dry-run)",
+            (MsgId::MdPlanHeader, Language::En) => "[scan] Pipeline plan preview (--dry-run)",
             (MsgId::MdInputLocal, Language::Zh) => "本地文件",
             (MsgId::MdInputLocal, Language::En) => "local file",
             (MsgId::MdInputUrl, Language::Zh) => "网络下载",
@@ -346,6 +357,10 @@ impl MsgId {
             (MsgId::UsageNoData, Language::En) => "No matching usage records yet (run a chat/embed gateway call to populate statistics)",
             (MsgId::UsageCleared, Language::Zh) => "已清空本地用量台账 (删除 {0} 条记录)",
             (MsgId::UsageCleared, Language::En) => "Usage ledger cleared ({0} record(s) removed)",
+            (MsgId::WarnUsageClearDestructive, Language::Zh) =>
+                "⚠ 即将清空本地用量台账 (全部历史请求与 Token 记录), 操作不可撤销",
+            (MsgId::WarnUsageClearDestructive, Language::En) =>
+                "⚠ About to clear the local usage ledger (all historical request and token records); this cannot be undone",
         }
     }
 }
@@ -390,5 +405,36 @@ mod tests {
         assert_eq!(language_from_tag("french"), None);
         assert_eq!(language_from_tag("C"), None);
         assert_eq!(language_from_tag(""), None);
+    }
+
+    /// 破坏性操作警告: 必须中英双语齐备 (否则英文界面下中英混排) 且带 ⚠ 告警标记
+    #[test]
+    fn destructive_warnings_are_bilingual() {
+        // 语言是进程级全局, 跑完还原, 免得并行测试里留下英文状态
+        let saved = current_language();
+        for id in [
+            MsgId::WarnConfigResetDestructive,
+            MsgId::WarnAuthLogoutDestructive,
+            MsgId::WarnUsageClearDestructive,
+        ] {
+            set_language(Language::Zh);
+            let zh = id.get().to_string();
+            set_language(Language::En);
+            let en = id.get().to_string();
+
+            assert!(!zh.is_empty(), "{:?} 中文案为空", id);
+            assert!(!en.is_empty(), "{:?} 英文案为空", id);
+            assert_ne!(zh, en, "{:?} 中英文案相同, 疑似漏译", id);
+            assert!(zh.starts_with('⚠'), "{:?} 中文案缺 ⚠ 标记", id);
+            assert!(en.starts_with('⚠'), "{:?} 英文案缺 ⚠ 标记", id);
+            // 占位符数量须一致, 否则 msgf! 填充会错位
+            assert_eq!(
+                zh.matches('{').count(),
+                en.matches('{').count(),
+                "{:?} 中英文案占位符数量不一致",
+                id
+            );
+        }
+        set_language(saved);
     }
 }

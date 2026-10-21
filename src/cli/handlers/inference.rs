@@ -14,6 +14,8 @@ pub struct ChatArgs {
     pub temperature: Option<f64>,
     pub max_tokens: Option<u32>,
     pub top_p: Option<f64>,
+    /// 流式开关: clap 层 `--stream` 与 `--no-stream` 由 `conflicts_with` 互斥
+    /// 默认 true; --no-stream 置 false 时, handler 取反
     pub stream: bool,
     pub no_stream: bool,
     pub reasoning: bool,
@@ -37,7 +39,8 @@ pub async fn chat(ctx: &Ctx<'_>, args: ChatArgs) -> QyzsResult<()> {
     // qwen3-VL-30B-A3B 实测 16 图为可靠工作上限 (QYZS-ANALYZE.md §3.6)，>16 图自动分批
     const VLM_MAX_IMAGES: usize = 16;
 
-    let use_stream = if no_stream { false } else { stream };
+    // clap 层保证 --stream 与 --no-stream 不可同时出现; 这里只需按 no_stream 取反
+    let use_stream = !no_stream && stream;
     let image_batches: Vec<Vec<String>> = if images.len() > VLM_MAX_IMAGES {
         images.chunks(VLM_MAX_IMAGES).map(<[String]>::to_vec).collect()
     } else {
@@ -145,12 +148,6 @@ pub async fn ocr(
             println!("{}", resp.text);
         }
     }
-    Ok(())
-}
-
-pub async fn parse(ctx: &Ctx<'_>, file: String, is_ocr: bool) -> QyzsResult<()> {
-    let md = ctx.client.parse_document(&file, is_ocr).await?;
-    println!("{}", md);
     Ok(())
 }
 

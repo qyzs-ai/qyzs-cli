@@ -33,6 +33,27 @@ impl HttpClient {
         })
     }
 
+    /// 构造一个「不跟随重定向」的探针客户端
+    ///
+    /// 网关对部分路径会 301 到不带端口的绝对地址 (如
+    /// `http://<host>/ai-gateway/mineru3.2.3/`, 丢掉 `:9200`), 跟随后连到
+    /// 不可达端口而挂起, 导致正常工作的专线被误判为不可用。探针场景下
+    /// 3xx 本身即证明路由可达, 直接判为在线即可, 无需跟随。
+    pub fn new_no_redirect(base_url: &str, timeout_secs: u64) -> QyzsResult<Self> {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(timeout_secs))
+            .connect_timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| QyzsError::Network(format!("初始化探针 HTTP 客户端失败: {}", e)))?;
+
+        let clean_base = base_url.trim_end_matches('/').to_string();
+        Ok(Self {
+            client,
+            base_url: clean_base,
+        })
+    }
+
     pub fn client(&self) -> &reqwest::Client {
         &self.client
     }

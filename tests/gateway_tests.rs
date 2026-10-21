@@ -1,4 +1,4 @@
-//! markitdown 真实网关集成测试 (门控: #[ignore])
+//! scan 真实网关集成测试 (门控: #[ignore])
 //!
 //! CI 离线环境自动跳过; 本地验证需注入凭证后手动放行:
 //! ```bash
@@ -8,8 +8,8 @@
 //!
 //! 行为契约依据: tests/docs/QYZS-MARKITDOWN.md; 实测校准值见 capability_matrix.toml。
 
-use qyzs::pipeline::markitdown::{
-    detect::FormatDetector, MarkitdownOptions, MarkitdownPipeline, PipelineMode,
+use qyzs::pipeline::scan::{
+    detect::FormatDetector, ScanOptions, ScanPipeline, PipelineMode,
 };
 use std::path::Path;
 
@@ -24,10 +24,11 @@ fn have_key() -> bool {
     std::env::var("QYZS_APIKEY").map(|v| !v.is_empty()).unwrap_or(false)
 }
 
-fn speed_opts(input: &str) -> MarkitdownOptions {
-    MarkitdownOptions {
-        input: input.to_string(),
+fn speed_opts(input: &str) -> ScanOptions {
+    ScanOptions {
+        input: vec![input.to_string()],
         output: None,
+        recursive: false,
         mode: PipelineMode::Speed,
         type_override: None,
         image_handling: crate_default_image_handling(),
@@ -38,14 +39,19 @@ fn speed_opts(input: &str) -> MarkitdownOptions {
         segment_chars: 24_000,
         resume: false,
         no_clean: false,
+        no_front_matter: false,
         dry_run: false,
+        assets_dir: None,
+        no_assets: false,
+        no_classify: false,
+        classify_model: None,
     }
 }
 
-// MarkitdownOptions.image_handling 类型未在 lib 层暴露 Default;
+// ScanOptions.image_handling 类型未在 lib 层暴露 Default;
 // 显式构造保持测试自洽
-fn crate_default_image_handling() -> qyzs::pipeline::markitdown::ImageHandling {
-    qyzs::pipeline::markitdown::ImageHandling::Auto
+fn crate_default_image_handling() -> qyzs::pipeline::scan::ImageHandling {
+    qyzs::pipeline::scan::ImageHandling::Auto
 }
 
 #[tokio::test]
@@ -56,11 +62,10 @@ async fn gateway_text_pdf_speed() {
     }
     let config = test_config();
     let client = qyzs::QyzsClient::new(config).unwrap();
-    let md = MarkitdownPipeline::convert(&client, &speed_opts(&fixture(
-        "tests/data/mineru/text_pdf/REF-0056_政府采购评审专家管理办法.pdf",
-    )), 300, None)
-    .await
-    .expect("文本 PDF speed 转换应成功");
+    let input = fixture("tests/data/mineru/text_pdf/REF-0056_政府采购评审专家管理办法.pdf");
+    let md = ScanPipeline::convert(&client, &speed_opts(&input), &input, 300, None)
+        .await
+        .expect("文本 PDF speed 转换应成功");
 
     assert!(md.contains("政府采购评审专家管理办法"), "应含文档标题");
     assert!(md.contains("财政部"), "应含发文机关");
@@ -75,11 +80,10 @@ async fn gateway_image_ocr_auto() {
     }
     let config = test_config();
     let client = qyzs::QyzsClient::new(config).unwrap();
-    let md = MarkitdownPipeline::convert(&client, &speed_opts(&fixture(
-        "tests/data/ocr/images/ref0101_p1_redhead_scan.png",
-    )), 300, None)
-    .await
-    .expect("图像 OCR 转换应成功");
+    let input = fixture("tests/data/ocr/images/ref0101_p1_redhead_scan.png");
+    let md = ScanPipeline::convert(&client, &speed_opts(&input), &input, 300, None)
+        .await
+        .expect("图像 OCR 转换应成功");
 
     assert!(md.contains("网络安全") || md.contains("自然资源部"), "应含红头文字");
 }
@@ -89,7 +93,8 @@ async fn gateway_image_ocr_auto() {
 async fn gateway_html_url() {
     let config = test_config();
     let client = qyzs::QyzsClient::new(config).unwrap();
-    let md = MarkitdownPipeline::convert(&client, &speed_opts("https://example.com/"), 60, None)
+    let url = "https://example.com/";
+    let md = ScanPipeline::convert(&client, &speed_opts(url), url, 60, None)
         .await
         .expect("HTML URL 转换应成功");
     assert!(md.contains("Example Domain"));

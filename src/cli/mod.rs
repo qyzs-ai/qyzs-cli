@@ -4,6 +4,7 @@ pub mod args;
 pub mod completions;
 pub mod dispatch;
 mod handlers;
+mod validate;
 
 pub use args::{Cli, Commands};
 pub use dispatch::run;

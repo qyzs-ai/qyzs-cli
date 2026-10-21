@@ -28,12 +28,12 @@
 
 ```bash
 # Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/qyzs-ai/qyzs-cli/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/qyzs-ai/qyzs-cli/main/install.sh | bash
 ```
 
 ```powershell
 # Windows PowerShell
-irm https://raw.githubusercontent.com/qyzs-ai/qyzs-cli/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/qyzs-ai/qyzs-cli/main/install.ps1 | iex
 ```
 
 ### 2. npm 全局安装
@@ -66,6 +66,24 @@ cargo install --path .
 | — | `--api-key` | 覆盖 API Key（无短形式：`-k` 已被 `auth login --key` 占用） |
 | — | `--model-lang` | 模型输出语言约束 `auto` \| `cn` \| `zh` \| `zh-cn` \| `en`（仅 chat 生效；无短形式：`-m` 已被 `--model` 约定占用） |
 
+### 退出码约定
+
+脚本化调用可直接按退出码分流，无需解析 stderr 文案：
+
+| 码 | 含义 | 典型触发场景 |
+|---|---|---|
+| `0` | 成功 | — |
+| `1` | 通用失败 | 未归类的内部错误 |
+| `2` | 用法错误 | 参数非法、枚举值不在白名单、数值越界、互斥参数同时出现 |
+| `3` | 认证失败 | 缺少/无效 API Key |
+| `4` | 请求超时 | 超过 `--timeout` 阈值 |
+| `5` | IO 失败 | 本地文件读写失败、PDF 处理异常 |
+| `69` | 服务不可达（`EX_UNAVAILABLE`） | 网络无法连接网关、握手失败 |
+| `70` | 内部/服务端错误（`EX_SOFTWARE`） | 网关返回 5xx、响应体解析失败 |
+| `78` | 配置错误（`EX_CONFIG`） | `config.toml` 格式错误、配置键非法 |
+
+69 / 70 / 78 取自 BSD `sysexits.h`，便于脚本区分「网络问题」「服务端问题」「本地配置问题」；1~5 为本项目自定义语义码。
+
 ### 1. 运行诊断与模型可用矩阵
 
 ```bash
@@ -73,9 +91,15 @@ cargo install --path .
 qyzs status
 qyzs status --json
 
+# 仅查本地环境与凭据：跳过远程探针（离线秒回，JSON 的 probes 段为 null）
+qyzs status --no-probe
+qyzs status --no-probe --json
+
 # 查看智算中心全量高可靠模型矩阵与实测延时
 qyzs models
 ```
+
+`--no-probe` 只输出本地环境、配置路径与凭据权限，跳过三个网关的网络往返（每端点 5 秒超时），并**不输出全局健康结论**——跳过探针不等于全链路正常。JSON 模式下 `probes` 字段为 `null`，便于脚本区分「未探测」与「探测失败」。
 
 ### 2. 本地用量统计 (`usage`)
 
@@ -141,8 +165,8 @@ qyzs chat -i p1.png -i p2.png -i p3.png "对比数张公文扫描件，指出印
 # 公文 OCR 版面文字提取 (paddleocrvl，内置长边 <= 800px 自动等比缩放，规避 2048 崩溃)
 qyzs ocr scan.png
 
-# 复杂公文结构化解析转 Markdown (MinerU 3.2.3 专线，完整保留标题大纲与复杂表格)
-qyzs parse document.pdf
+# 文档结构化转换统一走 scan (见第 7 节): 类型识别 + 多模型抽取 + 交叉验证
+qyzs scan document.pdf -o document.md
 ```
 
 ### 6. 语音识别与遥感变化检测 (`asr` & `sam`)
@@ -155,18 +179,41 @@ qyzs asr meeting.wav
 qyzs sam --before before_2023.tif --after after_2024.tif --aoi aoi.geojson --threshold 0.5
 ```
 
-### 7. 全能文档转 Markdown 与 PDF 拆分 (`markitdown` & `pdf-split`)
+### 7. 智能文档转换与 PDF 拆分 (`scan` & `pdf-split`)
+
+`scan` 是唯一的文档转 Markdown 入口（取代此前的 `parse` 与 `markitdown`）。它对每个
+输入先判定文档类型，再按类型特征走向应通道并做交叉验证：
 
 ```bash
 # 先预览: 自动识别格式与流水线规划 (离线, 零模型调用)
-qyzs markitdown tender_doc.pdf --dry-run
+qyzs scan tender_doc.pdf --dry-run
 
-# 全能转换: 本地/URL 自动识别格式 (pdf/docx/xls/xlsx/pptx/vsdx/图片/html),
-# 超长 PDF 每 15 页切片聚合, 规则清洗只做结构归一
-qyzs markitdown tender_doc.pdf -o tender.md
+# 常规转换: 本地/URL 自动识别格式 (pdf/docx/xls/xlsx/ppt/pptx/vsd/vsdx/图片/html),
+# 超长 PDF 每 15 页切片聚合; 图片附件写入与 .md 同级的 assets/ 并在正文引用
+qyzs scan tender_doc.pdf -o tender.md
 
-# 严谨档: 双通道抽取 + 交叉验证逐段仲裁 + 全局审查 (--report 输出质量报告 JSON)
-qyzs markitdown report.docx --mode rigor --report report.json
+# 严谨档: 多通道抽取 + 交叉验证逐段仲裁 + 全局审查 (--report 输出质量报告 JSON)
+qyzs scan report.docx --mode rigor --report report.json
+
+# 分类与排版: 识别公文/合同/标准规范/表格/演示, 按各自体裁重建层级
+#   - 标准规范: 编>分编>章>节>条 编号层级重建 (这类文档字号统一, 层级只在编号里)
+#   - 公文/法规: 编>章>节>条 与 一、>（一）>1.>（1） 双体系按文中实际出现的体裁自适应定级
+#   - 合同/协议: 章/条 + （一）/1., 结构缺失时从编号补建标题
+#   - DOCX: 直接读 word/styles.xml 的 Heading/标题 样式, 还原真实层级
+#   - PDF: 另用字号/粗体识别文档标题与大字号标题 (编码损坏时样式仍有效)
+qyzs scan 国标.pdf -o 国标.md
+qyzs scan 合同.docx -o 合同.md
+
+# 图片输入: 先判定是文档还是照片; 真实照片/插画按策略跳过 (不产出空文件)
+qyzs scan 扫描件.jpg -o 扫描件.md
+
+# 体裁识别: 规则强信号直接定案; 弱信号/判不出时自动送模型仲裁; 也可指定模型先行
+qyzs scan 材料.pdf -o 材料.md                       # 强信号定案, 弱命中→dsv4 仲裁
+qyzs scan 材料.pdf -o 材料.md --classify-model qwen3.6-27b   # 模型优先
+
+# 附件控制: 自定义目录 / 关闭抽取 / 关闭类型识别
+qyzs scan report.docx -o out/report.md --assets-dir out/imgs
+qyzs scan report.docx -o report.md --no-assets --no-classify
 
 # 提取指定页码范围另存为新 PDF (纯 Rust, 零系统 C 依赖)
 qyzs pdf-split --file big.pdf --pages 1-3,5 --output split.pdf
@@ -185,7 +232,7 @@ qyzs rerank -q "土地利用现状分类" -d "自然资源部规程..." -d "无�
 ### 9. 同源互验与运维工具 (`verify` / `dataset` / `upgrade` / `completions`)
 
 ```bash
-# OCR 与 MinerU 解析结果同源互验仲裁 (Jaccard 相似度对账)
+# OCR 与 MinerU 解析结果同源互验仲裁 (字符 n-gram 相似度对账, 可识别错配)
 qyzs verify --ocr ocr_result.txt --markdown parsed.md
 
 # 从 GitHub 下载官方基准测试数据集 (默认解压到 tests/data)

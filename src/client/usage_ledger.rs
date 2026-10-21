@@ -99,7 +99,7 @@ pub struct UsageFilter<'a> {
     pub days: Option<u32>,
     pub model: Option<&'a str>,
     pub kind: Option<&'a str>,
-    /// 凭据掩码指纹 (如 sk-***8816), 与台账内 key 字段精确匹配
+    /// 凭据掩码指纹 (如 sk-***8816), 与台账内 key 字段匹配 (两端空白自动忽略)
     pub key: Option<&'a str>,
 }
 
@@ -375,13 +375,18 @@ fn lock_is_stale(path: &std::path::Path, stale_after: std::time::Duration) -> bo
 /// 过滤: days = 仅最近 N 天 (含今天, UTC 日界)；model/kind/key = 精确匹配
 pub fn filter_records(records: &[UsageRecord], filter: &UsageFilter<'_>) -> Vec<UsageRecord> {
     let cutoff = filter.days.map(|d| utc_date_days_ago(d as u64));
+    // 过滤值统一 trim: 用户常直接从表格复制 --key/--model (掩码列按宽度左对齐带尾随空格),
+    // 全等比对会静默匹配不到并返回空结果 (退出码仍为 0), 比报错更难排查
+    let model = filter.model.map(str::trim);
+    let kind = filter.kind.map(str::trim);
+    let key = filter.key.map(str::trim);
     records
         .iter()
         .filter(|r| {
             cutoff.as_ref().map_or(true, |c| r.day() >= c.as_str())
-                && filter.model.map_or(true, |m| r.model == m)
-                && filter.kind.map_or(true, |k| r.kind == k)
-                && filter.key.map_or(true, |k| r.key.as_deref() == Some(k))
+                && model.map_or(true, |m| r.model == m)
+                && kind.map_or(true, |k| r.kind == k)
+                && key.map_or(true, |k| r.key.as_deref() == Some(k))
         })
         .cloned()
         .collect()
@@ -512,6 +517,12 @@ pub fn summarize_hourly(records: &[UsageRecord]) -> HourlySummary {
 mod tests {
     use super::*;
 
+    /// 相对「今天」造 UTC 时间戳 (`ts_of(1, 12)` = 昨天 12:00Z), 使 --days 窗口断言
+    /// 不随日历漂移
+    fn ts_of(days_ago: u64, hour: u32) -> String {
+        format!("{}T{:02}:00:00Z", utc_date_days_ago(days_ago), hour)
+    }
+
     fn rec(ts: &str, kind: &str, model: &str, total: Option<u64>) -> UsageRecord {
         UsageRecord {
             ts: ts.to_string(),
@@ -591,25 +602,25 @@ mod tests {
 
     #[test]
     fn filter_by_days_model_kind_key() {
-        let mut a = rec("2026-10-17T12:00:00Z", "chat", "dsv4", Some(200));
+        // 时间戳相对「今天」生成: 此前硬编码 2026-10-18, 过了该日 --days 断言必然失败
+        let mut a = rec(&ts_of(1, 12), "chat", "dsv4", Some(200));
         a.key = Some("sk-abc***8816".to_string());
-        let mut b = rec("2026-10-18T08:00:00Z", "embed", "bge-m3", Some(50));
+        let mut b = rec(&ts_of(0, 8), "embed", "bge-m3", Some(50));
         b.key = Some("sk-xyz***0001".to_string());
         let records = vec![
-            rec("2026-10-01T00:00:00Z", "chat", "dsv4", Some(100)),
+            rec(&ts_of(30, 0), "chat", "dsv4", Some(100)),
             a,
             b,
         ];
 
-        assert_eq!(utc_date_days_ago(0), "2026-10-18");
-
-        // --days 2 (2026-10-17 起)
+        // --days 2 (前天起)
         let got = filter_records(
             &records,
             &UsageFilter { days: Some(2), ..Default::default() },
         );
         assert_eq!(got.len(), 2);
-        assert!(got.iter().all(|r| r.ts.as_str() >= "2026-10-17"));
+        let cutoff = utc_date_days_ago(2);
+        assert!(got.iter().all(|r| r.day() >= cutoff.as_str()));
 
         // --model / --kind / --key
         assert_eq!(filter_records(&records, &UsageFilter { model: Some("bge-m3"), ..Default::default() }).len(), 1);
@@ -620,6 +631,45 @@ mod tests {
 
         // 组合过滤
         assert_eq!(filter_records(&records, &UsageFilter { days: Some(2), model: Some("dsv4"), ..Default::default() }).len(), 1);
+    }
+
+    #[test]
+    fn filter_values_tolerate_surrounding_whitespace() {
+        let mut r = rec(&ts_of(0, 8), "chat", "dsv4", Some(200));
+        r.key = Some("sk-abc***8816".to_string());
+        let records = vec![r];
+
+        // 用户从 [按凭据] 表格列复制掩码时会带上左对齐填充的尾随空格;
+        // trim 前静默返回空结果 (退出码仍 0), 比报错更难排查
+        for raw in [
+            "sk-abc***8816",
+            "sk-abc***8816 ",
+            "sk-abc***8816   ",
+            "  sk-abc***8816",
+            " sk-abc***8816 ",
+            "\tsk-abc***8816\n",
+        ] {
+            assert_eq!(
+                filter_records(&records, &UsageFilter { key: Some(raw), ..Default::default() }).len(),
+                1,
+                "--key {:?} 应匹配 (空白被忽略)",
+                raw
+            );
+        }
+        // 前后空白对 --model / --kind 同样容忍
+        assert_eq!(
+            filter_records(&records, &UsageFilter { model: Some("dsv4 "), ..Default::default() }).len(),
+            1
+        );
+        assert_eq!(
+            filter_records(&records, &UsageFilter { kind: Some(" chat"), ..Default::default() }).len(),
+            1
+        );
+        // trim 不放宽真实差异: 掩码本身不同仍匹配不到
+        assert_eq!(
+            filter_records(&records, &UsageFilter { key: Some("sk-xyz***0001"), ..Default::default() }).len(),
+            0
+        );
     }
 
     #[test]

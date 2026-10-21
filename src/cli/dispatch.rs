@@ -3,10 +3,11 @@
 //! 只负责: 参数解析 → 级联配置 → 处理器映射。业务逻辑在 `handlers` 按域分组。
 
 use super::args::{Cli, Commands};
+use super::validate;
 use crate::client::QyzsClient;
 use crate::config::ResolvedConfig;
 use crate::error::{QyzsError, QyzsResult};
-use crate::pipeline::markitdown::{MarkitdownOptions, PipelineMode};
+use crate::pipeline::scan::{ScanOptions, PipelineMode};
 use crate::term::{set_language, Printer};
 use super::handlers::{self, Ctx, ChatArgs};
 use clap::Parser;
@@ -61,6 +62,17 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             reasoning,
             image,
         } => {
+            // 非空校验: clap 不拒空字符串位置参数, dispatch 层兜住
+            if prompt.trim().is_empty() {
+                return Err(QyzsError::Usage(
+                    "prompt 不能为空字符串或仅含空白".to_string(),
+                ));
+            }
+            // 数值边界校验 (dispatch 层兜住: 与现有 min_confidence 风格一致)
+            validate::validate_chat_temperature(temperature)?;
+            validate::validate_chat_top_p(top_p)?;
+            validate::validate_chat_max_tokens(max_tokens)?;
+            validate::validate_chat_images(&image)?;
             handlers::inference::chat(
                 &ctx,
                 ChatArgs {
@@ -80,10 +92,9 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
         }
 
         Commands::Ocr { image, prompt, max_dim } => {
+            validate::validate_ocr_max_dim(max_dim)?;
             handlers::inference::ocr(&ctx, image, prompt, max_dim).await?
         }
-
-        Commands::Parse { file, is_ocr } => handlers::inference::parse(&ctx, file, is_ocr).await?,
 
         Commands::Embed { text, model } => handlers::inference::embed(&ctx, text, model).await?,
 
@@ -92,7 +103,10 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             document,
             top_n,
             model,
-        } => handlers::inference::rerank(&ctx, query, document, top_n, model).await?,
+        } => {
+            validate::validate_rerank_top_n(top_n)?;
+            handlers::inference::rerank(&ctx, query, document, top_n, model).await?
+        }
 
         Commands::Asr { audio, model } => handlers::inference::asr(&ctx, audio, model).await?,
 
@@ -101,11 +115,15 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             after,
             aoi,
             threshold,
-        } => handlers::inference::sam(&ctx, before, after, aoi, threshold).await?,
+        } => {
+            validate::validate_sam_threshold(threshold)?;
+            handlers::inference::sam(&ctx, before, after, aoi, threshold).await?
+        }
 
-        Commands::Markitdown {
+        Commands::Scan {
             input,
             output,
+            recursive,
             mode,
             r#type,
             image_handling,
@@ -116,22 +134,30 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             segment_chars,
             resume,
             no_clean,
+            no_front_matter,
             dry_run,
+            assets_dir,
+            no_assets,
+            no_classify,
+            classify_model,
         } => {
-            let opts = MarkitdownOptions {
+            // 段长上界校验 (scan 的软警告从 mod.rs 提升为 dispatch 硬拒)
+            validate::validate_scan_segment_chars(segment_chars)?;
+            let opts = ScanOptions {
                 input,
                 output,
+                recursive,
                 mode: match mode.as_deref() {
                     Some(s) => PipelineMode::parse(s)?,
                     None => PipelineMode::Balanced,
                 },
                 type_override: match r#type.as_deref() {
-                    Some(s) => Some(crate::pipeline::markitdown::detect::SourceFormat::parse(s)?),
+                    Some(s) => Some(crate::pipeline::scan::detect::SourceFormat::parse(s)?),
                     None => None,
                 },
                 image_handling: match image_handling.as_deref() {
-                    Some(s) => crate::pipeline::markitdown::ImageHandling::parse(s)?,
-                    None => crate::pipeline::markitdown::ImageHandling::Auto,
+                    Some(s) => crate::pipeline::scan::ImageHandling::parse(s)?,
+                    None => crate::pipeline::scan::ImageHandling::Auto,
                 },
                 model,
                 min_confidence: match min_confidence {
@@ -148,9 +174,14 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
                 segment_chars,
                 resume,
                 no_clean,
+                no_front_matter,
                 dry_run,
+                assets_dir,
+                no_assets,
+                no_classify,
+                classify_model,
             };
-            handlers::documents::markitdown(&ctx, opts).await?
+            handlers::documents::scan(&ctx, opts).await?
         }
 
         Commands::PdfSplit {
@@ -160,6 +191,7 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             chunk_size,
             out_dir,
         } => {
+            validate::validate_pdf_split_chunk_size(chunk_size)?;
             handlers::documents::pdf_split(&ctx, file, pages, output, chunk_size, out_dir)
                 .await?
         }
@@ -168,13 +200,16 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
 
         Commands::Dataset { url, dest } => handlers::documents::dataset(&ctx, url, dest).await?,
 
-        Commands::Status { json } => handlers::system::status(&ctx, json).await?,
+        Commands::Status { json, no_probe } => handlers::system::status(&ctx, json, no_probe).await?,
 
         Commands::Config { action } => handlers::system::config(&ctx, action)?,
 
         Commands::Auth { action } => handlers::system::auth(&ctx, action)?,
 
-        Commands::Models { online_only: _ } => handlers::system::models(&ctx)?,
+        Commands::Models {
+            online_only: _,
+            all_models: _,
+        } => handlers::system::models(&ctx)?,
 
         Commands::Usage {
             days,
@@ -184,20 +219,26 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             hourly,
             json,
             clear,
-        } => handlers::system::usage(
-            &ctx,
-            handlers::system::UsageArgs {
-                days,
-                model,
-                kind,
-                key,
-                hourly,
-                json,
-                clear,
-            },
-        )?,
+        } => {
+            validate::validate_usage_days(days)?;
+            validate::validate_usage_kind(kind.as_deref())?;
+            handlers::system::usage(
+                &ctx,
+                handlers::system::UsageArgs {
+                    days,
+                    model,
+                    kind,
+                    key,
+                    hourly,
+                    json,
+                    clear,
+                },
+            )?
+        }
 
-        Commands::Upgrade { repo, package } => handlers::system::upgrade(&ctx, repo, package).await?,
+        Commands::Upgrade { repo, package, check } => {
+            handlers::system::upgrade(&ctx, repo, package, check).await?
+        }
 
         Commands::Completions { shell } => handlers::system::completions(shell),
     }

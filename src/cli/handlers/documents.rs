@@ -1,28 +1,44 @@
-//! 文档流水线处理器 (markitdown/pdf-split/verify/dataset)
+//! 文档流水线处理器 (scan/pdf-split/verify/dataset)
 
 use super::Ctx;
 use crate::error::{QyzsError, QyzsResult};
 use crate::pdf::{PdfExtractor, PdfSplitter};
-use crate::pipeline::markitdown::{ConversionPlan, MarkitdownOptions, MarkitdownPipeline};
+use crate::pipeline::scan::{multi, ConversionPlan, ScanOptions, ScanPipeline};
 use crate::pipeline::{DatasetManager, OcrVerifier};
 use crate::term::OutputFormat;
 use std::path::Path;
 
-pub async fn markitdown(ctx: &Ctx<'_>, opts: MarkitdownOptions) -> QyzsResult<()> {
-    let dry_run = opts.dry_run;
+pub async fn scan(ctx: &Ctx<'_>, opts: ScanOptions) -> QyzsResult<()> {
+    // 多文件/目录输入: 走 multi 编排; 单文件输入: 走单文件路径
+    let is_multi = opts.input.len() > 1
+        || opts
+            .input
+            .iter()
+            .any(|p| !is_url_input(p) && Path::new(p).is_dir());
+
+    if is_multi {
+        return scan_multi(ctx, opts).await;
+    }
+
+    // 单文件路径 (兼容历史契约)
+    let single = match opts.input.first() {
+        Some(s) => s.clone(),
+        None => return Err(QyzsError::Usage("未提供输入".to_string())),
+    };
     let run_output = opts.output.clone();
 
-    if dry_run {
-        let plan = MarkitdownPipeline::plan(&opts, ctx.config.timeout_seconds).await?;
+    if opts.dry_run {
+        let plan = ScanPipeline::plan(&opts, &single, ctx.config.timeout_seconds).await?;
         if ctx.config.output_format == OutputFormat::Json {
             println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
         } else {
-            print_markitdown_plan(ctx.printer, &plan);
+            print_scan_plan(ctx.printer, &plan);
         }
     } else {
-        let md = MarkitdownPipeline::convert(
+        let md = match ScanPipeline::convert(
             ctx.client,
             &opts,
+            &single,
             ctx.config.timeout_seconds,
             Some(&|done: usize, total: usize| {
                 if total > 1 {
@@ -31,15 +47,59 @@ pub async fn markitdown(ctx: &Ctx<'_>, opts: MarkitdownOptions) -> QyzsResult<()
                 }
             }),
         )
-        .await?;
+        .await
+        {
+            Ok(md) => md,
+            // 判定为照片等情形: 明确告知已跳过, 不产出空文件
+            Err(QyzsError::Skipped(why)) => {
+                ctx.printer.warn(&format!("已跳过: {}", why));
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
         if let Some(out_p) = run_output {
             std::fs::write(&out_p, &md)?;
-                        ctx.printer.ok(&crate::msgf!(MdSaved, out_p));
+            ctx.printer.ok(&crate::msgf!(MdSaved, out_p));
         } else {
             println!("{}", md);
         }
     }
     Ok(())
+}
+
+/// 多文件/目录输入编排: 展开后逐个转换, 每文件写到自己 .md (输出目录)
+async fn scan_multi(ctx: &Ctx<'_>, opts: ScanOptions) -> QyzsResult<()> {
+    if opts.dry_run {
+        let plans = multi::plan_multi(&opts, ctx.config.timeout_seconds).await?;
+        if ctx.config.output_format == OutputFormat::Json {
+            println!("{}", serde_json::to_string_pretty(&plans).unwrap_or_default());
+        } else {
+            multi::render_plans_human(&plans);
+        }
+        return Ok(());
+    }
+
+    let total = multi::resolve_inputs(&opts)?.len();
+    let results = multi::convert_multi(
+        ctx.client,
+        &opts,
+        ctx.config.timeout_seconds,
+        Some(&|done: usize, _total: usize| {
+            ctx.printer
+                .info(&crate::msgf!(MdSliceProgress, done, total));
+        }),
+    )
+    .await?;
+    for (r, _md) in &results {
+        if let Some(out_p) = &r.output {
+            ctx.printer.ok(&crate::msgf!(MdSaved, out_p.display().to_string()));
+        }
+    }
+    Ok(())
+}
+
+fn is_url_input(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://")
 }
 
 pub async fn pdf_split(
@@ -125,7 +185,7 @@ pub async fn dataset(ctx: &Ctx<'_>, url: String, dest: String) -> QyzsResult<()>
     Ok(())
 }
 
-fn print_markitdown_plan(printer: &crate::term::Printer, plan: &ConversionPlan) {
+fn print_scan_plan(printer: &crate::term::Printer, plan: &ConversionPlan) {
     let styler = printer.styler();
     println!("{}", styler.bold(crate::msg!(MdPlanHeader)));
     println!(
@@ -137,7 +197,7 @@ fn print_markitdown_plan(printer: &crate::term::Printer, plan: &ConversionPlan) 
         } else {
             crate::msg!(MdInputLocal)
         },
-        crate::pipeline::markitdown::human_size(plan.size_bytes)
+        crate::pipeline::scan::human_size(plan.size_bytes)
     );
     println!(
         "{}{} ({})",
@@ -156,7 +216,7 @@ fn print_markitdown_plan(printer: &crate::term::Printer, plan: &ConversionPlan) 
                 MdLabelPdfPages,
                 pages,
                 slices,
-                crate::pipeline::markitdown::pdf::SLICE_BATCH_PAGES
+                crate::pipeline::scan::pdf::SLICE_BATCH_PAGES
             )
         );
     }

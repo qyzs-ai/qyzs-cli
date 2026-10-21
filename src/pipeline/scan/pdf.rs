@@ -1,8 +1,12 @@
-//! markitdown PDF 抽取通道 (本地按批切片 + MinerU 逐片同步抽取 + 合并)
+//! scan PDF 抽取通道 (本地按批切片 + MinerU 逐片同步抽取 + 合并)
 //!
 //! 切片阈值与吞吐实测校准值 (capability_matrix.toml):
 //! - 同步通道实测 30 页/0.2MB 无断点，约 0.26 s/页；
 //! - 每批 15 页切片，超 15 页即走本地切片 + 逐片聚合。
+//!
+//! 单片失败降级: 长 PDF 偶发某切片 MinerU 网络抖动/超时失败, 旧实现会中断整文档;
+//! 现改为: 捕获错误 → 写占位符 + 持久化警告到 manifest + 继续后续切片,
+//! 让最终用户拿到"绝大部分内容 + 缺页提示"而非空文档。
 
 use super::workspace::Workspace;
 use crate::client::QyzsClient;
@@ -23,7 +27,7 @@ pub async fn extract(
     let meta = PdfExtractor::read_metadata(pdf_path)?;
 
     if meta.page_count <= SLICE_BATCH_PAGES {
-        // 单批: 整文件直通网关
+        // 单批: 整文件直通网关 (无法分片降级, 失败如实抛)
         let md = client.parse_document(pdf_path, is_ocr).await?;
         ws.write_segment_text("document", &md)?;
         ws.complete_stage("document", "extract", &[])?;
@@ -48,10 +52,33 @@ pub async fn extract(
             ws.read_segment_text(&segment)?
         } else {
             let chunk_str = chunk_path.to_string_lossy();
-            let text = client.parse_document(&chunk_str, is_ocr).await?;
-            ws.write_segment_text(&segment, &text)?;
-            ws.complete_stage(&segment, "extract", std::slice::from_ref(chunk_path))?;
-            text
+            match client.parse_document(&chunk_str, is_ocr).await {
+                Ok(text) => {
+                    ws.write_segment_text(&segment, &text)?;
+                    ws.complete_stage(&segment, "extract", std::slice::from_ref(chunk_path))?;
+                    text
+                }
+                Err(e) => {
+                    // 单片失败降级: 占位符 + 警告 + 继续
+                    let warn_msg = format!(
+                        "切片 {}/{} 解析失败已跳过: {}",
+                        idx + 1,
+                        total,
+                        e
+                    );
+                    // 警告持久化 (best-effort, 持久化失败不阻塞流程)
+                    let _ = ws.add_warning(warn_msg.clone());
+                    // 占位符 (让 LLM 看到此处缺失而非误判为内容)
+                    format!(
+                        "\n\n<!-- qyzs:skip-slice {}/{} -->\n\n_(切片 {}/{} 解析失败, 已跳过: {})_\n",
+                        idx + 1,
+                        total,
+                        idx + 1,
+                        total,
+                        e
+                    )
+                }
+            }
         };
 
         if let Some(progress) = on_progress {

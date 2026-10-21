@@ -1,6 +1,6 @@
 # QYZS MARKITDOWN — 全能文档转 Markdown 流水线 (SSOT)
 
-本文档是 `qyzs markitdown` 子命令行为契约的唯一事实源。
+本文档是 `qyzs scan` 子命令行为契约的唯一事实源。
 能力边界实测数据见 `capability_matrix.toml`；发布制度见 `docs/RELEASE.md`。
 
 ## 1. 定位
@@ -61,7 +61,7 @@
 - **超长文档行为（2026-10-18 实测修订）**：40 页/10.7MB 文档网关**同步完成**
   （15.9s），2026-10-17 记录的"30 页/10MB 转异步"阈值未复现；实现上不做轮询，
   若网关返回 pending/running 状态将**显式报错**提示减小文档，不悬挂等待。
-- 空白页文档 `md_content` 为空属合法任务结果；整体抽取结果为空时 markitdown
+- 空白页文档 `md_content` 为空属合法任务结果；整体抽取结果为空时 scan
   显式报错（空白文档/无文本层扫描件），不产出空文件假成功。
 - LLM 响应取文统一 `ChatResponse::primary_text`：content 为空回退 reasoning
   （实测 qwen3-VL 非流式会把完整回答放入 reasoning）。
@@ -69,12 +69,12 @@
   （3 批抽取 + 61KB 产物润色，合成文件无字体资源致文本层为空、交叉验证按契约
   降级）；10 页文本 PDF rigor 全程 2m41s 含 9 段仲裁。仲裁段级成本显著，大文档
   rigor 建议配合 `--min-confidence` 调节。
-- **i18n**：markitdown 运行时状态/进度/告警消息全量走目录（`msg!`/`msgf!`，
+- **i18n**：scan 运行时状态/进度/告警消息全量走目录（`msg!`/`msgf!`，
   `{0}` 序号占位符填充）；错误详情携带动态数据以中文为主；帮助文本中文为主。
 
 ## 5. 过程数据生命周期
 
-- 工作区: `<缓存基目录>/markitdown/<输入 sha256 前 16 位>/`（缓存基目录与配置
+- 工作区: `<缓存基目录>/scan/<输入 sha256 前 16 位>/`（缓存基目录与配置
   同约定: XDG_CACHE_HOME > HOME/.cache > APPDATA）。
 - manifest.json 记录输入指纹与 段×阶段 状态机；切片二进制在对应段完成后立即
   流式删除（磁盘大头先走）。

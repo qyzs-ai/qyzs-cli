@@ -1,6 +1,6 @@
-//! markitdown 过程数据工作区生命周期
+//! scan 过程数据工作区生命周期
 //!
-//! 布局: `<缓存基目录>/markitdown/<输入 sha256 前 16 位>/`
+//! 布局: `<缓存基目录>/scan/<输入 sha256 前 16 位>/`
 //! ├── manifest.json   输入指纹 + 段×阶段状态机 (幂等续跑依据)
 //! ├── lock            并发互斥锁 (create_new, 携带 PID)
 //! ├── slices/         网关切片二进制 (段完成后立即删除 — 流式清理)
@@ -33,6 +33,10 @@ pub struct Manifest {
     pub created_at: u64,
     /// 段 id → 阶段名 → 是否完成
     pub segments: std::collections::BTreeMap<String, StageMap>,
+    /// 处理过程中收集的非致命警告 (如 PDF 单片 MinerU 失败但被跳过)
+    /// 旧 manifest 无此字段 → serde(default) 兼容
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 pub struct Workspace {
@@ -45,13 +49,21 @@ pub struct Workspace {
 impl Workspace {
     /// 打开 (或创建) 输入对应的工作区；返回 (workspace, 是否为续跑)。
     /// `resume=false` 时既有现场一律作废 (默认重跑即重新处理)；仅显式续跑复用。
+    ///
+    /// `work_dir_override` 为 None 时使用默认缓存根
+    /// (`~/.cache/qyzs/scan/<输入哈希前16位>/`); 给定时以该目录为缓存根
+    /// (仍在其下按输入哈希分子目录, 避免同目录内多输入互相覆盖)。
     pub fn open(
         input_path: &Path,
         format_key: &str,
         mode_key: &str,
         resume: bool,
+        work_dir_override: Option<&str>,
     ) -> QyzsResult<(Self, bool)> {
-        let cache_root = cache_base()?.join("markitdown");
+        let cache_root = match work_dir_override {
+            Some(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
+            _ => cache_base()?.join("scan"),
+        };
         Self::open_in(cache_root, input_path, format_key, mode_key, resume)
     }
 
@@ -140,6 +152,7 @@ impl Workspace {
                 .unwrap_or_default()
                 .as_secs(),
             segments: Default::default(),
+            warnings: Default::default(),
         }
     }
 
@@ -207,6 +220,18 @@ impl Workspace {
         let path = self.root.join("segments").join(format!("{}.md", segment));
         std::fs::write(&path, content)?;
         Ok(path)
+    }
+
+    /// 追加非致命警告 (如 PDF 单片 MinerU 失败被跳过)。
+    /// 警告持久化到 manifest.json, --report 输出与 finish_failure 都可消费。
+    pub fn add_warning(&mut self, msg: String) -> QyzsResult<()> {
+        self.manifest.warnings.push(msg);
+        self.persist_manifest()
+    }
+
+    /// 读取所有已收集的非致命警告
+    pub fn warnings(&self) -> &[String] {
+        &self.manifest.warnings
     }
 
     /// 读取已完成的段级文本产物

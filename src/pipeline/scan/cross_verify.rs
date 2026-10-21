@@ -1,4 +1,4 @@
-//! markitdown rigor 档交叉验证与冲突仲裁
+//! scan rigor 档交叉验证与冲突仲裁
 //!
 //! 第二抽取通道与主通道 (MinerU) 独立产出 → bge-m3 段落级向量相似度
 //! (复用客户端 12k 分块 + 256 条拆批护栏) → 低于阈值的段落交 dsv4 仲裁
@@ -35,7 +35,7 @@ pub fn cosine(a: &[f64], b: &[f64]) -> f64 {
     dot / (na.sqrt() * nb.sqrt())
 }
 
-/// 主通道段落切分 (围栏免疫; 过短段落跳过验证原样保留)
+/// 主通道段落切分 (围栏免疫; 表格免疫; 过短段落跳过验证原样保留)
 pub fn split_paragraphs(md: &str) -> Vec<String> {
     let mut paras = Vec::new();
     let mut in_fence = false;
@@ -47,6 +47,16 @@ pub fn split_paragraphs(md: &str) -> Vec<String> {
             // 围栏块整体跳过 (内容逐字保留)
             continue;
         }
+        if is_markdown_table(block) {
+            // 表格块整体跳过 (内容逐字保留)
+            //
+            // 第二通道是「扁平纯文本」(PDF 文本层), 结构上无法表达表格;
+            // 表格段落与扁平证据做向量比对必然低相似度 → 被判为冲突 →
+            // 仲裁环节让模型按扁平证据重写, 结果表格被压回流水句
+            // (实测 G058: balanced 档 50 行表格 → rigor 档 0 行)。
+            // 表格结构无法被第二通道验证, 故不参与仲裁, 原样保留。
+            continue;
+        }
         let _ = &mut in_fence;
         let trimmed = block.trim();
         if trimmed.chars().count() >= MIN_PARA_CHARS {
@@ -54,6 +64,37 @@ pub fn split_paragraphs(md: &str) -> Vec<String> {
         }
     }
     paras
+}
+
+/// 判定块是否为 Markdown 表格 (含表头分隔行)
+pub fn is_markdown_table(block: &str) -> bool {
+    let mut row_count = 0usize;
+    let mut has_separator = false;
+    for line in block.lines() {
+        let t = line.trim();
+        if !t.starts_with('|') {
+            continue;
+        }
+        row_count += 1;
+        // 分隔行形如 |---|:---:|---| (至少两个短横线)
+        let cells: Vec<&str> = t.trim_matches('|').split('|').map(str::trim).collect();
+        if cells.len() >= 2
+            && cells
+                .iter()
+                .all(|c| !c.is_empty() && c.chars().all(|ch| matches!(ch, '-' | ':' | ' ')))
+        {
+            has_separator = true;
+        }
+    }
+    row_count >= 2 && has_separator
+}
+
+/// 统计块内的表格行数 (以 `|` 开头的行)
+pub fn count_table_rows(block: &str) -> usize {
+    block
+        .lines()
+        .filter(|l| l.trim_start().starts_with('|'))
+        .count()
 }
 
 /// 第二通道文本 → 证据块 (段落聚合到目标尺寸)
