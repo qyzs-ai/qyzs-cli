@@ -188,9 +188,9 @@ impl ResolvedConfig {
         match subcommand {
             "chat" => &self.config.model.default_chat,
             "ocr" => &self.config.model.default_ocr,
-            // scan 承担文档解析职责 (原 parse 子命令已并入);
+            // markscan 承担文档解析职责 (原 parse 子命令已并入);
             // 保留 "parse" 作别名, 兼容既有调用方
-            "scan" | "parse" => &self.config.model.default_parse,
+            "markscan" | "parse" => &self.config.model.default_parse,
             "embed" => &self.config.model.default_embed,
             "rerank" => &self.config.model.default_rerank,
             "asr" => &self.config.model.default_asr,

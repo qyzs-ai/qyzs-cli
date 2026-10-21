@@ -1,4 +1,4 @@
-//! scan XML → Markdown 通道 (quick-xml, 纯 Rust)
+//! markscan XML → Markdown 通道 (quick-xml, 纯 Rust)
 //!
 //! 任意 XML (不仅 XHTML): SOAP 响应、配置文件 (pom.xml / settings.xml)、
 //! 行业数据交换格式 (国土空间类 GB/T 39786 等)。策略:

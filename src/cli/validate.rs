@@ -122,7 +122,7 @@ pub(crate) fn validate_usage_days(d: Option<u32>) -> QyzsResult<()> {
     Ok(())
 }
 
-/// 校验 scan --segment-chars (usize, [1, 100_000])
+/// 校验 markscan --segment-chars (usize, [1, 100_000])
 /// 0 等价"不分段"但仍走分段路径, 行为不一致; 100K 已与原 mod.rs 软警告对齐为硬上限
 pub(crate) fn validate_scan_segment_chars(n: usize) -> QyzsResult<()> {
     if !(1..=100_000).contains(&n) {

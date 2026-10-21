@@ -1,4 +1,4 @@
-//! scan 输入格式嗅探
+//! markscan 输入格式嗅探
 //!
 //! 识别优先级：内容魔数 > 容器内部结构 (ZIP 条目名 / OLE2 目录流名) > 扩展名兜底。
 //! 零新增依赖：ZIP 家族在头部字节内直接解析本地文件头条目名；
@@ -318,8 +318,8 @@ impl FormatDetector {
     }
 
     fn is_pdf(head: &[u8]) -> bool {
-        let scan = head.len().min(PDF_MAGIC_SCAN);
-        head[..scan].windows(5).any(|w| w == b"%PDF-")
+        let markscan = head.len().min(PDF_MAGIC_SCAN);
+        head[..markscan].windows(5).any(|w| w == b"%PDF-")
     }
 
     fn is_html(head: &[u8]) -> bool {

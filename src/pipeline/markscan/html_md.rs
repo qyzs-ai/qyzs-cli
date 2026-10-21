@@ -1,4 +1,4 @@
-//! scan HTML → Markdown 通道 (htmd, 纯 Rust)
+//! markscan HTML → Markdown 通道 (htmd, 纯 Rust)
 //!
 //! htmd 基于 html5ever 解析 (容错非良构 HTML), 输出 GitHub 风格 Markdown。
 //! 导航/脚本/样式等噪声由 htmd 内置规则处理; 丢弃 <script>/<style> 内容。

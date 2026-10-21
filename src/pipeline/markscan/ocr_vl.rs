@@ -1,4 +1,4 @@
-//! scan 图像理解通道 (paddleocrvl OCR + qwen3-VL 描述, `--image-handling` 策略)
+//! markscan 图像理解通道 (paddleocrvl OCR + qwen3-VL 描述, `--image-handling` 策略)
 //!
 //! 策略语义 (SSOT §2):
 //! - `ocr`:      仅 OCR 文字转录 (paddleocrvl, 800px 防崩溃缩放);

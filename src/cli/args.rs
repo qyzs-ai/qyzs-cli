@@ -25,7 +25,7 @@ use clap_complete::Shell;
     version,
     about = "自然资源部庆阳智算中心大模型统一命令行工具",
     long_about = "自然资源部庆阳智算中心统一命令行工具 (qyzs)，提供全量模型调用、公文与大文档结构化解析、同源互验与跨平台自更新能力。",
-    after_help = "常用流程:\n  qyzs status                          # 运行环境、凭据与三网关自检\n  qyzs auth login                      # 安全保存 API Key (0600)\n  qyzs chat \"请综述这份材料...\"         # 对话推理 (流式打字机)\n  qyzs models                          # 查看实测可用模型矩阵\n  qyzs scan 文档.pdf --dry-run   # 全能转 Markdown: 预览识别与流水线规划\n  qyzs scan 文档.pdf -o out.md   # 全能转 Markdown: 执行转换"
+    after_help = "常用流程:\n  qyzs status                          # 运行环境、凭据与三网关自检\n  qyzs auth login                      # 安全保存 API Key (0600)\n  qyzs chat \"请综述这份材料...\"         # 对话推理 (流式打字机)\n  qyzs models                          # 查看实测可用模型矩阵\n  qyzs markscan 文档.pdf --dry-run   # 全能转 Markdown: 预览识别与流水线规划\n  qyzs markscan 文档.pdf -o out.md   # 全能转 Markdown: 执行转换"
 )]
 pub struct Cli {
     // --api-key 无短形式: -k 已被 auth login --key 占用 (见模块头短语法规范)
@@ -167,7 +167,8 @@ pub enum Commands {
     },
 
     #[command(about = "智能文档转 Markdown (类型识别 + 多模型抽取 + 交叉验证 + 图片资产落盘)")]
-    Scan {
+    #[command(name = "markscan")]
+    MarkScan {
         #[arg(required = true, help = "输入: 可多次传入本地文件/目录 (顶层自动遍历, --recursive 递归) 或 http(s):// 在线地址 (ZIP 容器会迭代内部条目)")]
         input: Vec<String>,
 
@@ -201,7 +202,7 @@ pub enum Commands {
         #[arg(long, help = "输出质量报告 JSON 路径 (检测格式/各通道置信度/冲突清单/轮次耗时)")]
         report: Option<String>,
 
-        #[arg(long, help = "工作目录 (默认 ~/.cache/qyzs/scan/<输入内容哈希>/)")]
+        #[arg(long, help = "工作目录 (默认 ~/.cache/qyzs/markscan/<输入内容哈希>/)")]
         work_dir: Option<String>,
 
         #[arg(long, default_value_t = 24_000, help = "章节分段目标字符数 (1~100000, 0 已被 dispatch 拒, 100001+ 同上)")]

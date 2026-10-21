@@ -1,4 +1,4 @@
-//! scan ZIP 容器迭代通道
+//! markscan ZIP 容器迭代通道
 //!
 //! 遍历 .zip 内部条目, 按子格式路由到现有通道 (csv/json/xml/html/ooxml/sheet),
 //! 合并为单 .md, 章节标题用 `## <原 ZIP 名>/<内部相对路径>`。
@@ -229,7 +229,7 @@ pub fn zip_to_markdown(path: &str) -> QyzsResult<String> {
             SourceFormat::Pdf => {
                 // PDF 走 MinerU 网关, 容器内调用需 client + work_dir, 简化: 跳过并记录
                 skipped.push(format!(
-                    "{} (PDF 需 MinerU 网关, ZIP 容器内暂未支持; 建议解压后单独跑 scan)",
+                    "{} (PDF 需 MinerU 网关, ZIP 容器内暂未支持; 建议解压后单独跑 markscan)",
                     entry_name
                 ));
             }

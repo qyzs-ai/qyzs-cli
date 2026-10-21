@@ -40,7 +40,7 @@ pub enum QyzsError {
     Pdf(String),
     #[error("配置异常: {0}")]
     Config(String),
-    /// 非错误的中途放弃 (如 scan 判定输入为真实照片而跳过)。
+    /// 非错误的中途放弃 (如 markscan 判定输入为真实照片而跳过)。
     /// 与失败区分: 退出码 0, 批量处理时继续后续文件而不中止整批。
     #[error("已跳过: {0}")]
     Skipped(String),

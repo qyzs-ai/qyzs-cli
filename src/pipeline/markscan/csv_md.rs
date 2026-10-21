@@ -1,4 +1,4 @@
-//! scan CSV → Markdown 表格通道 (纯 Rust, 零 C 依赖)
+//! markscan CSV → Markdown 表格通道 (纯 Rust, 零 C 依赖)
 //!
 //! 编码自适应: 优先 UTF-8 (含 BOM), 否则按 GB18030 解码 (覆盖 GBK / GB2312 公文附表);
 //! 自动嗅探分隔符 (`,` / `;` / `\t` / `|`); 按首个非空行作表头; 单表超

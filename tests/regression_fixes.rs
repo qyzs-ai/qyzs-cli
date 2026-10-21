@@ -1,4 +1,4 @@
-//! scan / pdf 子命令回归测试
+//! markscan / pdf 子命令回归测试
 //!
 //! 覆盖 2026-10-20 端到端实测暴露的 8 个缺陷的修复行为:
 //! 1. PDF 切片病态 (O(页数×对象数) → O(对象数))
@@ -11,8 +11,8 @@
 //! 8. status 的 MinerU 探针不再假阴性
 
 use qyzs::pdf::{PdfExtractor, PdfSplitter};
-use qyzs::pipeline::scan::cross_verify::{count_table_rows, is_markdown_table, split_paragraphs};
-use qyzs::pipeline::scan::image_refs::ImageRefStats;
+use qyzs::pipeline::markscan::cross_verify::{count_table_rows, is_markdown_table, split_paragraphs};
+use qyzs::pipeline::markscan::image_refs::ImageRefStats;
 use qyzs::pipeline::OcrVerifier;
 use std::path::Path;
 use tempfile::tempdir;
@@ -231,9 +231,9 @@ fn test_verify_metric_is_order_sensitive() {
 /// 报告 JSON 必须包含其承诺的字段
 #[test]
 fn test_report_promises_fields() {
-    use qyzs::pipeline::scan::detect::{DetectMethod, SourceFormat};
-    use qyzs::pipeline::scan::report::{ConversionReport, StageTiming};
-    use qyzs::pipeline::scan::PipelineMode;
+    use qyzs::pipeline::markscan::detect::{DetectMethod, SourceFormat};
+    use qyzs::pipeline::markscan::report::{ConversionReport, StageTiming};
+    use qyzs::pipeline::markscan::PipelineMode;
 
     let report = ConversionReport::build_with_details(
         "doc.pdf",
@@ -274,7 +274,7 @@ fn test_report_promises_fields() {
 /// --work-dir 指定的工作目录必须真正被使用
 #[test]
 fn test_work_dir_is_honored() {
-    use qyzs::pipeline::scan::workspace::Workspace;
+    use qyzs::pipeline::markscan::workspace::Workspace;
 
     let dir = tempdir().expect("创建临时目录失败");
     let work_dir = dir.path().join("custom-workdir");
@@ -299,7 +299,7 @@ fn test_work_dir_is_honored() {
 
 // ────────────────────── 缺陷 7/8: CLI 参数面 ──────────────────────
 
-/// 旧 parse 子命令已移除; scan 取代其文档解析职责
+/// 旧 parse 子命令已移除; markscan 取代其文档解析职责
 #[test]
 fn test_parse_command_removed() {
     use clap::Parser as _;
@@ -311,11 +311,11 @@ fn test_parse_command_removed() {
     );
     assert!(
         Cli::try_parse_from(["qyzs", "markitdown", "a.pdf"]).is_err(),
-        "markitdown 子命令应已删除 (已并入 scan)"
+        "markitdown 子命令应已删除 (已并入 markscan)"
     );
     assert!(
-        Cli::try_parse_from(["qyzs", "scan", "a.pdf"]).is_ok(),
-        "scan 子命令应可用"
+        Cli::try_parse_from(["qyzs", "markscan", "a.pdf"]).is_ok(),
+        "markscan 子命令应可用"
     );
 }
 
@@ -354,7 +354,7 @@ fn test_english_output_has_no_chinese() {
     let mut checked = 0;
 
     for args in [
-        vec!["scan", "--help"],
+        vec!["markscan", "--help"],
         vec!["chat", "--help"],
         vec!["verify", "--help"],
         vec!["pdf-split", "--help"],

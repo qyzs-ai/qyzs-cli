@@ -1,4 +1,4 @@
-//! scan 真实网关集成测试 (门控: #[ignore])
+//! markscan 真实网关集成测试 (门控: #[ignore])
 //!
 //! CI 离线环境自动跳过; 本地验证需注入凭证后手动放行:
 //! ```bash
@@ -8,8 +8,8 @@
 //!
 //! 行为契约依据: tests/docs/QYZS-MARKITDOWN.md; 实测校准值见 capability_matrix.toml。
 
-use qyzs::pipeline::scan::{
-    detect::FormatDetector, ScanOptions, ScanPipeline, PipelineMode,
+use qyzs::pipeline::markscan::{
+    detect::FormatDetector, MarkScanOptions, MarkScanPipeline, PipelineMode,
 };
 use std::path::Path;
 
@@ -24,8 +24,8 @@ fn have_key() -> bool {
     std::env::var("QYZS_APIKEY").map(|v| !v.is_empty()).unwrap_or(false)
 }
 
-fn speed_opts(input: &str) -> ScanOptions {
-    ScanOptions {
+fn speed_opts(input: &str) -> MarkScanOptions {
+    MarkScanOptions {
         input: vec![input.to_string()],
         output: None,
         recursive: false,
@@ -50,10 +50,10 @@ fn speed_opts(input: &str) -> ScanOptions {
     }
 }
 
-// ScanOptions.image_handling 类型未在 lib 层暴露 Default;
+// MarkScanOptions.image_handling 类型未在 lib 层暴露 Default;
 // 显式构造保持测试自洽
-fn crate_default_image_handling() -> qyzs::pipeline::scan::ImageHandling {
-    qyzs::pipeline::scan::ImageHandling::Auto
+fn crate_default_image_handling() -> qyzs::pipeline::markscan::ImageHandling {
+    qyzs::pipeline::markscan::ImageHandling::Auto
 }
 
 #[tokio::test]
@@ -65,7 +65,7 @@ async fn gateway_text_pdf_speed() {
     let config = test_config();
     let client = qyzs::QyzsClient::new(config).unwrap();
     let input = fixture("tests/data/mineru/text_pdf/REF-0056_政府采购评审专家管理办法.pdf");
-    let md = ScanPipeline::convert(&client, &speed_opts(&input), &input, 300, None)
+    let md = MarkScanPipeline::convert(&client, &speed_opts(&input), &input, 300, None)
         .await
         .expect("文本 PDF speed 转换应成功");
 
@@ -83,7 +83,7 @@ async fn gateway_image_ocr_auto() {
     let config = test_config();
     let client = qyzs::QyzsClient::new(config).unwrap();
     let input = fixture("tests/data/ocr/images/ref0101_p1_redhead_scan.png");
-    let md = ScanPipeline::convert(&client, &speed_opts(&input), &input, 300, None)
+    let md = MarkScanPipeline::convert(&client, &speed_opts(&input), &input, 300, None)
         .await
         .expect("图像 OCR 转换应成功");
 
@@ -96,7 +96,7 @@ async fn gateway_html_url() {
     let config = test_config();
     let client = qyzs::QyzsClient::new(config).unwrap();
     let url = "https://example.com/";
-    let md = ScanPipeline::convert(&client, &speed_opts(url), url, 60, None)
+    let md = MarkScanPipeline::convert(&client, &speed_opts(url), url, 60, None)
         .await
         .expect("HTML URL 转换应成功");
     assert!(md.contains("Example Domain"));

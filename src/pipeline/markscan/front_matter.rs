@@ -1,4 +1,4 @@
-//! scan YAML front matter 生成
+//! markscan YAML front matter 生成
 //!
 //! 在每个 .md 输出开头 prepend YAML 元数据块, 便于 RAG 链路消费结构化信息。
 //! 默认开启, --no-front-matter 关闭。

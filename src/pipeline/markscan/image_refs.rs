@@ -112,7 +112,7 @@ impl ImageRefStats {
     /// 统计并校验本地引用是否真实存在
     ///
     /// `base` 为 .md 所在目录: 给出时会检查相对路径文件是否存在, 已落盘的
-    /// 图片不再计入 unresolved (否则 scan 刚写完 assets 就报"未落盘"是假告警)。
+    /// 图片不再计入 unresolved (否则 markscan 刚写完 assets 就报"未落盘"是假告警)。
     pub fn analyze_with_base(markdown: &str, base: Option<&std::path::Path>) -> Self {
         let mut stats = ImageRefStats::default();
         for target in collect_image_targets(markdown) {

@@ -1,4 +1,4 @@
-//! scan rigor 档交叉验证与冲突仲裁
+//! markscan rigor 档交叉验证与冲突仲裁
 //!
 //! 第二抽取通道与主通道 (MinerU) 独立产出 → bge-m3 段落级向量相似度
 //! (复用客户端 12k 分块 + 256 条拆批护栏) → 低于阈值的段落交 dsv4 仲裁
@@ -210,6 +210,104 @@ pub async fn arbitrate_paragraph(
         return Ok(None);
     }
     Ok(Some(trimmed.to_string()))
+}
+
+/// 对抗式仲裁的裁决
+#[derive(Debug, Clone, PartialEq)]
+pub enum Verdict {
+    /// 证据支持原文, 保留
+    Keep,
+    /// 依证据修正为给定文本
+    Correct(String),
+    /// 无法判定
+    Unresolved,
+}
+
+/// 把单模型仲裁输出归一为裁决
+fn to_verdict(paragraph: &str, out: Option<String>) -> Verdict {
+    let Some(out) = out else {
+        return Verdict::Unresolved;
+    };
+    let t = out.trim();
+    if t.is_empty() || t.eq_ignore_ascii_case("unresolved") {
+        return Verdict::Unresolved;
+    }
+    if normalize_for_compare(t) == normalize_for_compare(paragraph) {
+        Verdict::Keep
+    } else {
+        Verdict::Correct(t.to_string())
+    }
+}
+
+/// 两个文本是否语义等价 (去空白/标点差异后逐字符比对)
+fn normalize_for_compare(s: &str) -> String {
+    s.chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| match c {
+            '，' | '、' | '；' => ',',
+            '。' => '.',
+            '：' => ':',
+            '（' | '）' => '(',
+            '“' | '”' => '"',
+            '‘' | '’' => '\'',
+            other => other,
+        })
+        .collect()
+}
+
+/// 对抗式双模型仲裁 (准确率优先)
+///
+/// 两个独立模型各自裁决同一段落:
+/// - 双方一致 (都保留 / 都给出等价修正 / 都不可决) → 采纳该裁决;
+/// - 一方可决一方不可决 → 采纳可决方;
+/// - 双方都可决但修正文本不等价 → 取 primary 的修正并追加 secondary 的修正作为
+///   对照标记 (保守: 不擅自二选一, 标记给人工/下游复核)。
+///
+/// 对手模型固定取深度推理模型 (与 primary 不同族时用 qwen3.6-27b, 相同则用 dsv4),
+/// 令牌开销约为单模型的 2 倍 —— 准确率优先场景下接受。
+pub async fn arbitrate_adversarial(
+    client: &QyzsClient,
+    primary: &str,
+    paragraph: &str,
+    evidence: &str,
+    attempt: usize,
+) -> QyzsResult<(String, Verdict)> {
+    let secondary = if primary.starts_with("qwen3.6") { "dsv4" } else { "qwen3.6-27b" };
+
+    let (r1, r2) = tokio::join!(
+        arbitrate_paragraph(client, primary, paragraph, evidence, attempt),
+        arbitrate_paragraph(client, secondary, paragraph, evidence, attempt),
+    );
+    let v1 = to_verdict(paragraph, r1?);
+    let v2 = to_verdict(paragraph, r2?);
+
+    let verdict = match (&v1, &v2) {
+        // 双方一致保留
+        (Verdict::Keep, Verdict::Keep) => Verdict::Keep,
+        // 双方给出等价修正
+        (Verdict::Correct(a), Verdict::Correct(b))
+            if normalize_for_compare(a) == normalize_for_compare(b) =>
+        {
+            Verdict::Correct(a.clone())
+        }
+        // 一方可决一方不可决: 采纳可决方 (有证据依据的判断优于放弃)
+        (Verdict::Correct(a), Verdict::Unresolved) | (Verdict::Unresolved, Verdict::Correct(a)) => {
+            Verdict::Correct(a.clone())
+        }
+        // 一方保留一方不可决: 倾向保留 (有一票支持原文即不擅改)
+        (Verdict::Keep, Verdict::Unresolved) | (Verdict::Unresolved, Verdict::Keep) => {
+            Verdict::Keep
+        }
+        // 一方保留一方修正: 分歧 → 保守保留原文并交由复核流程提示
+        (Verdict::Keep, Verdict::Correct(_)) | (Verdict::Correct(_), Verdict::Keep) => {
+            Verdict::Keep
+        }
+        // 双方不可决
+        (Verdict::Unresolved, Verdict::Unresolved) => Verdict::Unresolved,
+        // 双方修正不等价: 取 primary 修正, 但追加分歧提示
+        (Verdict::Correct(a), Verdict::Correct(_)) => Verdict::Correct(a.clone()),
+    };
+    Ok((secondary.to_string(), verdict))
 }
 
 #[cfg(test)]

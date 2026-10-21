@@ -1,6 +1,6 @@
-//! scan 多文件/目录输入编排
+//! markscan 多文件/目录输入编排
 //!
-//! 展开 ScanOptions.input:
+//! 展开 MarkScanOptions.input:
 //! - 本地路径是目录 → 顶层 (--recursive 递归) 列出文件
 //! - 多个 input → 依次处理
 //! - URL 原样 (单文件输入才允许 URL)
@@ -13,8 +13,8 @@
 //! --continue-on-error 之类的开关 (未在 CLI 定义, 避免前瞻性设计)。
 
 use super::detect::SourceFormat;
-use super::ScanOptions;
-use super::ScanPipeline;
+use super::MarkScanOptions;
+use super::MarkScanPipeline;
 use super::PipelineMode;
 use crate::client::QyzsClient;
 use crate::error::{QyzsError, QyzsResult};
@@ -36,7 +36,7 @@ pub struct ResolvedInput {
 /// - 本地路径是文件 → 原样
 /// - 本地路径是目录 → 按 opts.recursive 决定是否递归, 收集内部文件
 /// - 文件按名字典序排序, 保证确定性输出
-pub fn resolve_inputs(opts: &ScanOptions) -> QyzsResult<Vec<ResolvedInput>> {
+pub fn resolve_inputs(opts: &MarkScanOptions) -> QyzsResult<Vec<ResolvedInput>> {
     let inputs = &opts.input;
     if inputs.is_empty() {
         return Err(QyzsError::Usage("未提供任何输入".to_string()));
@@ -186,13 +186,13 @@ fn slugify_url(url: &str) -> String {
 
 /// 顶层多文件编排入口 (dry-run)
 pub async fn plan_multi(
-    opts: &ScanOptions,
+    opts: &MarkScanOptions,
     timeout_secs: u64,
 ) -> QyzsResult<Vec<super::ConversionPlan>> {
     let inputs = resolve_inputs(opts)?;
     let mut plans = Vec::with_capacity(inputs.len());
     for r in &inputs {
-        let plan = ScanPipeline::plan(opts, &r.raw, timeout_secs).await?;
+        let plan = MarkScanPipeline::plan(opts, &r.raw, timeout_secs).await?;
         plans.push(plan);
     }
     Ok(plans)
@@ -203,7 +203,7 @@ pub async fn plan_multi(
 /// 对每个 ResolvedInput 串行调用 convert; 失败立即返回错误 (中止整批)。
 pub async fn convert_multi(
     client: &QyzsClient,
-    opts: &ScanOptions,
+    opts: &MarkScanOptions,
     timeout_secs: u64,
     on_progress: Option<&dyn Fn(usize, usize)>,
 ) -> QyzsResult<Vec<(ResolvedInput, String)>> {
@@ -212,7 +212,7 @@ pub async fn convert_multi(
     let mut results = Vec::with_capacity(total);
     for (idx, r) in inputs.iter().enumerate() {
         // 覆盖 opts.recursive 意义 (展开已发生, 子项按文件处理)
-        let md = match ScanPipeline::convert(client, opts, &r.raw, timeout_secs, on_progress).await
+        let md = match MarkScanPipeline::convert(client, opts, &r.raw, timeout_secs, on_progress).await
         {
             Ok(md) => md,
             // 判定为照片等情形: 跳过该文件但继续整批, 不写输出
@@ -325,8 +325,8 @@ fn _source_format_marker() -> SourceFormat {
 mod tests {
     use super::*;
 
-    fn opts(inputs: Vec<String>, output: Option<String>, recursive: bool) -> ScanOptions {
-        ScanOptions {
+    fn opts(inputs: Vec<String>, output: Option<String>, recursive: bool) -> MarkScanOptions {
+        MarkScanOptions {
             input: inputs,
             output,
             recursive,

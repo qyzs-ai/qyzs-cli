@@ -1,4 +1,4 @@
-//! scan 智能文档转 Markdown 流水线
+//! markscan 智能文档转 Markdown 流水线
 //!
 //! 端到端流程 (各段落的实现见对应子模块):
 //! 1. **嗅探与路由** — 内容魔数 > 容器结构 > 扩展名; `--type` 覆盖;
@@ -29,6 +29,7 @@ pub mod image_refs;
 pub mod json_md;
 pub mod light_check;
 pub mod multi;
+pub mod normalize;
 pub mod ocr_vl;
 pub mod ooxml;
 pub mod pdf;
@@ -132,7 +133,7 @@ impl ImageHandling {
 
 /// 子命令参数聚合 (dispatch 层完成字符串解析与校验后构造)
 #[derive(Debug, Clone)]
-pub struct ScanOptions {
+pub struct MarkScanOptions {
     pub input: Vec<String>,
     pub output: Option<String>,
     pub recursive: bool,
@@ -208,14 +209,14 @@ pub struct ConversionPlan {
     pub output_target: String,
 }
 
-pub struct ScanPipeline;
+pub struct MarkScanPipeline;
 
-impl ScanPipeline {
+impl MarkScanPipeline {
     /// 解析输入并产出流水线规划 (dry-run)。
     /// URL 输入先下载到临时文件再统一嗅探；临时文件随本次规划结束删除。
     /// `single_input` 是单文件路径/URL (顶层多文件编排由 `multi::run` 承担)。
     pub async fn plan(
-        opts: &ScanOptions,
+        opts: &MarkScanOptions,
         single_input: &str,
         timeout_secs: u64,
     ) -> QyzsResult<ConversionPlan> {
@@ -505,7 +506,7 @@ impl ScanPipeline {
     /// `single_input` 是单文件路径/URL；顶层多文件编排由 `multi::run` 承担。
     pub async fn convert(
         client: &QyzsClient,
-        opts: &ScanOptions,
+        opts: &MarkScanOptions,
         single_input: &str,
         timeout_secs: u64,
         on_progress: Option<&dyn Fn(usize, usize)>,
@@ -540,7 +541,7 @@ impl ScanPipeline {
                 }
                 let duration_secs = started.elapsed().as_secs_f64();
 
-                // 类型识别 + 特化排版 + 图片资产落盘 (scan 区别于旧转换命令的核心)
+                // 类型识别 + 特化排版 + 图片资产落盘 (markscan 区别于旧转换命令的核心)
                 let md = Self::finalize(client, opts, single_input, md, &mut metrics).await?;
 
                 // front matter prepend (默认开启, --no-front-matter 关闭)
@@ -609,7 +610,7 @@ impl ScanPipeline {
 
     /// 构造报告 (字段来自前端 compat detect / opts / 实际输出)
     fn build_report(
-        opts: &ScanOptions,
+        opts: &MarkScanOptions,
         single_input: &str,
         final_md: &str,
         duration_secs: f64,
@@ -652,7 +653,7 @@ impl ScanPipeline {
 
     /// 报告所需元信息: 重嗅探输入以取 format/detect_method/size_bytes/page_count
     fn collect_report_meta(
-        opts: &ScanOptions,
+        opts: &MarkScanOptions,
         single_input: &str,
     ) -> (SourceFormat, DetectMethod, u64, Option<usize>, Option<usize>) {
         let detection = if let Some(t) = &opts.type_override {
@@ -698,7 +699,7 @@ impl ScanPipeline {
     /// 无论成败都以 Option<Workspace> 归还工作区句柄供收尾。
     async fn convert_inner(
         client: &QyzsClient,
-        opts: &ScanOptions,
+        opts: &MarkScanOptions,
         single_input: &str,
         timeout_secs: u64,
         on_progress: Option<&dyn Fn(usize, usize)>,
@@ -744,7 +745,7 @@ impl ScanPipeline {
             );
         }
 
-        // 图像输入先判「文档 or 照片」: 照片按 scan 策略跳过, 不进入抽取与润色,
+        // 图像输入先判「文档 or 照片」: 照片按 markscan 策略跳过, 不进入抽取与润色,
         // 避免为一张风景照白跑 OCR/VL 与后续流水线。
         if !opts.no_classify {
             if let SourceFormat::Image(_) = detection.format {
@@ -858,11 +859,25 @@ impl ScanPipeline {
                         out
                     }
                     PipelineMode::Rigor => {
-                        Self::rigor_document(
-                            client, opts, &mut ws, &raw, &local_path_str, &detection.format,
-                            on_progress, metrics,
-                        )
-                        .await
+                        // 表格类稳妥流程: xlsx/xls 是本地精确抽取 (calamine 逐格),
+                        // 不存在"识别错误"可纠 —— 润色/仲裁对全是表格的产物只会
+                        // 引入改写风险。表格类的最准确流程 = 原样 + 结构归一。
+                        let table_exact =
+                            matches!(detection.format, SourceFormat::Xls | SourceFormat::Xlsx);
+                        if table_exact {
+                            eprintln!(
+                                "\x1b[36m[INFO]\x1b[0m {}",
+                                crate::msg!(MdTableExactPath)
+                            );
+                            metrics.record("rule-clean", 0.0);
+                            Ok(clean::rule_clean(&raw))
+                        } else {
+                            Self::rigor_document(
+                                client, opts, &mut ws, &raw, &local_path_str, &detection.format,
+                                on_progress, metrics,
+                            )
+                            .await
+                        }
                     }
                 };
                 match outcome {
@@ -876,7 +891,7 @@ impl ScanPipeline {
 
     /// front matter prepend: 在 markdown 头部附加 YAML 元数据块。
     /// 重新嗅探单文件 → size_bytes → 关键字段; 失败降级为原 markdown。
-    fn prepend_front_matter(opts: &ScanOptions, source: &str, md: String) -> String {
+    fn prepend_front_matter(opts: &MarkScanOptions, source: &str, md: String) -> String {
         let detection = if let Some(t) = &opts.type_override {
             Detection {
                 format: t.clone(),
@@ -934,7 +949,7 @@ impl ScanPipeline {
     /// 结构后资源更符合"内容定型再挂附件"的语义)。
     async fn finalize(
         client: &QyzsClient,
-        opts: &ScanOptions,
+        opts: &MarkScanOptions,
         single_input: &str,
         md: String,
         metrics: &mut PipelineMetrics,
@@ -1068,7 +1083,7 @@ impl ScanPipeline {
     /// - PDF: 以最大字号行作为文档标题 (若其已是标题行则收敛到 `#`)
     ///
     /// 两种来源都只做「精确文本匹配后的层级校正」, 不凭空新增标题。
-    fn apply_style(md: String, opts: &ScanOptions, single_input: &str) -> String {
+    fn apply_style(md: String, opts: &MarkScanOptions, single_input: &str) -> String {
         let format = Self::detect_format_for(opts, single_input);
         let levels: Vec<(String, usize)> = match format {
             SourceFormat::Docx => match std::fs::read(single_input) {
@@ -1109,7 +1124,7 @@ impl ScanPipeline {
     ///
     /// 默认 `<输出 .md 所在目录>/assets`; 输出为 stdout 时返回 None (无处落盘)。
     fn assets_target(
-        opts: &ScanOptions,
+        opts: &MarkScanOptions,
         single_input: &str,
     ) -> Option<(PathBuf, String, PathBuf)> {
         let md_dir = match &opts.output {
@@ -1138,7 +1153,7 @@ impl ScanPipeline {
     }
 
     /// 取单输入的文件格式 (尊重 --type 覆盖)
-    fn detect_format_for(opts: &ScanOptions, source: &str) -> SourceFormat {
+    fn detect_format_for(opts: &MarkScanOptions, source: &str) -> SourceFormat {
         if let Some(t) = &opts.type_override {
             return t.clone();
         }
@@ -1174,7 +1189,7 @@ impl ScanPipeline {
     /// light-check (不过则回退原文) → 规则清洗收尾。段级状态入 manifest。
     async fn polish_document(
         client: &QyzsClient,
-        opts: &ScanOptions,
+        opts: &MarkScanOptions,
         ws: &mut workspace::Workspace,
         raw: &str,
         on_progress: Option<&dyn Fn(usize, usize)>,
@@ -1282,7 +1297,7 @@ impl ScanPipeline {
     #[allow(clippy::too_many_arguments)]
     async fn rigor_document(
         client: &QyzsClient,
-        opts: &ScanOptions,
+        opts: &MarkScanOptions,
         ws: &mut workspace::Workspace,
         raw: &str,
         local_path: &str,
@@ -1315,6 +1330,13 @@ impl ScanPipeline {
             ws.complete_stage("secondary", "extract", &[])?;
             text
         };
+
+        // 图像输入: 主通道本身就是 paddleocrvl + qwen3-VL 双模型 (--image-handling),
+        // 无独立第二通道可言 —— 静默跳过验证段, 不发"不可用"警告 (那是给
+        // 本可以有第二通道的 PDF 的)。
+        if matches!(format, SourceFormat::Image(_)) {
+            return Ok(clean::rule_clean(&polished));
+        }
 
         // 3. 第二通道可用性判定: 文本层过薄 (扫描件/无线性文本的格式) 时,
         //    PDF 先尝试 OCR 第二通道 (页面内嵌整页图 → paddleocrvl 逐页),
@@ -1399,28 +1421,38 @@ impl ScanPipeline {
             let evidence = &evidence_chunks[*chunk_idx];
             let mut resolved: Option<String> = None;
             for attempt in 1..=cross_verify::ARBITRATION_ROUNDS {
-                match cross_verify::arbitrate_paragraph(
-                    client,
-                    &arbitrate_model,
-                    paragraph,
-                    evidence,
-                    attempt,
-                )
-                .await
-                {
-                    Ok(Some(corrected)) => {
+                // 对抗式双模型仲裁: primary 与深度推理模型各自独立裁决,
+                // 双方一致才定案 (准确率优先, 令牌开销 ×2)
+                let (secondary_model, verdict) =
+                    match cross_verify::arbitrate_adversarial(
+                        client,
+                        &arbitrate_model,
+                        paragraph,
+                        evidence,
+                        attempt,
+                    )
+                    .await
+                    {
+                        Ok(v) => v,
+                        Err(e) => {
+                            warnings.push(format!(
+                                "段落仲裁请求失败 (轮 {}, 双模型): {}",
+                                attempt, e
+                            ));
+                            break;
+                        }
+                    };
+                let _ = secondary_model;
+                match verdict {
+                    cross_verify::Verdict::Correct(corrected) => {
                         resolved = Some(corrected);
                         break;
                     }
-                    Ok(None) => continue,
-                    Err(e) => {
-                        warnings.push(format!(
-                            "段落仲裁请求失败 (轮 {}): {}",
-                            attempt,
-                            e
-                        ));
+                    cross_verify::Verdict::Keep => {
+                        resolved = None;
                         break;
                     }
+                    cross_verify::Verdict::Unresolved => continue,
                 }
             }
 
@@ -1458,28 +1490,71 @@ impl ScanPipeline {
 
         metrics.record("arbitrate", arbitrate_started.elapsed().as_secs_f64());
 
-        // 6. 全局结构审查 (目录树 + 段摘要, 规模无关; 建议仅报告不自动应用)
+        // 6. 全局结构复核 —— 双模型独立审查, 发现合并去重 (准确率优先:
+        //    单模型审查会漏, 双模型互为盲区补位)
         let review_started = std::time::Instant::now();
-        let review_result = Self::global_review(client, &arbitrate_model, &final_md).await;
+        let review_secondary = if arbitrate_model.starts_with("qwen3.6") { "dsv4" } else { "qwen3.6-27b" };
+        let (r_primary, r_secondary) = tokio::join!(
+            Self::global_review(client, &arbitrate_model, &final_md),
+            Self::global_review(client, review_secondary, &final_md),
+        );
         metrics.record("global-review", review_started.elapsed().as_secs_f64());
-        match review_result {
-            Ok(review_notes) if !review_notes.is_empty() => {
-                // 推理模型 (qwen3.6-27b) 的思维链会偶发泄漏进审查输出;
-                // 检出特征标记时丢弃噪声并如实注明, 而非把过程文本当结论
-                if review_notes.contains("thinking process")
-                    || review_notes.contains("Analyze User Input")
-                    || review_notes.contains("Let's check")
-                {
-                    warnings.push(
-                        "全局审查输出含思维链噪声已丢弃 (该步骤建议使用非推理模型)".to_string(),
-                    );
-                } else {
-                    warnings.push(format!("{}: {}", crate::msg!(MdGlobalReview), review_notes));
+
+        let mut findings: Vec<String> = Vec::new();
+        for (src, r) in [("primary", r_primary), ("secondary", r_secondary)] {
+            match r {
+                Ok(notes) if !notes.is_empty() => {
+                    // 思维链噪声过滤: 推理模型偶发把思考过程写进审查输出
+                    if notes.contains("thinking process")
+                        || notes.contains("Analyze User Input")
+                        || notes.contains("Let's check")
+                    {
+                        continue;
+                    }
+                    for line in notes.lines() {
+                        let t = line.trim();
+                        if t.is_empty() {
+                            continue;
+                        }
+                        // 去重: 两模型发现同一问题时只保留一条, 并标注双确认
+                        let norm = t.trim_start_matches(['-', '*', ' ']).to_string();
+                        let dup = findings.iter().any(|f| {
+                            f.trim_start_matches(['-', '*', ' ']).contains(&norm)
+                                || norm.contains(f.trim_start_matches(['-', '*', ' ']))
+                        });
+                        if !dup {
+                            findings.push(format!(
+                                "{t} [{}]",
+                                if src == "primary" { arbitrate_model.as_str() } else { review_secondary }
+                            ));
+                        }
+                    }
                 }
+                Ok(_) => {}
+                Err(e) => warnings.push(format!("全局审查调用失败 ({}): {}", src, e)),
+            }
+        }
+        if !findings.is_empty() {
+            warnings.push(format!(
+                "{}: \n{}",
+                crate::msg!(MdGlobalReview),
+                findings.join("\n")
+            ));
+        }
+
+        // 7. 排版验证 —— 大纲层级模型检查, 仅允许层级修正 (不改正文)。
+        //    确定性的编号重建 (§3.2) 之后由模型再核一遍: 编号跳级/层级倒置
+        //    这类跨节问题需要通读全文才能发现, 规则覆盖不了。
+        let lv_started = std::time::Instant::now();
+        match Self::layout_verify(client, &arbitrate_model, &final_md).await {
+            Ok((fixed, n)) if n > 0 => {
+                final_md = fixed;
+                warnings.push(crate::msgf!(MdLayoutVerifyFixed, n));
             }
             Ok(_) => {}
-            Err(e) => warnings.push(format!("全局审查调用失败: {}", e)),
+            Err(e) => warnings.push(format!("排版验证调用失败: {}", e)),
         }
+        metrics.record("layout-verify", lv_started.elapsed().as_secs_f64());
 
         for w in &warnings {
             eprintln!("\x1b[33m[WARN]\x1b[0m {}", w);
@@ -1488,6 +1563,102 @@ impl ScanPipeline {
             let _ = ws.add_warning(w.clone());
         }
         Ok(clean::rule_clean(&final_md))
+    }
+
+    /// 排版验证: 把标题大纲交模型核查编号跳级/层级倒置, 仅应用层级修正
+    ///
+    /// 输出协议 (严格逐行): 只输出改错的行, 格式 `正确级数|原标题文本`。
+    /// 应用时要求标题文本精确 (归一化) 匹配 —— 改错位置比不改更糟;
+    /// 解析失败/无匹配的行静默跳过, 最坏情况是"没修", 不会"改坏"。
+    async fn layout_verify(
+        client: &QyzsClient,
+        model: &str,
+        md: &str,
+    ) -> QyzsResult<(String, usize)> {
+        // 收集大纲
+        let mut outline = String::new();
+        for line in md.lines() {
+            let t = line.trim_start();
+            let hashes = t.chars().take_while(|&c| c == '#').count();
+            if hashes >= 1 && hashes <= 6 {
+                let title = t[hashes..].trim();
+                if !title.is_empty() {
+                    outline.push_str(&format!("{}|{}\n", hashes, title));
+                }
+            }
+        }
+        if outline.lines().count() < 4 {
+            return Ok((md.to_string(), 0)); // 大纲太短, 无从验证
+        }
+
+        let system = "你是 Markdown 文档的排版审计器。输入是标题大纲 (每行 `级数|标题`)。\
+检查编号连续性与层级合理性 (编号跳级、层级倒置、重复章)。\n\
+只输出需要改级数的行, 格式严格为 `正确级数|原标题文本`, 每行一条; 没有问题则什么都不输出。\
+不要输出思考过程, 不要输出解释。";
+        let prompt = format!("[标题大纲]\n{}", outline);
+
+        let resp = client
+            .chat(
+                &prompt,
+                Some(system),
+                crate::client::ChatOptions {
+                    model: Some(model.to_string()),
+                    temperature: Some(0.0),
+                    max_tokens: Some(4096),
+                    top_p: None,
+                    stream: false,
+                    show_reasoning: false,
+                    images: Vec::new(),
+                },
+            )
+            .await?;
+
+        // 解析: 归一化标题 → 建议级数
+        let mut fixes: std::collections::HashMap<String, usize> = Default::default();
+        for line in resp.primary_text().lines() {
+            let t = line.trim();
+            let Some(bar) = t.find('|') else { continue };
+            let Some(level) = t[..bar].trim().parse::<usize>().ok().filter(|n| (1..=6).contains(n)) else {
+                continue;
+            };
+            let title = t[bar + 1..].trim().to_string();
+            if title.len() >= 2 {
+                fixes.insert(title, level);
+            }
+        }
+        if fixes.is_empty() {
+            return Ok((md.to_string(), 0));
+        }
+
+        // 应用: 仅改已存在标题行的 `#` 数 (文本逐字保留), 精确匹配
+        use self::normalize::normalize_title;
+        let mut out = String::with_capacity(md.len());
+        let mut applied = 0usize;
+        let mut in_fence = false;
+        for line in md.lines() {
+            let t = line.trim_start();
+            if t.starts_with("```") || t.starts_with("~~~") {
+                in_fence = !in_fence;
+                out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+            let hashes = t.chars().take_while(|&c| c == '#').count();
+            if !in_fence && hashes >= 1 && hashes <= 6 {
+                let title = t[hashes..].trim();
+                if let Some(level) = fixes.get(&normalize_title(title)) {
+                    out.push_str(&format!("{} {}\n", "#".repeat((*level).clamp(1, 6)), title));
+                    applied += 1;
+                    continue;
+                }
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        if applied == 0 {
+            return Ok((md.to_string(), 0));
+        }
+        Ok((out.trim_end_matches('\n').to_string() + "\n", applied))
     }
 
     /// 全局轮: 目录树 + 每节 200 字摘要 → 结构问题清单 (仅报告)
@@ -1568,35 +1739,35 @@ mod tests {
 
     #[test]
     fn test_route_unsupported_legacy_formats() {
-        let (channel, reason) = ScanPipeline::route(&SourceFormat::Ppt);
+        let (channel, reason) = MarkScanPipeline::route(&SourceFormat::Ppt);
         assert!(channel.is_none());
         assert!(reason.unwrap().contains(".pptx"));
 
-        let (channel, reason) = ScanPipeline::route(&SourceFormat::Vs);
+        let (channel, reason) = MarkScanPipeline::route(&SourceFormat::Vs);
         assert!(channel.is_none());
         assert!(reason.unwrap().contains(".vsdx"));
 
         // 网关实测拒绝 .doc (HTTP 400 Unsupported file type) → 路由为不支持
-        let (channel, reason) = ScanPipeline::route(&SourceFormat::Doc);
+        let (channel, reason) = MarkScanPipeline::route(&SourceFormat::Doc);
         assert!(channel.is_none());
         assert!(reason.unwrap().contains(".docx"));
 
-        let (channel, _) = ScanPipeline::route(&SourceFormat::Pdf);
+        let (channel, _) = MarkScanPipeline::route(&SourceFormat::Pdf);
         assert_eq!(channel, Some("mineru-slice"));
     }
 
     #[test]
     fn test_stages_per_mode() {
-        let speed = ScanPipeline::stages_for(PipelineMode::Speed, "mineru-slice", ImageHandling::Auto, "dsv4");
+        let speed = MarkScanPipeline::stages_for(PipelineMode::Speed, "mineru-slice", ImageHandling::Auto, "dsv4");
         assert_eq!(speed.first().unwrap(), "extract(mineru3.2.3, 15页/批切片)");
         assert!(!speed.iter().any(|s| s.contains("polish")));
 
         // balanced 档已移除: 旧值映射到 rigor (对抗式全流程)
-        let legacy = ScanPipeline::stages_for(PipelineMode::parse("balanced").unwrap(), "ocr-vl", ImageHandling::Ocr, "dsv4");
+        let legacy = MarkScanPipeline::stages_for(PipelineMode::parse("balanced").unwrap(), "ocr-vl", ImageHandling::Ocr, "dsv4");
         assert_eq!(legacy.first().unwrap(), "extract(paddleocrvl)");
         assert!(legacy.iter().any(|s| s == "cross-verify(bge-m3)"), "旧 balanced 值应映射到 rigor 全流程");
 
-        let rigor = ScanPipeline::stages_for(PipelineMode::Rigor, "mineru-document", ImageHandling::Auto, "dsv4");
+        let rigor = MarkScanPipeline::stages_for(PipelineMode::Rigor, "mineru-document", ImageHandling::Auto, "dsv4");
         assert!(rigor.iter().any(|s| s == "cross-verify(bge-m3)"));
         assert!(rigor.iter().any(|s| s == "global-review"));
         assert_eq!(rigor.last().unwrap(), "emit");
@@ -1614,7 +1785,7 @@ mod tests {
     async fn test_plan_on_real_pdf() {
         let pdf = fixture("tests/data/mineru/text_pdf/REF-0056_政府采购评审专家管理办法.pdf");
         let input = pdf.to_string_lossy().to_string();
-        let opts = ScanOptions {
+        let opts = MarkScanOptions {
             input: vec![input.clone()],
             output: None,
             recursive: false,
@@ -1637,7 +1808,7 @@ mod tests {
             no_classify: false,
             classify_model: None,
         };
-        let plan = ScanPipeline::plan(&opts, &input, 30).await.unwrap();
+        let plan = MarkScanPipeline::plan(&opts, &input, 30).await.unwrap();
         assert_eq!(plan.detected_format, "pdf");
         assert_eq!(plan.detect_method, "content-sniff");
         assert_eq!(plan.channel, Some("mineru-slice"));
@@ -1650,7 +1821,7 @@ mod tests {
     #[tokio::test]
     async fn test_plan_missing_input() {
         let input = "/nonexistent/no_such_file.pdf".to_string();
-        let opts = ScanOptions {
+        let opts = MarkScanOptions {
             input: vec![input.clone()],
             output: None,
             recursive: false,
@@ -1673,7 +1844,7 @@ mod tests {
             no_classify: false,
             classify_model: None,
         };
-        let err = ScanPipeline::plan(&opts, &input, 30).await.unwrap_err();
+        let err = MarkScanPipeline::plan(&opts, &input, 30).await.unwrap_err();
         assert!(matches!(err, QyzsError::Usage(_)));
     }
 }

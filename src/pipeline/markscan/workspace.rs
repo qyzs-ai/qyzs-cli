@@ -1,6 +1,6 @@
-//! scan 过程数据工作区生命周期
+//! markscan 过程数据工作区生命周期
 //!
-//! 布局: `<缓存基目录>/scan/<输入 sha256 前 16 位>/`
+//! 布局: `<缓存基目录>/markscan/<输入 sha256 前 16 位>/`
 //! ├── manifest.json   输入指纹 + 段×阶段状态机 (幂等续跑依据)
 //! ├── lock            并发互斥锁 (create_new, 携带 PID)
 //! ├── slices/         网关切片二进制 (段完成后立即删除 — 流式清理)
@@ -51,7 +51,7 @@ impl Workspace {
     /// `resume=false` 时既有现场一律作废 (默认重跑即重新处理)；仅显式续跑复用。
     ///
     /// `work_dir_override` 为 None 时使用默认缓存根
-    /// (`~/.cache/qyzs/scan/<输入哈希前16位>/`); 给定时以该目录为缓存根
+    /// (`~/.cache/qyzs/markscan/<输入哈希前16位>/`); 给定时以该目录为缓存根
     /// (仍在其下按输入哈希分子目录, 避免同目录内多输入互相覆盖)。
     pub fn open(
         input_path: &Path,
@@ -62,7 +62,7 @@ impl Workspace {
     ) -> QyzsResult<(Self, bool)> {
         let cache_root = match work_dir_override {
             Some(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
-            _ => cache_base()?.join("scan"),
+            _ => cache_base()?.join("markscan"),
         };
         Self::open_in(cache_root, input_path, format_key, mode_key, resume)
     }

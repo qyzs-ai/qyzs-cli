@@ -163,16 +163,16 @@ qyzs chat --no-stream "生成一段结构化摘要。"
 qyzs chat --temperature 0.2 --top-p 0.9 --max-tokens 2048 "写一份项目验收意见。"
 ```
 
-### 5. 图像与文档转换 (`scan`)
+### 5. 图像与文档转换 (`markscan`)
 
-文档与图像的转换统一由 `scan` 承担（原 `ocr` / `parse` 子命令已并入，详见第 7 节）：
+文档与图像的转换统一由 `markscan` 承担（原 `ocr` / `parse` 子命令已并入，详见第 7 节）：
 
 ```bash
 # 图像转文字 (png/jpg/gif/bmp/tiff/webp; 内置 800px 等比缩放, 规避网关 2048 崩溃)
-qyzs scan 图.png -o 图.md --image-handling ocr
+qyzs markscan 图.png -o 图.md --image-handling ocr
 
 # 文档结构化转换 (类型识别 + 多模型抽取 + 交叉验证)
-qyzs scan document.pdf -o document.md
+qyzs markscan document.pdf -o document.md
 ```
 
 ### 6. 语音识别与遥感变化检测 (`asr` & `sam`)
@@ -185,22 +185,22 @@ qyzs asr meeting.wav
 qyzs sam --before before_2023.tif --after after_2024.tif --aoi aoi.geojson --threshold 0.5
 ```
 
-### 7. 智能文档转换与 PDF 拆分 (`scan` & `pdf-split`)
+### 7. 智能文档转换与 PDF 拆分 (`markscan` & `pdf-split`)
 
-`scan` 是唯一的文档转 Markdown 入口（取代此前的 `parse` 与 `markitdown`）。它对每个
+`markscan` 是唯一的文档转 Markdown 入口（取代此前的 `parse` 与 `markitdown`）。它对每个
 输入先判定文档类型，再按类型特征走向应通道并做交叉验证：
 
 ```bash
 # 先预览: 自动识别格式与流水线规划 (离线, 零模型调用)
-qyzs scan tender_doc.pdf --dry-run
+qyzs markscan tender_doc.pdf --dry-run
 
 # 常规转换: 本地/URL 自动识别格式 (pdf/docx/xls/xlsx/ppt/pptx/vsd/vsdx/图片/html),
 # 超长 PDF 每 15 页切片聚合; 图片附件写入与 .md 同级的 assets/ 并在正文引用
-qyzs scan tender_doc.pdf -o tender.md
+qyzs markscan tender_doc.pdf -o tender.md
 
 # 默认即对抗式全流程: 多通道抽取 + 交叉验证逐段仲裁 + 全局审查 (准确率优先)
 # (--report 输出质量报告 JSON; --mode speed 可切批量快速通道)
-qyzs scan report.docx --report report.json
+qyzs markscan report.docx --report report.json
 
 # 分类与排版: 识别公文/合同/标准规范/表格/演示, 按各自体裁重建层级
 #   - 标准规范: 编>分编>章>节>条 编号层级重建 (这类文档字号统一, 层级只在编号里)
@@ -208,45 +208,45 @@ qyzs scan report.docx --report report.json
 #   - 合同/协议: 章/条 + （一）/1., 结构缺失时从编号补建标题
 #   - DOCX: 直接读 word/styles.xml 的 Heading/标题 样式, 还原真实层级
 #   - PDF: 另用字号/粗体识别文档标题与大字号标题 (编码损坏时样式仍有效)
-qyzs scan 国标.pdf -o 国标.md
-qyzs scan 合同.docx -o 合同.md
+qyzs markscan 国标.pdf -o 国标.md
+qyzs markscan 合同.docx -o 合同.md
 
 # 图片输入: 先判定是文档还是照片; 真实照片/插画按策略跳过 (不产出空文件)
-qyzs scan 扫描件.jpg -o 扫描件.md
+qyzs markscan 扫描件.jpg -o 扫描件.md
 
 # 体裁识别: 规则强信号直接定案; 弱信号/判不出时自动送模型仲裁; 也可指定模型先行
-qyzs scan 材料.pdf -o 材料.md                       # 强信号定案, 弱命中→dsv4 仲裁
-qyzs scan 材料.pdf -o 材料.md --classify-model qwen3.6-27b   # 模型优先
+qyzs markscan 材料.pdf -o 材料.md                       # 强信号定案, 弱命中→dsv4 仲裁
+qyzs markscan 材料.pdf -o 材料.md --classify-model qwen3.6-27b   # 模型优先
 
 # 附件控制: 自定义目录 / 关闭抽取 / 关闭类型识别
-qyzs scan report.docx -o out/report.md --assets-dir out/imgs
-qyzs scan report.docx -o report.md --no-assets --no-classify
+qyzs markscan report.docx -o out/report.md --assets-dir out/imgs
+qyzs markscan report.docx -o report.md --no-assets --no-classify
 
 # 图像输入 (png/jpg/gif/bmp/tiff/webp 六种格式, 统一 800px 缩放预处理)
 #   --image-handling: auto(默认, 文字稀少时补 VL 描述) | ocr | describe | both | skip
-qyzs scan 图.png -o 图.md --image-handling both
-qyzs scan 图.png -o 图.md --image-prompt "只输出图中的中文表格，逐格转录"
-qyzs scan 图.png -o 图.md --max-dim 1600        # 覆盖长边像素上限 (1~8192)
+qyzs markscan 图.png -o 图.md --image-handling both
+qyzs markscan 图.png -o 图.md --image-prompt "只输出图中的中文表格，逐格转录"
+qyzs markscan 图.png -o 图.md --max-dim 1600        # 覆盖长边像素上限 (1~8192)
 
 # 格式手动覆盖 (自动识别失败时): pdf|docx|xls|xlsx|ppt|pptx|vsd|vsdx|csv|json|xml|zip|image|html
-qyzs scan 无扩展名文件 --type pdf -o out.md
+qyzs markscan 无扩展名文件 --type pdf -o out.md
 
 # 批量与目录输入 (目录默认只遍历顶层, --recursive 递归子目录)
-qyzs scan 资料目录/ -o 输出目录/
-qyzs scan 资料目录/ -o 输出目录/ --recursive
+qyzs markscan 资料目录/ -o 输出目录/
+qyzs markscan 资料目录/ -o 输出目录/ --recursive
 
 # 过程与工作区
-qyzs scan big.pdf -o big.md --work-dir ./wk     # 指定工作区根目录 (默认 ~/.cache/qyzs/scan)
-qyzs scan big.pdf -o big.md --resume            # 断点续跑 (输入指纹一致才复用)
-qyzs scan big.pdf -o big.md --no-clean          # 成功后保留全部中间产物
-qyzs scan big.pdf -o big.md --segment-chars 12000   # 分段目标字符数 (1~100000)
-qyzs scan big.pdf -o big.md --min-confidence 0.8     # rigor 档交叉验证阈值 (0.0~1.0)
-qyzs scan big.pdf -o big.md --no-front-matter  # 不加 YAML front matter
+qyzs markscan big.pdf -o big.md --work-dir ./wk     # 指定工作区根目录 (默认 ~/.cache/qyzs/markscan)
+qyzs markscan big.pdf -o big.md --resume            # 断点续跑 (输入指纹一致才复用)
+qyzs markscan big.pdf -o big.md --no-clean          # 成功后保留全部中间产物
+qyzs markscan big.pdf -o big.md --segment-chars 12000   # 分段目标字符数 (1~100000)
+qyzs markscan big.pdf -o big.md --min-confidence 0.8     # rigor 档交叉验证阈值 (0.0~1.0)
+qyzs markscan big.pdf -o big.md --no-front-matter  # 不加 YAML front matter
 
 # 提取指定页码范围另存为新 PDF (纯 Rust, 零系统 C 依赖)
 qyzs pdf-split big.pdf --pages 1-3,5 --output split.pdf
 
-# 按每 N 页分片整个文档到目录 (与 scan 的长文档切片同路径)
+# 按每 N 页分片整个文档到目录 (与 markscan 的长文档切片同路径)
 qyzs pdf-split big.pdf --chunk-size 15 --out-dir ./slices
 ```
 

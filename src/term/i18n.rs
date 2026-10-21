@@ -159,7 +159,7 @@ pub enum MsgId {
     PdfSplitSuccess,
     StatusDiagnosticsHeader,
     StatusGatewayHeader,
-    // ── scan ──
+    // ── markscan ──
     MdPlanHeader,
     MdInputLocal,
     MdInputUrl,
@@ -181,7 +181,7 @@ pub enum MsgId {
     MdGlobalReview,
     MdLabelInput,
     MdLabelFormat,
-    // ── scan 体裁识别 / 排版样式 / 图片资产 ──
+    // ── markscan 体裁识别 / 排版样式 / 图片资产 ──
     MdDocKindDetected,
     MdClassifyModelFailed,
     MdClassifyFallbackFailed,
@@ -199,6 +199,8 @@ pub enum MsgId {
     MdDecideModelFirst,
     MdDecideWeakArbitrated,
     MdUnresolvedImageRefs,
+    MdLayoutVerifyFixed,
+    MdTableExactPath,
     MdLabelMode,
     MdLabelChannel,
     MdLabelStages,
@@ -263,8 +265,8 @@ impl MsgId {
             (MsgId::AuthFilePermWarning, Language::Zh) => "凭据文件权限宽于 0600，建议执行 chmod 600 加固",
             (MsgId::AuthFilePermWarning, Language::En) => "Credentials file permission is wider than 0600, chmod 600 recommended",
 
-            (MsgId::ChatExcludesPaddleOcr, Language::Zh) => "模型 'paddleocrvl' 是专属 OCR 视觉引擎，不支持对话交互。请使用 'qyzs scan <图片> --image-handling ocr'",
-            (MsgId::ChatExcludesPaddleOcr, Language::En) => "Model 'paddleocrvl' is OCR-only and cannot chat. Please use 'qyzs scan <image> --image-handling ocr'",
+            (MsgId::ChatExcludesPaddleOcr, Language::Zh) => "模型 'paddleocrvl' 是专属 OCR 视觉引擎，不支持对话交互。请使用 'qyzs markscan <图片> --image-handling ocr'",
+            (MsgId::ChatExcludesPaddleOcr, Language::En) => "Model 'paddleocrvl' is OCR-only and cannot chat. Please use 'qyzs markscan <image> --image-handling ocr'",
 
             (MsgId::SelfUpdateChecking, Language::Zh) => "正在检查 GitHub Release 最新版本...",
             (MsgId::SelfUpdateChecking, Language::En) => "Checking for latest GitHub Release...",
@@ -296,8 +298,8 @@ impl MsgId {
             (MsgId::StatusGatewayHeader, Language::Zh) => "远程网关连通性探针",
             (MsgId::StatusGatewayHeader, Language::En) => "Remote Gateway Connectivity Probes",
 
-            (MsgId::MdPlanHeader, Language::Zh) => "[scan] 流水线规划预览 (--dry-run)",
-            (MsgId::MdPlanHeader, Language::En) => "[scan] Pipeline plan preview (--dry-run)",
+            (MsgId::MdPlanHeader, Language::Zh) => "[markscan] 流水线规划预览 (--dry-run)",
+            (MsgId::MdPlanHeader, Language::En) => "[markscan] Pipeline plan preview (--dry-run)",
             (MsgId::MdInputLocal, Language::Zh) => "本地文件",
             (MsgId::MdInputLocal, Language::En) => "local file",
             (MsgId::MdInputUrl, Language::Zh) => "网络下载",
@@ -352,6 +354,10 @@ impl MsgId {
             (MsgId::MdAssetIndexNote, Language::Zh) => "正文中的原始图片引用无法与抽取结果逐一对应，故在此按顺序列出，供人工核对位置。",
             (MsgId::MdAssetIndexNote, Language::En) => "Original image references cannot be matched one-to-one with the extracted assets; listed in order for manual cross-check.",
 
+            (MsgId::MdTableExactPath, Language::Zh) => "表格类: 本地精确抽取, 跳过改写类阶段 (润色/仲裁) 以保逐格准确",
+            (MsgId::MdTableExactPath, Language::En) => "Spreadsheet input: locally extracted cell-exact; rewrite stages (polish/arbitrate) skipped to preserve accuracy",
+            (MsgId::MdLayoutVerifyFixed, Language::Zh) => "排版验证: {0} 个标题层级已按模型审计修正",
+            (MsgId::MdLayoutVerifyFixed, Language::En) => "Layout verification: {0} heading level(s) corrected by model audit",
             (MsgId::MdUnresolvedImageRefs, Language::Zh) => "产物含 {0} 处未落盘图片引用 (网关未提供图片字节, 链接不可达)",
             (MsgId::MdUnresolvedImageRefs, Language::En) => "{0} unresolved image reference(s) in output (gateway provides no image bytes; links are dead)",
             (MsgId::MdDecideModelFirst, Language::Zh) => "模型({0})",

@@ -1,4 +1,4 @@
-//! scan OOXML 文本抽取通道 (pptx / vsdx → Markdown, 纯 Rust 零 C 依赖)
+//! markscan OOXML 文本抽取通道 (pptx / vsdx → Markdown, 纯 Rust 零 C 依赖)
 //!
 //! zip + quick-xml 部件抽取:
 //! - pptx: 幻灯片按编号序输出, `<a:p>` 段落聚合 `<a:t>` 文本运行;

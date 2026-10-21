@@ -7,7 +7,7 @@ use super::validate;
 use crate::client::QyzsClient;
 use crate::config::ResolvedConfig;
 use crate::error::{QyzsError, QyzsResult};
-use crate::pipeline::scan::{ScanOptions, PipelineMode};
+use crate::pipeline::markscan::{MarkScanOptions, PipelineMode};
 use crate::term::{set_language, Printer};
 use super::handlers::{self, Ctx, ChatArgs};
 use clap::Parser;
@@ -116,7 +116,7 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             handlers::inference::sam(&ctx, before, after, aoi, threshold).await?
         }
 
-        Commands::Scan {
+        Commands::MarkScan {
             input,
             output,
             recursive,
@@ -139,11 +139,11 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             no_classify,
             classify_model,
         } => {
-            // 图像长边上限校验 (原 ocr 子命令的同名能力, 现由 scan 承担)
+            // 图像长边上限校验 (原 ocr 子命令的同名能力, 现由 markscan 承担)
             validate::validate_ocr_max_dim(max_dim)?;
-            // 段长上界校验 (scan 的软警告从 mod.rs 提升为 dispatch 硬拒)
+            // 段长上界校验 (markscan 的软警告从 mod.rs 提升为 dispatch 硬拒)
             validate::validate_scan_segment_chars(segment_chars)?;
-            let opts = ScanOptions {
+            let opts = MarkScanOptions {
                 input,
                 output,
                 recursive,
@@ -152,12 +152,12 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
                     None => PipelineMode::Rigor,
                 },
                 type_override: match r#type.as_deref() {
-                    Some(s) => Some(crate::pipeline::scan::detect::SourceFormat::parse(s)?),
+                    Some(s) => Some(crate::pipeline::markscan::detect::SourceFormat::parse(s)?),
                     None => None,
                 },
                 image_handling: match image_handling.as_deref() {
-                    Some(s) => crate::pipeline::scan::ImageHandling::parse(s)?,
-                    None => crate::pipeline::scan::ImageHandling::Auto,
+                    Some(s) => crate::pipeline::markscan::ImageHandling::parse(s)?,
+                    None => crate::pipeline::markscan::ImageHandling::Auto,
                 },
                 image_prompt,
                 max_dim,
@@ -183,7 +183,7 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
                 no_classify,
                 classify_model,
             };
-            handlers::documents::scan(&ctx, opts).await?
+            handlers::documents::markscan(&ctx, opts).await?
         }
 
         Commands::PdfSplit {

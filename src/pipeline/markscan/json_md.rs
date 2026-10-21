@@ -1,4 +1,4 @@
-//! scan JSON → Markdown 通道
+//! markscan JSON → Markdown 通道
 //!
 //! 设计: 输出 pretty JSON 包裹在 ```json fenced code block, 不改变语义。
 //! 若顶层是对象数组且所有元素同构 (字段集一致), 额外生成 Markdown 表格

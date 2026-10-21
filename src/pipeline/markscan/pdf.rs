@@ -1,4 +1,4 @@
-//! scan PDF 抽取通道 (本地按批切片 + MinerU 逐片同步抽取 + 合并)
+//! markscan PDF 抽取通道 (本地按批切片 + MinerU 逐片同步抽取 + 合并)
 //!
 //! 切片阈值与吞吐实测校准值 (capability_matrix.toml):
 //! - 同步通道实测 30 页/0.2MB 无断点，约 0.26 s/页；

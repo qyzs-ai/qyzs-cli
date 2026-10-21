@@ -1,4 +1,4 @@
-//! scan 质量报告 (`--report` JSON 输出)
+//! markscan 质量报告 (`--report` JSON 输出)
 //!
 //! CLI 早已声明 `--report` 参数但未实际生成; 本模块兑现该功能, 输出结构化
 //! JSON 报告便于程序化消费 (CI 归档、失败回溯、批量对比)。
@@ -9,7 +9,7 @@ use super::detect::{DetectMethod, SourceFormat};
 use super::PipelineMode;
 use serde::Serialize;
 
-/// scan 转换质量报告 (序列化输出到 --report 指定路径)
+/// markscan 转换质量报告 (序列化输出到 --report 指定路径)
 #[derive(Debug, Serialize)]
 pub struct ConversionReport {
     /// 输入路径/URL
