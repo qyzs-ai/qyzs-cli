@@ -1,4 +1,4 @@
-//! 模型调用直通层处理器 (chat/ocr/parse/embed/rerank/asr/sam)
+//! 模型调用直通层处理器 (chat/embed/rerank/asr/sam)
 
 use super::Ctx;
 use crate::client::{ChatOptions, ChatResponse};

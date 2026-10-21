@@ -54,7 +54,7 @@ cargo install --path .
 
 ### 全局参数与短语法规范
 
-所有全局参数置于子命令**前后均可**。短形式规范：`-h/-V` 为保留字；同义参数跨子命令统一字母（`--model` = `-m`、`--output` = `-o`）；不同含义允许复用字母（如 `-p` 在 `ocr` 为 prompt、在 `pdf-split` 为 pages）；规范全文见 `src/cli/args.rs` 模块头注释。
+所有全局参数置于子命令**前后均可**。短形式规范：`-h/-V` 为保留字；同义参数跨子命令统一字母（`--model` = `-m`、`--output` = `-o`）；不同含义允许复用字母（如 `-p` 在 `pdf-split` 为 pages、在 `config` 为路径）；规范全文见 `src/cli/args.rs` 模块头注释。
 
 | 短 | 长 | 说明 |
 |---|---|---|
@@ -157,13 +157,21 @@ qyzs chat -m qwen3.6-27b --reasoning "核算以下建设用地指标与争议仲
 
 # 多图并发视觉理解 (自动切换至 qwen3-VL-30B-A3B，支持 1~16 张图片)
 qyzs chat -i p1.png -i p2.png -i p3.png "对比数张公文扫描件，指出印章盖章单位与签字页位置。"
+
+# 采样与流式控制 (--stream/--no-stream 互斥; 默认流式)
+qyzs chat --no-stream "生成一段结构化摘要。"
+qyzs chat --temperature 0.2 --top-p 0.9 --max-tokens 2048 "写一份项目验收意见。"
 ```
 
-### 5. 公文文字 OCR 与结构化解析 (`ocr` & `parse`)
+### 5. 图像与文档转换 (`scan`)
+
+文档与图像的转换统一由 `scan` 承担（原 `ocr` / `parse` 子命令已并入，详见第 7 节）：
 
 ```bash
+# 图像转文字 (png/jpg/gif/bmp/tiff/webp; 内置 800px 等比缩放, 规避网关 2048 崩溃)
+qyzs scan 图.png -o 图.md --image-handling ocr
 
-# 文档结构化转换统一走 scan (见第 7 节): 类型识别 + 多模型抽取 + 交叉验证
+# 文档结构化转换 (类型识别 + 多模型抽取 + 交叉验证)
 qyzs scan document.pdf -o document.md
 ```
 
@@ -213,8 +221,32 @@ qyzs scan 材料.pdf -o 材料.md --classify-model qwen3.6-27b   # 模型优先
 qyzs scan report.docx -o out/report.md --assets-dir out/imgs
 qyzs scan report.docx -o report.md --no-assets --no-classify
 
+# 图像输入 (png/jpg/gif/bmp/tiff/webp 六种格式, 统一 800px 缩放预处理)
+#   --image-handling: auto(默认, 文字稀少时补 VL 描述) | ocr | describe | both | skip
+qyzs scan 图.png -o 图.md --image-handling both
+qyzs scan 图.png -o 图.md --image-prompt "只输出图中的中文表格，逐格转录"
+qyzs scan 图.png -o 图.md --max-dim 1600        # 覆盖长边像素上限 (1~8192)
+
+# 格式手动覆盖 (自动识别失败时): pdf|docx|xls|xlsx|ppt|pptx|vsd|vsdx|csv|json|xml|zip|image|html
+qyzs scan 无扩展名文件 --type pdf -o out.md
+
+# 批量与目录输入 (目录默认只遍历顶层, --recursive 递归子目录)
+qyzs scan 资料目录/ -o 输出目录/
+qyzs scan 资料目录/ -o 输出目录/ --recursive
+
+# 过程与工作区
+qyzs scan big.pdf -o big.md --work-dir ./wk     # 指定工作区根目录 (默认 ~/.cache/qyzs/scan)
+qyzs scan big.pdf -o big.md --resume            # 断点续跑 (输入指纹一致才复用)
+qyzs scan big.pdf -o big.md --no-clean          # 成功后保留全部中间产物
+qyzs scan big.pdf -o big.md --segment-chars 12000   # 分段目标字符数 (1~100000)
+qyzs scan big.pdf -o big.md --min-confidence 0.8     # rigor 档交叉验证阈值 (0.0~1.0)
+qyzs scan big.pdf -o big.md --no-front-matter  # 不加 YAML front matter
+
 # 提取指定页码范围另存为新 PDF (纯 Rust, 零系统 C 依赖)
-qyzs pdf-split --file big.pdf --pages 1-3,5 --output split.pdf
+qyzs pdf-split big.pdf --pages 1-3,5 --output split.pdf
+
+# 按每 N 页分片整个文档到目录 (与 scan 的长文档切片同路径)
+qyzs pdf-split big.pdf --chunk-size 15 --out-dir ./slices
 ```
 
 ### 8. 语义表征与重排 (`embed` & `rerank`)
@@ -233,11 +265,21 @@ qyzs rerank -q "土地利用现状分类" -d "自然资源部规程..." -d "无�
 # OCR 与 MinerU 解析结果同源互验仲裁 (字符 n-gram 相似度对账, 可识别错配)
 qyzs verify --ocr ocr_result.txt --markdown parsed.md
 
-# 从 GitHub 下载官方基准测试数据集 (默认解压到 tests/data)
+# 从 GitHub 下载官方基准测试数据集 (默认解压到 tests/data; --url 换源)
 qyzs dataset
+qyzs dataset --url https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/tests_data.zip
 
-# 版本自更新 (GitHub Release 拉取最新二进制) / 生成 Shell 补全脚本
+# 版本自更新 (GitHub Release 拉取最新二进制; --check 仅检查不更新)
 qyzs upgrade
+qyzs upgrade --check
+qyzs upgrade --repo my-org/my-fork --package my-pkg
+
+# 模型矩阵查询 (--online-only 联机实测, --all-models 列出全部含未实测项)
+qyzs models
+qyzs models --online-only
+qyzs models --all-models
+
+# 生成 Shell 补全脚本 (bash/zsh/fish/powershell)
 qyzs completions bash
 ```
 

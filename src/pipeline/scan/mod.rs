@@ -1,10 +1,21 @@
-//! scan 全能文档转 Markdown 流水线
+//! scan 智能文档转 Markdown 流水线
 //!
-//! 阶段①: 格式嗅探 + 通道路由 + `--dry-run` 规划预览。
-//! 阶段②: speed 档执行 — PDF (本地切片 + MinerU 逐片聚合) 与 doc/docx
-//! (MinerU 整文件) 通道，规则清洗只做结构归一，工作区生命周期管理
-//! (锁/manifest/流式清理/断点续跑)。
-//! 阶段③~⑤ (Office/Visio 本地抽取、balanced 润色、rigor 交叉验证) 分阶段接入。
+//! 端到端流程 (各段落的实现见对应子模块):
+//! 1. **嗅探与路由** — 内容魔数 > 容器结构 > 扩展名; `--type` 覆盖;
+//!    `--dry-run` 离线输出规划。 (`detect`)
+//! 2. **工作区** — 输入指纹 + 并发锁 + manifest 段×阶段状态机, 支持
+//!    `--resume` 幂等续跑与成功即流式清理。 (`workspace`)
+//! 3. **抽取** — PDF 本地切片 + MinerU 逐片聚合; Office/Visio 本地部件抽取;
+//!    图像走 paddleocrvl + qwen3-VL; 扫描件在 rigor 档另有 OCR/VL 双通道
+//!    证据。 (`pdf` / `ooxml` / `sheet_tables` / `ocr_vl` / `pdf_ocr`)
+//! 4. **档位后处理** — speed 规则清洗; balanced 分段润色 + light-check;
+//!    rigor 多通道交叉验证 + 逐段仲裁 + 全局审查。 (`clean` / `polish` /
+//!    `cross_verify`)
+//! 5. **收尾** — 体裁识别与体裁特化排版 (按编号/样式重建层级)、图片附件
+//!    抽取与引用重写。 (`classify` / `profile` / `style` / `assets`)
+//!
+//! 行为契约见 `tests/docs/QYZS-SCAN.md`; 抽取能力边界实测数据见
+//! `capability_matrix.toml`。
 
 pub mod assets;
 pub mod classify;
@@ -800,9 +811,17 @@ impl ScanPipeline {
                 }
                 // 档位后处理: speed → 规则清洗; balanced → 分段润色; rigor → 润色
                 //   + 双通道交叉验证 + 冲突仲裁 + 全局审查
-                let mode_started = std::time::Instant::now();
+                // 阶段耗时按不重叠划分记录: 各档位内部已记 polish / cross-verify /
+                // arbitrate / global-review, speed 档此处记 rule-clean, 不再另记
+                // 粗粒度的 post-process (否则与内层阶段重复计时, 报告里阶段
+                // 合计会超过总耗时)
                 let outcome = match opts.mode {
-                    PipelineMode::Speed => Ok(clean::rule_clean(&raw)),
+                    PipelineMode::Speed => {
+                        let started = std::time::Instant::now();
+                        let out = Ok(clean::rule_clean(&raw));
+                        metrics.record("rule-clean", started.elapsed().as_secs_f64());
+                        out
+                    }
                     PipelineMode::Balanced => {
                         Self::polish_document(client, opts, &mut ws, &raw, on_progress, metrics)
                             .await
@@ -815,7 +834,6 @@ impl ScanPipeline {
                         .await
                     }
                 };
-                metrics.record("post-process", mode_started.elapsed().as_secs_f64());
                 match outcome {
                     Ok(md) => (Ok(md), Some(ws)),
                     Err(e) => (Err(e), Some(ws)),

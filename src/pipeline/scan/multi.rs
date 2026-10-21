@@ -250,27 +250,61 @@ pub async fn convert_multi(
 }
 
 /// 一次 dry-run 输出多文件时, 把每个 plan 串行渲染为人类可读
+///
+/// 文案与单文件 dry-run 走同一套 i18n 目录 (此前此处硬编码中文, 英文界面
+/// 会中英混排, 且字段集比单文件版少: 缺输入源/大小/润色模型/原因标签)。
 pub fn render_plans_human(plans: &[super::ConversionPlan]) {
     for (i, plan) in plans.iter().enumerate() {
         if plans.len() > 1 {
             println!("\n────── [{} / {}] ──────", i + 1, plans.len());
         }
-        // 简化渲染 (避免循环依赖 Printer): 复用 ConversionPlan 字段
-        println!("输入: {}", plan.input);
-        println!("格式: {} ({})", plan.detected_label, plan.detect_method);
-        if let (Some(p), Some(s)) = (plan.page_count, plan.slice_count) {
-            println!("PDF 页数: {} 页 → {} 批 (每批 15 页)", p, s);
+        println!(
+            "{}{} ({}, {})",
+            crate::msg!(MdLabelInput),
+            plan.input,
+            if plan.input_source == "url" {
+                crate::msg!(MdInputUrl)
+            } else {
+                crate::msg!(MdInputLocal)
+            },
+            super::human_size(plan.size_bytes)
+        );
+        println!(
+            "{}{} ({})",
+            crate::msg!(MdLabelFormat),
+            plan.detected_label,
+            match plan.detect_method {
+                "content-sniff" => crate::msg!(MdDetectContent),
+                "extension-fallback" => crate::msg!(MdDetectExtension),
+                _ => crate::msg!(MdDetectManual),
+            }
+        );
+        if let (Some(pages), Some(slices)) = (plan.page_count, plan.slice_count) {
+            println!(
+                "{}",
+                crate::msgf!(
+                    MdLabelPdfPages,
+                    pages,
+                    slices,
+                    super::pdf::SLICE_BATCH_PAGES
+                )
+            );
         }
-        println!("档位: {} | 通道: {}", plan.mode, plan.channel.unwrap_or("—"));
+        println!("{}{}", crate::msg!(MdLabelMode), plan.mode);
+        println!("{}{}", crate::msg!(MdLabelChannel), plan.channel.unwrap_or("—"));
         if plan.supported {
-            println!("阶段: {}", plan.stages.join(" → "));
+            println!("{}{}", crate::msg!(MdLabelStages), plan.stages.join(" → "));
         } else {
             println!(
-                "不支持: {}",
+                "{}{}",
+                crate::msg!(MdReason),
                 plan.unsupported_reason.as_deref().unwrap_or("—")
             );
         }
-        println!("输出: {}", plan.output_target);
+        if plan.mode != "speed" {
+            println!("{}{}", crate::msg!(MdPolishModel), plan.polish_model);
+        }
+        println!("{}{}", crate::msg!(MdOutputTarget), plan.output_target);
         for w in &plan.warnings {
             println!("  ⚠ {}", w);
         }

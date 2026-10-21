@@ -240,6 +240,34 @@
   PNG 解码而失败。现启用 bmp/gif/tiff/webp 解码并修正 MIME 映射，6 种格式实测
   全部转换成功（关键文字命中 8~9 处，表格与版面描述均正确）。
 
+- **CLI 全量一致性对齐**（2026-10-21 逐层核对「文档 / 代码 / 注释 / 帮助」）：
+  - **README §5 空壳化**：删 `ocr`/`parse` 后该节只剩一句转述，已重建为
+    「图像与文档转换 (`scan`)」并给出图像与文档两条代表用法。
+  - **README 参数覆盖缺口**：各命令的独有参数（chat 的采样/流式、scan 的
+    `--type`/`--image-handling`/`--image-prompt`/`--max-dim`/`--work-dir`/
+    `--resume`/`--no-clean`/`--no-front-matter`/`--segment-chars`/
+    `--min-confidence`/`--recursive`、pdf-split 的 `--chunk-size`/`--out-dir`、
+    models 的 `--online-only`/`--all-models`、dataset 的 `--url`、upgrade 的
+    `--check`/`--package`）此前均未出现，现已补齐。
+  - **README 用法错误**：`pdf-split --file big.pdf` 中 `--file` 实为位置参数，
+    照抄会被 clap 拒绝；已改为 `pdf-split big.pdf`。
+  - **多文件 dry-run 渲染器违反 i18n 契约**：`render_plans_human` 硬编码中文
+    （英文界面中英混排），且字段集比单文件版少（缺输入源/大小/润色模型/原因
+    标签）；现已改走 i18n 目录并对齐字段集。
+  - **阶段耗时重复计时**：报告的 `stages` 既有粗粒度 `post-process` 又有内层
+    `polish`/`cross-verify`/`arbitrate`/`global-review`，合计超过总耗时
+    （实测 45.6s vs 25.4s）。改为不重叠划分（speed 档记 `rule-clean`），
+    实测阶段合计 25.7s ≈ 总耗时 25.6s。
+  - **SSOT §3.1 契约与实现不符**：契约承诺 speed 档「操作范围仅有两项」，
+    但体裁特化引入的编号层级重建与标题去强调已应用于所有档位（含 speed），
+    契约被违反。已更新契约为四项并明确「改变结构但不改动文字」。
+  - **SSOT 缺退出码契约**：补 §6 退出码表（0/2/3/4/5/69/70/78，含
+    `Skipped` 归为成功）与批量模式下的失败/跳过语义。
+  - **模块文档过时**：`scan/mod.rs` 仍写「阶段③~⑤ 分阶段接入」（实际已全部
+    落地），已改写为五段实际流程；`inference.rs` 模块头仍列 `chat/ocr/parse`。
+  - **capability_matrix 注释**：明确 `default_ocr`/`default_parse` 现由 scan
+    使用（原对应子命令已删），通道验证提法由「markitdown 通道」改为「scan 通道」。
+
 ### Fixed
 
 - **scan 与 SSOT 文档的一致性**（2026-10-21 全量审计）：
