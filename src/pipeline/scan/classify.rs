@@ -48,7 +48,17 @@ impl DocKind {
         }
     }
 
-    pub fn label(&self) -> &'static str {
+    /// 展示标签 (随界面语言切换)
+    pub fn label(&self) -> String {
+        use crate::term::i18n::{current_language, Language};
+        match current_language() {
+            Language::Zh => self.label_zh().to_string(),
+            Language::En => self.label_en().to_string(),
+        }
+    }
+
+    /// 中文标签
+    pub fn label_zh(&self) -> &'static str {
         match self {
             Self::Official => "公文",
             Self::Contract => "合同/协议",
@@ -58,6 +68,20 @@ impl DocKind {
             Self::Diagram => "图示",
             Self::Image => "图像",
             Self::Generic => "通用文档",
+        }
+    }
+
+    /// 英文标签
+    pub fn label_en(&self) -> &'static str {
+        match self {
+            Self::Official => "official document",
+            Self::Contract => "contract/agreement",
+            Self::Standard => "standard",
+            Self::Table => "spreadsheet",
+            Self::Slide => "presentation",
+            Self::Diagram => "diagram",
+            Self::Image => "image",
+            Self::Generic => "generic document",
         }
     }
 }

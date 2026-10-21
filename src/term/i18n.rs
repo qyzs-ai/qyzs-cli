@@ -191,6 +191,15 @@ pub enum MsgId {
     MdStyleAdjusted,
     MdAssetsExtracted,
     MdAssetIndexNote,
+    MdDecideRuleStrong,
+    MdDecideWeakConfirmed,
+    MdDecideRuleModelFailed,
+    MdDecideWeakArbitrateFailed,
+    MdDecideModelFallback,
+    MdDecideModelFallbackFailed,
+    MdDecideModelFirst,
+    MdDecideWeakArbitrated,
+    MdUnresolvedImageRefs,
     MdLabelMode,
     MdLabelChannel,
     MdLabelStages,
@@ -214,7 +223,11 @@ pub enum MsgId {
 
 impl MsgId {
     pub fn get(self) -> &'static str {
-        let lang = current_language();
+        self.get_for(current_language())
+    }
+
+    /// 取指定语言的文案 (get 的显式语言版本; 便于按语言单测)
+    pub fn get_for(self, lang: Language) -> &'static str {
         match (self, lang) {
             (MsgId::AppDescription, Language::Zh) => "自然资源部庆阳智算中心大模型统一命令行工具",
             (MsgId::AppDescription, Language::En) => "Ministry of Natural Resources Qingyang AI Computing Center CLI",
@@ -341,6 +354,25 @@ impl MsgId {
             (MsgId::MdAssetsExtracted, Language::En) => "Image assets: {0} written to {1}; {2} reference(s) rewritten{3}",
             (MsgId::MdAssetIndexNote, Language::Zh) => "正文中的原始图片引用无法与抽取结果逐一对应，故在此按顺序列出，供人工核对位置。",
             (MsgId::MdAssetIndexNote, Language::En) => "Original image references cannot be matched one-to-one with the extracted assets; listed in order for manual cross-check.",
+
+            (MsgId::MdUnresolvedImageRefs, Language::Zh) => "产物含 {0} 处未落盘图片引用 (网关未提供图片字节, 链接不可达)",
+            (MsgId::MdUnresolvedImageRefs, Language::En) => "{0} unresolved image reference(s) in output (gateway provides no image bytes; links are dead)",
+            (MsgId::MdDecideModelFirst, Language::Zh) => "模型({0})",
+            (MsgId::MdDecideModelFirst, Language::En) => "model ({0})",
+            (MsgId::MdDecideWeakArbitrated, Language::Zh) => "模型仲裁(规则弱命中 {0}, 改判 {1})",
+            (MsgId::MdDecideWeakArbitrated, Language::En) => "model arbitration (rule weak match {0}, changed to {1})",
+            (MsgId::MdDecideRuleStrong, Language::Zh) => "规则(强信号)",
+            (MsgId::MdDecideRuleStrong, Language::En) => "rule (strong signal)",
+            (MsgId::MdDecideWeakConfirmed, Language::Zh) => "规则(弱命中, 模型确认)",
+            (MsgId::MdDecideWeakConfirmed, Language::En) => "rule (weak match, model confirmed)",
+            (MsgId::MdDecideRuleModelFailed, Language::Zh) => "规则({0}, 模型失败回退)",
+            (MsgId::MdDecideRuleModelFailed, Language::En) => "rule ({0}, model failed)",
+            (MsgId::MdDecideWeakArbitrateFailed, Language::Zh) => "规则(弱命中, 仲裁失败保留)",
+            (MsgId::MdDecideWeakArbitrateFailed, Language::En) => "rule (weak match, arbitration failed)",
+            (MsgId::MdDecideModelFallback, Language::Zh) => "模型(规则判不出兜底)",
+            (MsgId::MdDecideModelFallback, Language::En) => "model (fallback for inconclusive rules)",
+            (MsgId::MdDecideModelFallbackFailed, Language::Zh) => "规则(判不出, 兜底失败)",
+            (MsgId::MdDecideModelFallbackFailed, Language::En) => "rule (inconclusive, fallback failed)",
 
             (MsgId::MdLabelInput, Language::Zh) => "  输入:        ",
             (MsgId::MdLabelInput, Language::En) => "  Input:        ",

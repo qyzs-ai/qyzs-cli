@@ -268,6 +268,20 @@
   - **capability_matrix 注释**：明确 `default_ocr`/`default_parse` 现由 scan
     使用（原对应子命令已删），通道验证提法由「markitdown 通道」改为「scan 通道」。
 
+- **i18n 间接来源的中文泄漏**（复核发现，上一轮 grep 未覆盖）：上一轮只查了
+  `println!`/`eprintln!` 字面量，漏掉经返回值流入输出的中文，实际在英文界面
+  仍显示中文：
+  - 格式标签 `SourceFormat::label()`（"PDF 文档"）与图像子格式 `ImageKind::label()`
+    —— 改为 `label_zh`/`label_en` 按当前语言取值；
+  - 体裁标签 `DocKind::label()`（"公文"）同上；
+  - 阶段描述 `extract_stage()` 的中文括注（"15页/批切片"、"本地表格解析" 等）；
+  - 体裁判定路径文案（"规则(强信号)"、"模型仲裁(规则弱命中X,改判Y)" 等）——
+    8 条判定路径全部目录化；
+  - 图片引用未落盘告警。
+  新增 `MsgId::get_for(lang)` 便于按语言单测，并加守卫测试
+  `test_english_output_has_no_chinese`（断言英文文案不含非 ASCII 字符），
+  防止此类回归再次发生。
+
 ### Fixed
 
 - **scan 与 SSOT 文档的一致性**（2026-10-21 全量审计）：

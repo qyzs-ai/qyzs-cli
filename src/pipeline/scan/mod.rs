@@ -327,7 +327,7 @@ impl ScanPipeline {
         })
     }
 
-    /// 格式 → 抽取通道路由 (通道实现随阶段②~⑤接入)
+    /// 格式 → 抽取通道路由 (各通道实现见对应子模块)
     fn route(format: &SourceFormat) -> (Option<&'static str>, Option<String>) {
         match format {
             SourceFormat::Pdf => (Some("mineru-slice"), None),
@@ -394,22 +394,60 @@ impl ScanPipeline {
     }
 
     fn extract_stage(channel: &str, image_handling: ImageHandling) -> String {
+        use crate::term::i18n::{current_language, Language};
+        let zh = current_language() == Language::Zh;
         match channel {
-            "mineru-slice" => format!("extract(mineru3.2.3, {}页/批切片)", pdf::SLICE_BATCH_PAGES),
+            "mineru-slice" => {
+                if zh {
+                    format!("extract(mineru3.2.3, {}页/批切片)", pdf::SLICE_BATCH_PAGES)
+                } else {
+                    format!("extract(mineru3.2.3, {} pages/batch)", pdf::SLICE_BATCH_PAGES)
+                }
+            }
             "mineru-document" => "extract(mineru3.2.3)".to_string(),
-            "sheet-tables" => "extract(本地表格解析)".to_string(),
-            "ooxml-text" => "extract(ooxml 文本抽取)".to_string(),
-            "csv-tables" => "extract(本地 csv 表格化)".to_string(),
-            "json-pretty" => "extract(pretty + 同构数组表格化)".to_string(),
-            "xml-to-md" => "extract(xml 元素展开)".to_string(),
-            "zip-iterate" => "extract(zip 容器迭代, 子格式路由)".to_string(),
-            "html-to-md" => "extract(html 结构化解析)".to_string(),
+            "sheet-tables" => {
+                if zh { "extract(本地表格解析)".to_string() } else { "extract(local table parsing)".to_string() }
+            }
+            "ooxml-text" => {
+                if zh { "extract(ooxml 文本抽取)".to_string() } else { "extract(ooxml text extraction)".to_string() }
+            }
+            "csv-tables" => {
+                if zh { "extract(本地 csv 表格化)".to_string() } else { "extract(local csv to table)".to_string() }
+            }
+            "json-pretty" => {
+                if zh {
+                    "extract(pretty + 同构数组表格化)".to_string()
+                } else {
+                    "extract(pretty + array to table)".to_string()
+                }
+            }
+            "xml-to-md" => {
+                if zh { "extract(xml 元素展开)".to_string() } else { "extract(xml element expansion)".to_string() }
+            }
+            "zip-iterate" => {
+                if zh {
+                    "extract(zip 容器迭代, 子格式路由)".to_string()
+                } else {
+                    "extract(zip iteration, sub-format routing)".to_string()
+                }
+            }
+            "html-to-md" => {
+                if zh { "extract(html 结构化解析)".to_string() } else { "extract(html structured)".to_string() }
+            }
             "ocr-vl" => match image_handling {
-                ImageHandling::Auto => "extract(paddleocrvl + qwen3-VL 自适应)".to_string(),
+                ImageHandling::Auto => {
+                    if zh {
+                        "extract(paddleocrvl + qwen3-VL 自适应)".to_string()
+                    } else {
+                        "extract(paddleocrvl + qwen3-VL adaptive)".to_string()
+                    }
+                }
                 ImageHandling::Ocr => "extract(paddleocrvl)".to_string(),
                 ImageHandling::Describe => "extract(qwen3-VL)".to_string(),
                 ImageHandling::Both => "extract(paddleocrvl + qwen3-VL)".to_string(),
-                ImageHandling::Skip => "extract(跳过图像内容)".to_string(),
+                ImageHandling::Skip => {
+                    if zh { "extract(跳过图像内容)".to_string() } else { "extract(image content skipped)".to_string() }
+                }
             },
             _ => "extract".to_string(),
         }
@@ -460,7 +498,7 @@ impl ScanPipeline {
         Ok((dir, file_path))
     }
 
-    /// speed 档转换执行 (阶段②)。
+    /// speed 档转换执行。
     ///
     /// 流程: 输入落地 → 格式嗅探 → 工作区开立 (锁/指纹/续跑) → 通道抽取
     /// → 规则清洗 (结构归一契约) → 交付 (返回值, 由调用层写 -o 或 stdout)
@@ -532,8 +570,8 @@ impl ScanPipeline {
                     image_refs::ImageRefStats::analyze_with_base(&md, md_dir.as_deref());
                 if image_stats.unresolved > 0 {
                     eprintln!(
-                        "\x1b[33m[WARN]\x1b[0m 产物含 {} 处未落盘图片引用 (网关未提供图片字节, 链接不可达)",
-                        image_stats.unresolved
+                        "\x1b[33m[WARN]\x1b[0m {}",
+                        crate::msgf!(MdUnresolvedImageRefs, image_stats.unresolved)
                     );
                 }
 
@@ -922,46 +960,42 @@ impl ScanPipeline {
             match (&opts.classify_model, rule.confidence, rule.kind) {
                 (Some(m), _, _) => {
                     match classify::classify_genre_model(client, &md, Some(m)).await {
-                        Ok(k) => (k, format!("模型({m})")),
+                        Ok(k) => (k, crate::msgf!(MdDecideModelFirst, m)),
                         Err(e) => {
                             eprintln!(
                                 "\x1b[33m[WARN]\x1b[0m {}",
                                 crate::msgf!(MdClassifyModelFailed, e)
                             );
-                            (rule.kind, format!("规则({:?},模型失败回退)", rule.confidence))
+                            (rule.kind, crate::msgf!(MdDecideRuleModelFailed, format!("{:?}", rule.confidence)))
                         }
                     }
                 }
                 (None, _, classify::DocKind::Generic) => {
                     match classify::classify_genre_model(client, &md, None).await {
-                        Ok(k) => (k, "模型(规则判不出兜底)".to_string()),
+                        Ok(k) => (k, crate::msg!(MdDecideModelFallback).to_string()),
                         Err(e) => {
                             eprintln!(
                                 "\x1b[33m[WARN]\x1b[0m {}",
                                 crate::msgf!(MdClassifyFallbackFailed, e)
                             );
-                            (classify::DocKind::Generic, "规则(判不出,兜底失败)".to_string())
+                            (classify::DocKind::Generic, crate::msg!(MdDecideModelFallbackFailed).to_string())
                         }
                     }
                 }
-                (None, classify::Confidence::Strong, k) => (k, "规则(强信号)".to_string()),
+                (None, classify::Confidence::Strong, k) => (k, crate::msg!(MdDecideRuleStrong).to_string()),
                 (None, classify::Confidence::Weak, k) => {
                     match classify::classify_genre_model(client, &md, None).await {
                         Ok(arbitrated) if arbitrated != k => (
                             arbitrated,
-                            format!(
-                                "模型仲裁(规则弱命中{},改判 {})",
-                                k.key(),
-                                arbitrated.key()
-                            ),
+                            crate::msgf!(MdDecideWeakArbitrated, k.key(), arbitrated.key()),
                         ),
-                        Ok(_) => (k, "规则(弱命中,模型确认)".to_string()),
+                        Ok(_) => (k, crate::msg!(MdDecideWeakConfirmed).to_string()),
                         Err(e) => {
                             eprintln!(
                                 "\x1b[33m[WARN]\x1b[0m {}",
                                 crate::msgf!(MdWeakArbitrateFailed, e)
                             );
-                            (k, format!("规则(弱{:?},仲裁失败保留)", rule.confidence))
+                            (k, crate::msgf!(MdDecideWeakArbitrateFailed, format!("{:?}", rule.confidence)))
                         }
                     }
                 }

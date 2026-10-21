@@ -1,4 +1,4 @@
-//! scan 输入格式嗅探 (阶段①)
+//! scan 输入格式嗅探
 //!
 //! 识别优先级：内容魔数 > 容器内部结构 (ZIP 条目名 / OLE2 目录流名) > 扩展名兜底。
 //! 零新增依赖：ZIP 家族在头部字节内直接解析本地文件头条目名；
@@ -56,7 +56,17 @@ pub enum ImageKind {
 }
 
 impl ImageKind {
-    pub fn label(self) -> &'static str {
+    /// 展示标签 (随界面语言切换)
+    pub fn label(self) -> String {
+        use crate::term::i18n::{current_language, Language};
+        match current_language() {
+            Language::Zh => self.label_zh().to_string(),
+            Language::En => self.label_en().to_string(),
+        }
+    }
+
+    /// 中文标签
+    pub fn label_zh(self) -> &'static str {
         match self {
             Self::Png => "PNG",
             Self::Jpeg => "JPEG",
@@ -65,6 +75,19 @@ impl ImageKind {
             Self::Tiff => "TIFF",
             Self::Webp => "WebP",
             Self::Unspecified => "未指定子格式",
+        }
+    }
+
+    /// 英文标签
+    pub fn label_en(self) -> &'static str {
+        match self {
+            Self::Png => "PNG",
+            Self::Jpeg => "JPEG",
+            Self::Gif => "GIF",
+            Self::Bmp => "BMP",
+            Self::Tiff => "TIFF",
+            Self::Webp => "WebP",
+            Self::Unspecified => "unspecified sub-format",
         }
     }
 
@@ -105,7 +128,17 @@ impl SourceFormat {
     }
 
     /// 中文标签 (dry-run 展示)
+    /// 展示标签 (dry-run 用; 随界面语言切换)
     pub fn label(&self) -> String {
+        use crate::term::i18n::{current_language, Language};
+        match current_language() {
+            Language::Zh => self.label_zh(),
+            Language::En => self.label_en(),
+        }
+    }
+
+    /// 中文标签
+    pub fn label_zh(&self) -> String {
         match self {
             Self::Pdf => "PDF 文档".into(),
             Self::Doc => "Word 文档 (.doc, OLE2)".into(),
@@ -120,9 +153,31 @@ impl SourceFormat {
             Self::Json => "JSON 数据".into(),
             Self::Xml => "XML 文档".into(),
             Self::Zip => "ZIP 压缩容器".into(),
-            Self::Image(k) => format!("图像 ({})", k.label()),
+            Self::Image(k) => format!("图像 ({})", k.label_zh()),
             Self::Html => "HTML 网页".into(),
             Self::Unknown => "未知格式".into(),
+        }
+    }
+
+    /// 英文标签
+    pub fn label_en(&self) -> String {
+        match self {
+            Self::Pdf => "PDF document".into(),
+            Self::Doc => "Word document (.doc, OLE2)".into(),
+            Self::Docx => "Word document (.docx, OOXML)".into(),
+            Self::Xls => "Excel workbook (.xls, OLE2)".into(),
+            Self::Xlsx => "Excel workbook (.xlsx, OOXML)".into(),
+            Self::Ppt => "PowerPoint deck (.ppt, legacy binary)".into(),
+            Self::Pptx => "PowerPoint deck (.pptx, OOXML)".into(),
+            Self::Vsdx => "Visio drawing (.vsdx, OOXML)".into(),
+            Self::Vs => "Visio drawing (.vsd, legacy binary)".into(),
+            Self::Csv => "CSV text table".into(),
+            Self::Json => "JSON data".into(),
+            Self::Xml => "XML document".into(),
+            Self::Zip => "ZIP container".into(),
+            Self::Image(k) => format!("image ({})", k.label_en()),
+            Self::Html => "HTML page".into(),
+            Self::Unknown => "unknown format".into(),
         }
     }
 

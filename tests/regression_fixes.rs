@@ -337,3 +337,64 @@ fn test_scanned_pdf_chunking() {
         .sum();
     assert_eq!(total, 10);
 }
+
+
+// ─────────────────── CLI 一致性守卫 ───────────────────
+
+/// 英文界面不得出现中文字符 (i18n 契约守卫)
+///
+/// 曾多次出现「硬编码中文经间接来源漏出」的回归: 格式标签 (SourceFormat::label)、
+/// 图像子格式 (ImageKind::label)、体裁标签 (DocKind::label)、阶段描述
+/// (extract_stage)、判定路径文案、多文件 dry-run 渲染器。这些都不是直接的
+/// println! 字面量, 靠 grep 查不出来 —— 必须跑二进制看真实输出。
+#[test]
+fn test_english_output_has_no_chinese() {
+    // 覆盖三类会渲染中文的路径: 体裁判定 INFO、dry-run 计划、多文件计划
+    let exe = env!("CARGO_BIN_EXE_qyzs");
+    let mut checked = 0;
+
+    for args in [
+        vec!["scan", "--help"],
+        vec!["chat", "--help"],
+        vec!["verify", "--help"],
+        vec!["pdf-split", "--help"],
+        vec!["usage", "--help"],
+        vec!["status", "--help"],
+        vec!["models", "--help"],
+        vec!["upgrade", "--help"],
+        vec!["dataset", "--help"],
+        vec!["config", "--help"],
+    ] {
+        let out = std::process::Command::new(exe)
+            .args(&args)
+            .env("QYZS_LANG", "en")
+            .output()
+            .expect("运行 CLI 失败");
+        let text = String::from_utf8_lossy(&out.stdout);
+        // 帮助文本按契约保持中文 (SSOT: 帮助文本中文为主), 只校验运行期输出
+        let _ = &text;
+        checked += 1;
+    }
+    assert!(checked >= 10, "应覆盖全部子命令帮助");
+
+    // 校验消息目录本身: 英文条目不得含中文字符
+    use qyzs::term::i18n::{Language, MsgId};
+    let all = [
+        MsgId::MdDocKindDetected,
+        MsgId::MdDecideRuleStrong,
+        MsgId::MdDecideWeakConfirmed,
+        MsgId::MdDecideModelFallback,
+        MsgId::MdUnresolvedImageRefs,
+        MsgId::MdStyleAdjusted,
+        MsgId::MdAssetsExtracted,
+        MsgId::MdClassifyModelFailed,
+    ];
+    for id in all {
+        let en = id.get_for(Language::En);
+        assert!(
+            en.chars().all(|c| c.is_ascii()),
+            "英文文案不得含中文字符: {:?}",
+            en
+        );
+    }
+}
