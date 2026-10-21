@@ -313,7 +313,7 @@ pub fn render_plans_human(plans: &[super::ConversionPlan]) {
 
 #[allow(dead_code)]
 fn _pipeline_mode_marker() -> PipelineMode {
-    PipelineMode::Balanced
+    PipelineMode::Rigor
 }
 
 #[allow(dead_code)]
@@ -330,7 +330,7 @@ mod tests {
             input: inputs,
             output,
             recursive,
-            mode: PipelineMode::Balanced,
+            mode: PipelineMode::Rigor,
             type_override: None,
             image_handling: super::super::ImageHandling::Auto,
             image_prompt: None,

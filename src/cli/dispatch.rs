@@ -149,7 +149,7 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
                 recursive,
                 mode: match mode.as_deref() {
                     Some(s) => PipelineMode::parse(s)?,
-                    None => PipelineMode::Balanced,
+                    None => PipelineMode::Rigor,
                 },
                 type_override: match r#type.as_deref() {
                     Some(s) => Some(crate::pipeline::scan::detect::SourceFormat::parse(s)?),

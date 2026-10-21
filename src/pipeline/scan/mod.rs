@@ -8,7 +8,7 @@
 //! 3. **抽取** — PDF 本地切片 + MinerU 逐片聚合; Office/Visio 本地部件抽取;
 //!    图像走 paddleocrvl + qwen3-VL; 扫描件在 rigor 档另有 OCR/VL 双通道
 //!    证据。 (`pdf` / `ooxml` / `sheet_tables` / `ocr_vl` / `pdf_ocr`)
-//! 4. **档位后处理** — speed 规则清洗; balanced 分段润色 + light-check;
+//! 4. **档位后处理** — rigor (默认) 分段润色 + 多通道交叉验证 + 逐段仲裁 +
 //!    rigor 多通道交叉验证 + 逐段仲裁 + 全局审查。 (`clean` / `polish` /
 //!    `cross_verify`)
 //! 5. **收尾** — 体裁识别与体裁特化排版 (按编号/样式重建层级)、图片附件
@@ -61,10 +61,14 @@ const MINERU_SECONDS_PER_PAGE: f64 = 0.26;
 const EXTRACT_TIMEOUT_FLOOR_SECS: u64 = 300;
 
 /// 处理档位
+///
+/// 只有两档: `rigor` (默认, 对抗式全流程: 多通道抽取 + 交叉验证 + 逐段仲裁 +
+/// 全局审查, 准确率优先) 与 `speed` (批量场景的快速通道, 明确放弃准确率保证)。
+/// 原 `balanced` 档 (单通道润色, 无验证) 已移除 —— 它介于两者之间, 既不快多少
+/// 也没有准确率保证, 徒增选择负担 (2026-10-21, 用户决策: 准确率排第一)。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipelineMode {
     Speed,
-    Balanced,
     Rigor,
 }
 
@@ -72,10 +76,11 @@ impl PipelineMode {
     pub fn parse(s: &str) -> QyzsResult<Self> {
         match s {
             "speed" => Ok(Self::Speed),
-            "balanced" => Ok(Self::Balanced),
             "rigor" => Ok(Self::Rigor),
+            // 旧值兼容映射: balanced 的准确率诉求由默认的 rigor 满足
+            "balanced" => Ok(Self::Rigor),
             other => Err(QyzsError::Usage(format!(
-                "未知档位 '{}'，可选: speed|balanced|rigor",
+                "未知档位 '{}'，可选: speed|rigor",
                 other
             ))),
         }
@@ -84,7 +89,6 @@ impl PipelineMode {
     pub fn key(&self) -> &'static str {
         match self {
             Self::Speed => "speed",
-            Self::Balanced => "balanced",
             Self::Rigor => "rigor",
         }
     }
@@ -370,13 +374,6 @@ impl ScanPipeline {
         let mut stages = match mode {
             PipelineMode::Speed => {
                 vec![extract, "rule-clean".to_string()]
-            }
-            PipelineMode::Balanced => {
-                vec![
-                    extract,
-                    "light-check".to_string(),
-                    format!("polish({})", polish_model),
-                ]
             }
             PipelineMode::Rigor => {
                 vec![
@@ -847,7 +844,7 @@ impl ScanPipeline {
                         Some(ws),
                     );
                 }
-                // 档位后处理: speed → 规则清洗; balanced → 分段润色; rigor → 润色
+                // 档位后处理: speed → 规则清洗; rigor (默认) → 润色
                 //   + 双通道交叉验证 + 冲突仲裁 + 全局审查
                 // 阶段耗时按不重叠划分记录: 各档位内部已记 polish / cross-verify /
                 // arbitrate / global-review, speed 档此处记 rule-clean, 不再另记
@@ -859,10 +856,6 @@ impl ScanPipeline {
                         let out = Ok(clean::rule_clean(&raw));
                         metrics.record("rule-clean", started.elapsed().as_secs_f64());
                         out
-                    }
-                    PipelineMode::Balanced => {
-                        Self::polish_document(client, opts, &mut ws, &raw, on_progress, metrics)
-                            .await
                     }
                     PipelineMode::Rigor => {
                         Self::rigor_document(
@@ -1177,7 +1170,7 @@ impl ScanPipeline {
         md
     }
 
-    /// balanced 档: 全文术语表提取 → 分段 → 逐段润色 →
+    /// rigor 档润色阶段: 全文术语表提取 → 分段 → 逐段润色 →
     /// light-check (不过则回退原文) → 规则清洗收尾。段级状态入 manifest。
     async fn polish_document(
         client: &QyzsClient,
@@ -1283,7 +1276,7 @@ impl ScanPipeline {
         Ok((text, [ocr_warns, vl_warns].concat()))
     }
 
-    /// rigor 档: balanced 润色 → 第二通道交叉验证 → 冲突段仲裁 (≤2 轮) →
+    /// rigor 档: 润色 → 第二通道交叉验证 → 冲突段仲裁 (≤2 轮) →
     /// 不可决段标记 → 全局结构审查。第二通道不可用 (扫描件文本层为空/本地
     /// 通道无独立第二通道) 时诚实降级并告警, 不静默伪装验证通过。
     #[allow(clippy::too_many_arguments)]
@@ -1297,7 +1290,7 @@ impl ScanPipeline {
         on_progress: Option<&dyn Fn(usize, usize)>,
         metrics: &mut PipelineMetrics,
     ) -> QyzsResult<String> {
-        // 1. 润色 (与 balanced 共用, 段级状态复用)
+        // 1. 润色 (对抗式流程的第一步, 段级状态可复用)
         let polished = Self::polish_document(client, opts, ws, raw, on_progress, metrics).await?;
 
         // 2. 第二通道抽取 (manifest 阶段 "secondary")
@@ -1348,7 +1341,7 @@ impl ScanPipeline {
                         secondary = ocr_text;
                     } else {
                         let msg = format!(
-                            "第二通道文本层过薄 ({} 字符), OCR 第二通道产出亦不足 ({} 字符), 交叉验证不可用, rigor 降级为 balanced 行为",
+                            "第二通道文本层过薄 ({} 字符), OCR 第二通道产出亦不足 ({} 字符), 交叉验证不可用, rigor 降级为仅润色行为",
                             secondary_chars, ocr_chars
                         );
                         let _ = ws.add_warning(msg.clone());
@@ -1361,7 +1354,7 @@ impl ScanPipeline {
                 }
                 Err(e) => {
                     let msg = format!(
-                        "第二通道文本层过薄 ({} 字符), OCR 第二通道不可用 ({}), 交叉验证不可用, rigor 降级为 balanced 行为",
+                        "第二通道文本层过薄 ({} 字符), OCR 第二通道不可用 ({}), 交叉验证不可用, rigor 降级为仅润色行为",
                         secondary_chars, e
                     );
                     let _ = ws.add_warning(msg.clone());
@@ -1598,9 +1591,10 @@ mod tests {
         assert_eq!(speed.first().unwrap(), "extract(mineru3.2.3, 15页/批切片)");
         assert!(!speed.iter().any(|s| s.contains("polish")));
 
-        let balanced = ScanPipeline::stages_for(PipelineMode::Balanced, "ocr-vl", ImageHandling::Ocr, "dsv4");
-        assert_eq!(balanced.first().unwrap(), "extract(paddleocrvl)");
-        assert!(balanced.iter().any(|s| s == "polish(dsv4)"));
+        // balanced 档已移除: 旧值映射到 rigor (对抗式全流程)
+        let legacy = ScanPipeline::stages_for(PipelineMode::parse("balanced").unwrap(), "ocr-vl", ImageHandling::Ocr, "dsv4");
+        assert_eq!(legacy.first().unwrap(), "extract(paddleocrvl)");
+        assert!(legacy.iter().any(|s| s == "cross-verify(bge-m3)"), "旧 balanced 值应映射到 rigor 全流程");
 
         let rigor = ScanPipeline::stages_for(PipelineMode::Rigor, "mineru-document", ImageHandling::Auto, "dsv4");
         assert!(rigor.iter().any(|s| s == "cross-verify(bge-m3)"));
@@ -1624,7 +1618,7 @@ mod tests {
             input: vec![input.clone()],
             output: None,
             recursive: false,
-            mode: PipelineMode::Balanced,
+            mode: PipelineMode::Rigor,
             type_override: None,
             image_handling: ImageHandling::Auto,
             image_prompt: None,

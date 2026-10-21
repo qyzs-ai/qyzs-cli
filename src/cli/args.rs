@@ -177,7 +177,7 @@ pub enum Commands {
         #[arg(long, default_value_t = false, help = "目录输入时递归遍历子目录 (默认仅顶层)")]
         recursive: bool,
 
-        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["speed", "balanced", "rigor"]), help = "流水线档位: speed (单通道+规则清洗) | balanced (+LLM润色+自检) | rigor (双通道+交叉验证+仲裁) (默认 balanced)")]
+        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["speed", "rigor", "balanced"]), help = "流水线档位: rigor (默认, 对抗式全流程: 多通道抽取+交叉验证+逐段仲裁+全局审查, 准确率优先) | speed (批量快速通道, 单通道+规则清洗, 明确放弃准确率保证); 旧值 balanced 兼容接受, 映射到 rigor")]
         mode: Option<String>,
 
         #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "vsd", "vsdx", "csv", "json", "xml", "zip", "image", "html"]), help = "手动指定输入格式覆盖自动识别 (pdf|docx|xls|xlsx|ppt|pptx|vsd|vsdx|csv|json|xml|zip|image|html)")]

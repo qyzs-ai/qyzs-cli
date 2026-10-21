@@ -8,7 +8,7 @@
 //! - format: 检测到的格式键
 //! - detect_method: content-sniff / extension-fallback / manual-override
 //! - size_bytes: 输入文件字节数
-//! - mode: speed/balanced/rigor
+//! - mode: speed/rigor
 //! - model: 润色/理解模型
 //! - page_count: PDF 专属, 可选
 //! - converted_at: RFC3339 UTC 时间戳
@@ -153,7 +153,7 @@ mod tests {
             format: "pdf",
             detect_method: DetectMethod::ContentSniff,
             size_bytes: 12345,
-            mode: PipelineMode::Balanced,
+            mode: PipelineMode::Rigor,
             model: "dsv4",
             page_count: Some(42),
         };
@@ -164,7 +164,7 @@ mod tests {
         assert!(out.contains("format: pdf"));
         assert!(out.contains("detect_method: content-sniff"));
         assert!(out.contains("size_bytes: 12345"));
-        assert!(out.contains("mode: balanced"));
+        assert!(out.contains("mode: rigor"));
         assert!(out.contains("model: dsv4"));
         assert!(out.contains("page_count: 42"));
         assert!(out.contains("tool: qyzs-cli/"));

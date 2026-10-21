@@ -198,8 +198,9 @@ qyzs scan tender_doc.pdf --dry-run
 # 超长 PDF 每 15 页切片聚合; 图片附件写入与 .md 同级的 assets/ 并在正文引用
 qyzs scan tender_doc.pdf -o tender.md
 
-# 严谨档: 多通道抽取 + 交叉验证逐段仲裁 + 全局审查 (--report 输出质量报告 JSON)
-qyzs scan report.docx --mode rigor --report report.json
+# 默认即对抗式全流程: 多通道抽取 + 交叉验证逐段仲裁 + 全局审查 (准确率优先)
+# (--report 输出质量报告 JSON; --mode speed 可切批量快速通道)
+qyzs scan report.docx --report report.json
 
 # 分类与排版: 识别公文/合同/标准规范/表格/演示, 按各自体裁重建层级
 #   - 标准规范: 编>分编>章>节>条 编号层级重建 (这类文档字号统一, 层级只在编号里)

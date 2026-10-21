@@ -182,7 +182,7 @@ mod tests {
             12345,
             &SourceFormat::Pdf,
             DetectMethod::ContentSniff,
-            PipelineMode::Balanced,
+            PipelineMode::Rigor,
             "dsv4",
             Some(42),
             Some(3),
