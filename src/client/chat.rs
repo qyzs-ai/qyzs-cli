@@ -353,11 +353,15 @@ pub fn encode_image_to_data_url(path_str: &str) -> QyzsResult<String> {
         .unwrap_or("png")
         .to_lowercase();
 
+    // MIME 必须与实际编码一致: 网关按 data URL 的类型解析, gif/tiff 若误标为
+    // image/png 会被当作 PNG 解码而失败 (2026-10-21 多格式实测发现)
     let mime = match ext.as_str() {
         "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
         "webp" => "image/webp",
         "bmp" => "image/bmp",
+        "gif" => "image/gif",
+        "tif" | "tiff" => "image/tiff",
         _ => "image/png",
     };
 

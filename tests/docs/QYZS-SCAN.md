@@ -10,8 +10,12 @@
 
 ## 2. 输入与格式识别
 
-- 支持格式族: `pdf` `docx` `xls` `xlsx` `pptx` `vsdx` `image`
-  (png/jpg/gif/bmp/tiff/webp) `html`。
+- 支持格式族: `pdf` `docx` `xls` `xlsx` `pptx` `vsdx` `image` `html`。
+- **图像输入支持 6 种格式**：`png` `jpg/jpeg` `gif` `bmp` `tiff` `webp`。
+  全部格式均参与 800px 等比缩放预处理（image crate 启用 png/jpeg/bmp/gif/tiff/webp
+  解码），data URL 的 MIME 与实际编码一致（gif→image/gif、tiff→image/tiff，
+  此前两者被误标为 image/png 会被网关按 PNG 解码而失败）。
+  图像输入先判「文档 or 照片」（视觉模型），照片按策略跳过。
 - 明确不支持: 旧版二进制 `.ppt` `.vsd`，以及 `.doc`（解析网关实测拒绝，
   HTTP 400 `Unsupported file type: doc`，2026-10-18；报错并提示另存为 `.docx`）。
 - 识别优先级: 内容魔数 > 容器内部结构（OOXML 条目名 / OLE2 目录流名）> 扩展名兜底；
@@ -109,6 +113,7 @@
 | xlsx / xls | 本地表格解析 (calamine) → Markdown 表格 | ✅ |
 | pptx / vsdx | 本地 OOXML 部件抽取 (zip + XML) | ✅ |
 | image | paddleocrvl / qwen3-VL（`--image-handling` 策略）；先判「文档 or 照片」，照片跳过 | ✅ |
+- 图像输入的细粒度控制：`--image-prompt` 自定义 OCR 引导提示词、`--max-dim` 覆盖长边像素上限（默认 800px，1~8192 由 dispatch 校验）。
 | html | htmd (html5ever) → Markdown；`<script>/<style>` 入口剥离 | ✅ |
 
 - MinerU 解析默认开启 OCR 辅助（与扫描件难点相符，文本层件不受影响）。

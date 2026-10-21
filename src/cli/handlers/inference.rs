@@ -130,27 +130,6 @@ pub async fn chat(ctx: &Ctx<'_>, args: ChatArgs) -> QyzsResult<()> {
     Ok(())
 }
 
-pub async fn ocr(
-    ctx: &Ctx<'_>,
-    image: String,
-    prompt: Option<String>,
-    max_dim: Option<u32>,
-) -> QyzsResult<()> {
-    let resp = ctx.client.ocr(&image, prompt.as_deref(), max_dim).await?;
-    match ctx.config.output_format {
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&resp.raw_response).unwrap_or_default()
-            );
-        }
-        _ => {
-            println!("{}", resp.text);
-        }
-    }
-    Ok(())
-}
-
 pub async fn embed(ctx: &Ctx<'_>, text: Vec<String>, model: Option<String>) -> QyzsResult<()> {
     let resp = ctx.client.embed(text, model.as_deref()).await?;
     match ctx.config.output_format {

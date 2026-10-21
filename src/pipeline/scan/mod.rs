@@ -124,6 +124,10 @@ pub struct ScanOptions {
     pub mode: PipelineMode,
     pub type_override: Option<SourceFormat>,
     pub image_handling: ImageHandling,
+    /// 图像输入的自定义 OCR 引导提示词
+    pub image_prompt: Option<String>,
+    /// 图像长边最大像素尺寸 (防网关越界)
+    pub max_dim: Option<u32>,
     pub model: Option<String>,
     pub min_confidence: Option<f64>,
     pub report: Option<String>,
@@ -765,8 +769,15 @@ impl ScanPipeline {
             Some("xml-to-md") => xml_md::extract_xml(&mut ws, &local_path_str),
             Some("zip-iterate") => zip_iter::extract_zip(&mut ws, &local_path_str),
             Some("ocr-vl") => {
-                ocr_vl::extract_image(client, &mut ws, &local_path_str, opts.image_handling)
-                    .await
+                ocr_vl::extract_image(
+                    client,
+                    &mut ws,
+                    &local_path_str,
+                    opts.image_handling,
+                    opts.image_prompt.as_deref(),
+                    opts.max_dim,
+                )
+                .await
             }
             Some("html-to-md") => html_md::extract_html(&mut ws, &local_path_str),
             _ => Err(QyzsError::Server(format!(
@@ -1564,6 +1575,8 @@ mod tests {
             mode: PipelineMode::Balanced,
             type_override: None,
             image_handling: ImageHandling::Auto,
+            image_prompt: None,
+            max_dim: None,
             model: None,
             min_confidence: None,
             report: None,
@@ -1598,6 +1611,8 @@ mod tests {
             mode: PipelineMode::Speed,
             type_override: None,
             image_handling: ImageHandling::Auto,
+            image_prompt: None,
+            max_dim: None,
             model: None,
             min_confidence: None,
             report: None,

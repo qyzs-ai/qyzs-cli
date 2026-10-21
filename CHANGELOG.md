@@ -163,6 +163,18 @@
 
 ### Changed
 
+- **（破坏性）删除 `ocr` 子命令，功能并入 `scan`**：两个入口都做「图像→文字」，
+  但 `ocr` 只出纯文本、`scan` 出结构化 Markdown 且支持多文件/体裁识别/图片资产，
+  长期并存会让用户困惑。迁移：
+  - `qyzs ocr img.png` → `qyzs scan img.png --image-handling ocr --no-front-matter`
+  - `qyzs ocr img.png -p "自定义引导词"` → `qyzs scan img.png --image-prompt "自定义引导词"`
+  - `qyzs ocr img.png --max-dim 1600` → `qyzs scan img.png --max-dim 1600`
+  `scan` 相对 `ocr` 的增量：多文件批量、照片自动跳过、`--image-handling`
+  （auto/ocr/describe/both/skip）、VL 图像理解、Markdown 结构化输出、`--report` 报告。
+  内部 `client.ocr` 能力保留（scan 的图像通道与扫描件第二通道证据仍使用）。
+
+### Changed
+
 - **（破坏性）`parse` 与 `markitdown` 子命令合并为 `scan`**：两个入口职责重叠
   （都做文档→Markdown，一个裸调 MinerU、一个跑多通道流水线），且 `markitdown`
   名不副实。现统一为 `scan`，参数面沿用原 `markitdown`（`-o/--mode/--type/
@@ -221,6 +233,12 @@
   （新增 `[models.matrix]` 结构段，原有实测注释数值未动），并修正繁体混用；
   OCR 同源互验模块更名 `OcrVerifier`（与向量交叉验证同名异义消除）。
   CLI 行为契约（--help/退出码/输出语义）经回归验证保持不变。
+
+- **scan 多格式图像支持**：此前 `image` crate 只启用 png/jpeg 解码，其余格式
+  （gif/bmp/tiff/webp）无法缩放 —— 大图绕过 800px 预处理直接送网关，正是 max_dim
+  要防的越界场景；且 data URL 的 MIME 映射把 gif/tiff 误标为 image/png，网关会按
+  PNG 解码而失败。现启用 bmp/gif/tiff/webp 解码并修正 MIME 映射，6 种格式实测
+  全部转换成功（关键文字命中 8~9 处，表格与版面描述均正确）。
 
 ### Fixed
 

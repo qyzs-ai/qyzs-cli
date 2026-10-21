@@ -25,6 +25,8 @@ pub async fn extract_image(
     ws: &mut Workspace,
     image_path: &str,
     handling: super::ImageHandling,
+    image_prompt: Option<&str>,
+    max_dim: Option<u32>,
 ) -> QyzsResult<String> {
     if ws.stage_done("document", "extract") {
         return ws.read_segment_text("document");
@@ -35,7 +37,7 @@ pub async fn extract_image(
             "_(图像内容提取已被 --image-handling skip 跳过)_\n".to_string()
         }
         super::ImageHandling::Ocr => {
-            let text = run_ocr(client, image_path).await?;
+            let text = run_ocr(client, image_path, image_prompt, max_dim).await?;
             format!("# OCR 文字\n\n{}\n", text)
         }
         super::ImageHandling::Describe => {
@@ -43,12 +45,12 @@ pub async fn extract_image(
             format!("# 图像描述\n\n{}\n", desc)
         }
         super::ImageHandling::Both => {
-            let text = run_ocr(client, image_path).await?;
+            let text = run_ocr(client, image_path, image_prompt, max_dim).await?;
             let desc = run_describe(client, image_path).await?;
             format!("# OCR 文字\n\n{}\n\n# 图像描述\n\n{}\n", text, desc)
         }
         super::ImageHandling::Auto => {
-            let text = run_ocr(client, image_path).await?;
+            let text = run_ocr(client, image_path, image_prompt, max_dim).await?;
             let text_chars = text.trim().chars().count();
             if text_chars < AUTO_SPARSE_TEXT_CHARS {
                 // 版面稀疏 (照片/图纸): OCR 文字少, 自动补 VL 描述
@@ -72,8 +74,13 @@ pub async fn extract_image(
     Ok(output)
 }
 
-async fn run_ocr(client: &QyzsClient, image_path: &str) -> QyzsResult<String> {
-    let resp = client.ocr(image_path, None, None).await?;
+async fn run_ocr(
+    client: &QyzsClient,
+    image_path: &str,
+    image_prompt: Option<&str>,
+    max_dim: Option<u32>,
+) -> QyzsResult<String> {
+    let resp = client.ocr(image_path, image_prompt, max_dim).await?;
     let text = resp.text.trim().to_string();
     if text.is_empty() {
         return Err(QyzsError::Server(format!(

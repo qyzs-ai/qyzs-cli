@@ -162,8 +162,6 @@ qyzs chat -i p1.png -i p2.png -i p3.png "对比数张公文扫描件，指出印
 ### 5. 公文文字 OCR 与结构化解析 (`ocr` & `parse`)
 
 ```bash
-# 公文 OCR 版面文字提取 (paddleocrvl，内置长边 <= 800px 自动等比缩放，规避 2048 崩溃)
-qyzs ocr scan.png
 
 # 文档结构化转换统一走 scan (见第 7 节): 类型识别 + 多模型抽取 + 交叉验证
 qyzs scan document.pdf -o document.md

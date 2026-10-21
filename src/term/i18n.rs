@@ -251,8 +251,8 @@ impl MsgId {
             (MsgId::AuthFilePermWarning, Language::Zh) => "凭据文件权限宽于 0600，建议执行 chmod 600 加固",
             (MsgId::AuthFilePermWarning, Language::En) => "Credentials file permission is wider than 0600, chmod 600 recommended",
 
-            (MsgId::ChatExcludesPaddleOcr, Language::Zh) => "模型 'paddleocrvl' 是专属 OCR 视觉引擎，不支持对话交互。请使用 'qyzs ocr'",
-            (MsgId::ChatExcludesPaddleOcr, Language::En) => "Model 'paddleocrvl' is OCR-only and cannot chat. Please use 'qyzs ocr'",
+            (MsgId::ChatExcludesPaddleOcr, Language::Zh) => "模型 'paddleocrvl' 是专属 OCR 视觉引擎，不支持对话交互。请使用 'qyzs scan <图片> --image-handling ocr'",
+            (MsgId::ChatExcludesPaddleOcr, Language::En) => "Model 'paddleocrvl' is OCR-only and cannot chat. Please use 'qyzs scan <image> --image-handling ocr'",
 
             (MsgId::SelfUpdateChecking, Language::Zh) => "正在检查 GitHub Release 最新版本...",
             (MsgId::SelfUpdateChecking, Language::En) => "Checking for latest GitHub Release...",

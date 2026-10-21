@@ -299,6 +299,8 @@ mod tests {
             mode: PipelineMode::Balanced,
             type_override: None,
             image_handling: super::super::ImageHandling::Auto,
+            image_prompt: None,
+            max_dim: None,
             model: None,
             min_confidence: None,
             report: None,

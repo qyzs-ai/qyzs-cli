@@ -91,18 +91,6 @@ pub enum Commands {
         image: Vec<String>,
     },
 
-    #[command(about = "公文 OCR 与单页版面文字提取 (默认: paddleocrvl，自动800px预处理)")]
-    Ocr {
-        #[arg(help = "待识别图片路径")]
-        image: String,
-
-        #[arg(short, long, help = "自定义 OCR 引导提示词")]
-        prompt: Option<String>,
-
-        #[arg(long, help = "限制长边最大像素尺寸 (默认 800px 防越界)")]
-        max_dim: Option<u32>,
-    },
-
     #[command(about = "语义向量表征生成 (默认: bge-m3 1024维 / 备选: qwen3-embadding 4096维)")]
     Embed {
         #[arg(help = "待生成向量的文本内容")]
@@ -197,6 +185,12 @@ pub enum Commands {
 
         #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["auto", "ocr", "describe", "both", "skip"]), help = "图像内容处理策略: auto | ocr | describe | both | skip (默认 auto)")]
         image_handling: Option<String>,
+
+        #[arg(long, help = "图像输入的自定义 OCR 引导提示词 (覆盖默认的纯文字转录指令; 仅图像输入生效)")]
+        image_prompt: Option<String>,
+
+        #[arg(long, help = "图像长边最大像素尺寸 (默认 800px, 防网关越界; 仅图像输入生效)")]
+        max_dim: Option<u32>,
 
         #[arg(short = 'm', long, help = "理解/润色阶段 LLM 覆盖 (默认: dsv4)")]
         model: Option<String>,

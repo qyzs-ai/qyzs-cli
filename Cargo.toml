@@ -27,7 +27,7 @@ toml = "0.8"
 lopdf = "0.45"
 
 # 纯 Rust 图像处理 (用于 OCR 800px 等比缩放)
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tiff", "webp"] }
 
 # 纯 Rust 压缩与哈希 (用于自更新与数据集解压)
 zip = { version = "9.0", default-features = false, features = ["deflate"] }

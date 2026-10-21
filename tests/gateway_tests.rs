@@ -32,6 +32,8 @@ fn speed_opts(input: &str) -> ScanOptions {
         mode: PipelineMode::Speed,
         type_override: None,
         image_handling: crate_default_image_handling(),
+        image_prompt: None,
+        max_dim: None,
         model: None,
         min_confidence: None,
         report: None,

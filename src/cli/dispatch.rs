@@ -91,10 +91,6 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             .await?
         }
 
-        Commands::Ocr { image, prompt, max_dim } => {
-            validate::validate_ocr_max_dim(max_dim)?;
-            handlers::inference::ocr(&ctx, image, prompt, max_dim).await?
-        }
 
         Commands::Embed { text, model } => handlers::inference::embed(&ctx, text, model).await?,
 
@@ -127,6 +123,8 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             mode,
             r#type,
             image_handling,
+            image_prompt,
+            max_dim,
             model,
             min_confidence,
             report,
@@ -141,6 +139,8 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             no_classify,
             classify_model,
         } => {
+            // 图像长边上限校验 (原 ocr 子命令的同名能力, 现由 scan 承担)
+            validate::validate_ocr_max_dim(max_dim)?;
             // 段长上界校验 (scan 的软警告从 mod.rs 提升为 dispatch 硬拒)
             validate::validate_scan_segment_chars(segment_chars)?;
             let opts = ScanOptions {
@@ -159,6 +159,8 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
                     Some(s) => crate::pipeline::scan::ImageHandling::parse(s)?,
                     None => crate::pipeline::scan::ImageHandling::Auto,
                 },
+                image_prompt,
+                max_dim,
                 model,
                 min_confidence: match min_confidence {
                     Some(c) if !(0.0..=1.0).contains(&c) => {
