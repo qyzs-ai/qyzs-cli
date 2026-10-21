@@ -243,8 +243,10 @@ mod tests {
 
     #[test]
     fn char_limit_matches_measured_boundaries() {
-        assert_eq!(char_limit_for("bge-m3"), 12_000);
-        assert_eq!(char_limit_for("qwen3-embadding-8b"), 12_000);
+        // 网关限的是 token (bge-m3 8192) 而此处按字符切分: 中文一字约一 token,
+        // 故按最坏比 1:1 取 6,000 字符 (12,000 字符实测越界 input_tokens=8193)。
+        assert_eq!(char_limit_for("bge-m3"), 6_000);
+        assert_eq!(char_limit_for("qwen3-embadding-8b"), 6_000);
         assert_eq!(char_limit_for("bge-large-zh-v1.5"), 500);
     }
 }
