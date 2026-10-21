@@ -64,9 +64,14 @@ impl QyzsClient {
             .part("files", part)
             .text("is_ocr", if is_ocr { "true" } else { "false" });
 
+        // 端点路径取配置的解析模型 (model.default_parse, 默认 mineru3.2.3):
+        // 该配置项此前无调用方 (parse 子命令已并入 scan), 现重新生效。
+        let model = self.config.get_default_model("scan");
+        let endpoint = format!("ai-gateway/{}/file_parse", model);
+
         let resp = self
             .http
-            .post("ai-gateway/mineru3.2.3/file_parse", Some(key))
+            .post(&endpoint, Some(key))
             .multipart(form)
             .send()
             .await?;

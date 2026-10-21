@@ -240,13 +240,12 @@ fn official_decision(sample: &str) -> Decision {
         return official(Confidence::Strong);
     }
 
-    // 条文体裁强骨架: 第一/二/三条齐备。法律/条例/办法的固定骨架, 无需标记词
-    // —— 这是 laws/rules/local-regulations 漏判的根因修复。附则 (容空白) 存在
-    // 时同样强, 但不作硬性要求: 审计中半数部门办法没有附则章。
-    if sample.contains("第一条")
-        && sample.contains("第二条")
-        && sample.contains("第三条")
-    {
+    // 条文体裁强骨架, 无需任何公文标记词 (法律/条例/办法从不含「条例」二字):
+    //   - 第一/二/三条齐备 (多数办法), 或
+    //   - 第一/二条 + 附则 (条文较少的办法; 附则容空白, 法律排版为「附　则」)
+    // 这是 laws/rules/local-regulations 漏判的根因修复。
+    let art2 = sample.contains("第一条") && sample.contains("第二条");
+    if art2 && (sample.contains("第三条") || has_loose_fuze(sample)) {
         return official(Confidence::Strong);
     }
 

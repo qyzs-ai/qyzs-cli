@@ -711,8 +711,8 @@ impl ScanPipeline {
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!(
-                            "\x1b[33m[WARN]\x1b[0m 图像类型判定失败 ({}), 按文档继续处理",
-                            e
+                            "\x1b[33m[WARN]\x1b[0m {}",
+                            crate::msgf!(MdImageKindFailed, e)
                         );
                     }
                 }
@@ -895,7 +895,10 @@ impl ScanPipeline {
                     match classify::classify_genre_model(client, &md, Some(m)).await {
                         Ok(k) => (k, format!("模型({m})")),
                         Err(e) => {
-                            eprintln!("\x1b[33m[WARN]\x1b[0m 体裁模型判定失败 ({}), 回退规则", e);
+                            eprintln!(
+                                "\x1b[33m[WARN]\x1b[0m {}",
+                                crate::msgf!(MdClassifyModelFailed, e)
+                            );
                             (rule.kind, format!("规则({:?},模型失败回退)", rule.confidence))
                         }
                     }
@@ -904,7 +907,10 @@ impl ScanPipeline {
                     match classify::classify_genre_model(client, &md, None).await {
                         Ok(k) => (k, "模型(规则判不出兜底)".to_string()),
                         Err(e) => {
-                            eprintln!("\x1b[33m[WARN]\x1b[0m 体裁模型兜底失败 ({}), 维持 generic", e);
+                            eprintln!(
+                                "\x1b[33m[WARN]\x1b[0m {}",
+                                crate::msgf!(MdClassifyFallbackFailed, e)
+                            );
                             (classify::DocKind::Generic, "规则(判不出,兜底失败)".to_string())
                         }
                     }
@@ -923,8 +929,8 @@ impl ScanPipeline {
                         Ok(_) => (k, "规则(弱命中,模型确认)".to_string()),
                         Err(e) => {
                             eprintln!(
-                                "\x1b[33m[WARN]\x1b[0m 弱命中仲裁失败 ({}), 保留规则判定",
-                                e
+                                "\x1b[33m[WARN]\x1b[0m {}",
+                                crate::msgf!(MdWeakArbitrateFailed, e)
                             );
                             (k, format!("规则(弱{:?},仲裁失败保留)", rule.confidence))
                         }
@@ -936,10 +942,13 @@ impl ScanPipeline {
         metrics.record("classify", started.elapsed().as_secs_f64());
         if !opts.no_classify {
             eprintln!(
-                "\x1b[36m[INFO]\x1b[0m 文档类型: {} ({}) [{}]",
-                decided.0.label(),
-                decided.0.key(),
-                decided.1
+                "\x1b[36m[INFO]\x1b[0m {}",
+                crate::msgf!(
+                    MdDocKindDetected,
+                    decided.0.label(),
+                    decided.0.key(),
+                    decided.1
+                )
             );
         }
         let kind = decided.0;
@@ -974,15 +983,18 @@ impl ScanPipeline {
         }
         let (new_md, replaced, unresolved) = assets::rewrite_refs(&md, &assets);
         eprintln!(
-            "\x1b[36m[INFO]\x1b[0m 图片附件: 落盘 {} 个 → {}; 引用替换 {} 处{}",
-            assets.len(),
-            assets_root.display(),
-            replaced,
-            if unresolved > 0 {
-                format!(", {} 处无法还原已标记", unresolved)
-            } else {
-                String::new()
-            }
+            "\x1b[36m[INFO]\x1b[0m {}",
+            crate::msgf!(
+                MdAssetsExtracted,
+                assets.len(),
+                assets_root.display().to_string(),
+                replaced,
+                if unresolved > 0 {
+                    format!(", {} unresolved marked", unresolved)
+                } else {
+                    String::new()
+                }
+            )
         );
         // 附件存在但正文引用全部未能对应时, 追加索引章节:
         // 文件已在 assets/ 里, 若不在正文留下任何入口, 使用方根本发现不了。
@@ -1030,8 +1042,8 @@ impl ScanPipeline {
         let (out, changed) = profile::apply_style_levels(&md, &levels);
         if changed > 0 {
             eprintln!(
-                "\x1b[36m[INFO]\x1b[0m 样式校正: {} 个标题按样式信息重定级",
-                changed
+                "\x1b[36m[INFO]\x1b[0m {}",
+                crate::msgf!(MdStyleAdjusted, changed)
             );
         }
         out
@@ -1088,10 +1100,9 @@ impl ScanPipeline {
             return md;
         }
         md.push_str("\n\n## 图片附件\n\n");
-        md.push_str(
-            "> 转换过程中抽取到以下图片附件。正文中的原始图片引用无法与抽取结果逐一对应，\n\
-> 故在此按顺序列出，供人工核对位置。\n\n",
-        );
+        md.push_str("> ");
+        md.push_str(&crate::msg!(MdAssetIndexNote));
+        md.push_str("\n\n");
         for a in assets {
             let name = a
                 .file

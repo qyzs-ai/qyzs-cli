@@ -1,4 +1,4 @@
-//! markitdown / pdf 子命令回归测试
+//! scan / pdf 子命令回归测试
 //!
 //! 覆盖 2026-10-20 端到端实测暴露的 8 个缺陷的修复行为:
 //! 1. PDF 切片病态 (O(页数×对象数) → O(对象数))
@@ -311,7 +311,7 @@ fn test_parse_command_removed() {
     );
     assert!(
         Cli::try_parse_from(["qyzs", "markitdown", "a.pdf"]).is_err(),
-        "markitdown 子命令应已删除"
+        "markitdown 子命令应已删除 (已并入 scan)"
     );
     assert!(
         Cli::try_parse_from(["qyzs", "scan", "a.pdf"]).is_ok(),
