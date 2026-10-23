@@ -108,9 +108,6 @@ jobs:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             setup: musl
-          - target: loongarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            setup: loongarch64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -124,16 +121,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
-      # cross 没有 loongarch64 的 Docker 镜像; 设了 CARGO_TARGET_<TRIPLE>_LINKER 后
-      # upload-rust-binary-action 会自动改用宿主 cargo (并自行 rustup target add)
-      - name: Install loongarch64 cross toolchain
-        if: matrix.setup == 'loongarch64'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-loongarch64-linux-gnu
-          echo "CC_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "AR_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-ar" >> $GITHUB_ENV
-          echo "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER=loongarch64-linux-gnu-gcc" >> $GITHUB_ENV
       # 用 cargo build 而非 cargo check: check 不做链接, 抓不到 FFI 符号缺失这类
       # 只在链接期暴露的错误 (macOS 的 CoreFoundation 符号问题即是被 release
       # 流水线而非本 job 抓到的 —— 本 job 当时只做 check)
@@ -182,8 +169,6 @@ jobs:
             os: ubuntu-latest
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-          - target: loongarch64-unknown-linux-gnu
-            os: ubuntu-latest
           - target: x86_64-apple-darwin
             os: macos-15-intel
           - target: aarch64-apple-darwin
@@ -195,18 +180,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      # cross 没有 loongarch64 的 Docker 镜像, 会回退到宿主 cargo 但宿主没有该
-      # 目标的 rust-std (报 "can't find crate for core"); 设了
-      # CARGO_TARGET_<TRIPLE>_LINKER 后 action 会自动改用宿主 cargo 并自行
-      # rustup target add, 再配合交叉链接器即可正常产出
-      - name: Install loongarch64 cross toolchain
-        if: matrix.target == 'loongarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-loongarch64-linux-gnu
-          echo "CC_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "AR_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-ar" >> $GITHUB_ENV
-          echo "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER=loongarch64-linux-gnu-gcc" >> $GITHUB_ENV
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: qyzs
@@ -214,10 +187,48 @@ jobs:
           archive: $bin-$target
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  # LoongArch 交叉工具链只有 Debian 提供 —— Ubuntu 官方源里只有
+  # binutils-loongarch64-linux-gnu, 没有交叉 GCC (24.04 与 26.04 均无),
+  # cross 也没有该目标的镜像。故该目标在 Debian trixie 容器内构建。
+  release-binary-loongarch64:
+    name: Build & Upload loongarch64 binary
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [rust-check, release-create]
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+    permissions:
+      contents: write
+    steps:
+      # 容器内需自带 git (actions/checkout 依赖) 与交叉工具链
+      - name: Install build deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git curl ca-certificates build-essential gcc-loongarch64-linux-gnu
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --target loongarch64-unknown-linux-gnu
+          echo "CARGO_HOME=/github/home" >> "$GITHUB_ENV"
+          echo "RUSTUP_HOME=/github/rustup" >> "$GITHUB_ENV"
+          echo "PATH=/github/home/.cargo/bin:$PATH" >> "$GITHUB_ENV"
+          echo "CC_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "AR_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-ar" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER=loongarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+      - name: Build
+        run: cargo build --release --bin qyzs --target loongarch64-unknown-linux-gnu
+      - name: Package
+        run: tar acf qyzs-loongarch64-unknown-linux-gnu.tar.gz -C target/loongarch64-unknown-linux-gnu/release qyzs
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: qyzs-loongarch64-unknown-linux-gnu.tar.gz
+          fail_on_unmatched_files: true
+
   release-npm:
     name: Publish npm packages
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [release-binaries]
+    needs: [release-binaries, release-binary-loongarch64]
     runs-on: ubuntu-latest
     permissions:
       contents: read

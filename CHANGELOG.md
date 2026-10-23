@@ -96,11 +96,13 @@
     `Get` 语义的非拥有引用，原代码却对它调用了 `CFRelease`（过度释放），
     已改为只释放 `CFLocaleCopyCurrent` 返回的 locale。
     该缺陷此前不可见：`cargo check` 不做链接，而跨目标 job 当时也只做 check。
-  - **修复 loongarch64 的交叉构建**：`cross` 没有该目标的 Docker 镜像，会回退
-    到宿主 cargo，但宿主没有该目标的 rust-std（报 `can't find crate for core`）。
-    现设置 `CARGO_TARGET_<TRIPLE>_LINKER` 后，upload-rust-binary-action 会自动
-    改用宿主 cargo（并自行 `rustup target add`），再配合 `gcc-loongarch64-linux-gnu`
-    交叉链接器即可正常产出。
+  - **修复 loongarch64 的交叉构建**：该目标的交叉工具链**只有 Debian 提供**——
+    Ubuntu 官方源里只有 `binutils-loongarch64-linux-gnu`，没有交叉 GCC
+    （24.04 与 26.04 均无），`cross` 也没有该目标的镜像（回退到宿主 cargo 后
+    报 `can't find crate for core`）。现把该目标拆成独立的
+    `release-binary-loongarch64` job，在 **debian:trixie 容器**内构建
+    （容器自带 `gcc-loongarch64-linux-gnu`，与本地验证过的工具链一致），
+    产物打包后用 `softprops/action-gh-release` 追加进同一个 Release。
   - **跨目标 job 由 `cargo check` 改为 `cargo build`**：check 不做链接，抓不到
     只在链接期暴露的错误（macOS 的 FFI 符号问题即是被 release 流水线而非本 job
     抓到 —— 当时本 job 只做 check）。同时把 loongarch64 纳入该矩阵。
