@@ -45,8 +45,17 @@ for item in "${PLATFORMS[@]}"; do
 }
 EOF
 
-  # 若 dist/ 下存在对应构建二进制，复制就位
-  if [ -f "dist/${BIN_NAME}-${PKG_NAME}" ]; then
+  # 构建二进制须由调用方预先放到 dist/<bin>-<pkg> (CI 从 Release 资产下载,
+  # 见 .github/workflows/ci.yml 的 release-npm job)。缺失时**直接失败**:
+  # 静默发布空 bin/ 的包, 装上去运行不了, 且要到用户投诉才发现。
+  if [ ! -f "dist/${BIN_NAME}-${PKG_NAME}" ]; then
+    echo "[ERR] 缺少构建产物: dist/${BIN_NAME}-${PKG_NAME}" >&2
+    echo "       该平台包将没有可执行文件。请先放置二进制, 或设置 QYZS_ALLOW_EMPTY_BIN=1 明确跳过。" >&2
+    if [ "${QYZS_ALLOW_EMPTY_BIN:-0}" != "1" ]; then
+      exit 1
+    fi
+    echo "[WARN] QYZS_ALLOW_EMPTY_BIN=1, 继续发布空壳包" >&2
+  else
     cp "dist/${BIN_NAME}-${PKG_NAME}" "${PKG_DIR}/bin/${BIN_NAME}"
     chmod +x "${PKG_DIR}/bin/${BIN_NAME}"
   fi

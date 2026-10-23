@@ -285,8 +285,28 @@ def main() -> int:
 
         # ── 8. npm 包族 ────────────────────────────────────────────────────
         print("\n== [8/8] npm 包族装配与启动器调度 ==")
+        # npm/build.sh 要求 dist/<bin>-<pkg> 处预先放置二进制 (缺失即失败,
+        # 避免发布空壳包); 这里放占位文件, 同时验证该严格校验生效
+        dist = REPO / "dist"
+        placeholders = {
+            "qyzs-linux-x64": "qyzs",
+            "qyzs-linux-arm64": "qyzs",
+            "qyzs-linux-loong64": "qyzs",
+            "qyzs-darwin-x64": "qyzs",
+            "qyzs-darwin-arm64": "qyzs",
+            "qyzs.exe-win32-x64": "qyzs.exe",
+        }
+        for fname in placeholders:
+            (dist / fname).write_bytes(b"#!/bin/sh\n# placeholder\n")
         r = run(["bash", "npm/build.sh", "9.9.9"])
         check(r.returncode == 0, "npm/build.sh 成功", r.stderr.strip()[-160:])
+        # 平台包必须真的带上了可执行文件
+        empty = [
+            pkg
+            for pkg, binname in placeholders.items()
+            if not (REPO / "dist" / "npm" / pkg.replace("qyzs.exe-", "").replace("qyzs-", "") / "bin" / binname).exists()
+        ]
+        check(not empty, "六个平台包均含可执行文件 (非空壳)", f"缺失: {empty}" if empty else "")
         pkg = json.loads((REPO / "dist/npm/cli/package.json").read_text())
         check(pkg["version"] == "9.9.9", "顶层包版本与传入值一致", pkg["version"])
         deps = {v.replace("@qyzs-ai/cli-", ""): v for v in pkg["optionalDependencies"]}

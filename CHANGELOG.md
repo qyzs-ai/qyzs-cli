@@ -59,6 +59,14 @@
     `E404 Not Found`（npm 用 404 表示 token 看不见该 org 的包，而非 403）。
     token 须额外授予 `qyzs-ai` 组织读写权限；本地可复现：
     `npm access list packages qyzs-ai` 返回 `403 Forbidden` 即是缺该权限。
+  - **修复 npm 平台包发布成空壳（发布阻塞级）**：`npm/build.sh` 从
+    `dist/<bin>-<pkg>` 取构建二进制，但**仓库里没有任何脚本产出这种命名的文件**，
+    CI 的 release-binaries job 也只把产物传到 Release 资产、不放 `dist/` ——
+    于是平台包的 `bin/` 是空的，装上去运行不了，且要到用户投诉才发现。
+    现：CI 的 release-npm job 先从 Release 下载六个平台二进制放到约定路径；
+    `npm/build.sh` 在二进制缺失时**直接失败**（可用 `QYZS_ALLOW_EMPTY_BIN=1`
+    显式跳过），不再静默发布空壳；本地发布验证脚本同步造占位二进制并断言
+    六个平台包均含可执行文件。
   - **恢复 `chat` 多图自动分批（回归修复）**：`validate_chat_images` 在 cdb9f59
     中被引入，对 >16 张图直接报用法错误（退出码 2），从而使 `inference.rs` 中
     自初始提交 3cb3e1c 起就存在的分批逻辑**在 CLI 路径上不可达**——而 0.1.0

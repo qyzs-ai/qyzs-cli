@@ -258,6 +258,41 @@ jobs:
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
           echo "Release version: $TAG"
 
+      # npm/build.sh 期望 dist/<bin>-<pkg> 形式的二进制; release-binaries job
+      # 只把产物传到 Release 资产, 这里下载回来放到约定路径 —— 否则平台包会
+      # 带着空 bin/ 发布 (装上去运行不了)
+      - name: Fetch platform binaries from Release
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/v}"
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          declare -A ASSET=(
+            [qyzs-linux-x64]="qyzs-x86_64-unknown-linux-musl.tar.gz"
+            [qyzs-linux-arm64]="qyzs-aarch64-unknown-linux-musl.tar.gz"
+            [qyzs-linux-loong64]="qyzs-loongarch64-unknown-linux-gnu.tar.gz"
+            [qyzs-darwin-x64]="qyzs-x86_64-apple-darwin.tar.gz"
+            [qyzs-darwin-arm64]="qyzs-aarch64-apple-darwin.tar.gz"
+            [qyzs.exe-win32-x64]="qyzs-x86_64-pc-windows-msvc.zip"
+          )
+          mkdir -p dist
+          for dest in "${!ASSET[@]}"; do
+            asset="${ASSET[$dest]}"
+            curl -fsSL -o "/tmp/${asset}" "${BASE}/${asset}"
+            tmp="$(mktemp -d)"
+            case "${asset}" in
+              *.zip)  unzip -q -j "/tmp/${asset}" -d "${tmp}" ;;
+              *.tar.gz) tar -xzf "/tmp/${asset}" -C "${tmp}" qyzs ;;
+            esac
+            if [ "${dest}" = "qyzs.exe-win32-x64" ]; then
+              cp "${tmp}/qyzs.exe" "dist/${dest}"
+            else
+              cp "${tmp}/qyzs" "dist/${dest}"
+            fi
+            chmod +x "dist/${dest}"
+            rm -rf "${tmp}"
+          done
+          ls -l dist/
+
       - name: Pack npm packages
         run: bash npm/build.sh ${{ steps.ver.outputs.version }}
 
