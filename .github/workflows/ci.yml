@@ -33,6 +33,14 @@ jobs:
         run: cargo clippy --all-targets -- --deny warnings
       - name: Cargo Test
         run: cargo test --verbose
+      # 界面语言会改变部分运行时文案 (阶段描述等), 用例若硬编码某一种语言的
+      # 字符串, 就会在另一种 locale 的 runner 上失败 —— 两种语言各跑一遍守住
+      - name: Cargo Test (English locale)
+        run: cargo test --verbose
+        env:
+          QYZS_LANG: en
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
 
   # 提交历史密钥门禁: 凭据一旦写入历史就必须重写历史, 因此在提交环节拦住。
   # 需 fetch-depth: 0 (浅克隆拿不到完整历史, 扫不到历史中的凭据)。

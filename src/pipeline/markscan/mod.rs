@@ -1853,7 +1853,19 @@ mod tests {
             ImageHandling::Auto,
             "dsv4",
         );
-        assert_eq!(speed.first().unwrap(), "extract(mineru3.2.3, 15页/批切片)");
+        // 阶段描述随界面语言变化 (中文「15页/批切片」/ 英文「15 pages/batch」),
+        // 且同进程内 i18n 单例会切换全局语言 —— 断言只校验与语言无关的部分,
+        // 否则在英文 locale 或并行执行下会随机失败
+        let first = speed.first().unwrap();
+        assert!(
+            first.starts_with("extract(mineru3.2.3,"),
+            "speed 档首阶段应为 mineru 分片抽取, 实际: {first}"
+        );
+        assert!(
+            first.contains(&pdf::SLICE_BATCH_PAGES.to_string()),
+            "首阶段应含每批页数 {}, 实际: {first}",
+            pdf::SLICE_BATCH_PAGES
+        );
         assert!(!speed.iter().any(|s| s.contains("polish")));
 
         // balanced 档已移除: 旧值映射到 rigor (对抗式全流程)

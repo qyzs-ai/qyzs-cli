@@ -43,11 +43,15 @@ fn test_error_exit_codes() {
 #[test]
 fn test_i18n_detection() {
     // 设置语言测试
+    // 还原: set_language 改的是进程级全局状态, 同一测试二进制内的用例并行执行,
+    // 不还原会污染其他用例 (lib 侧的 i18n 单测已按此惯例还原)
+    let saved = qyzs::term::current_language();
     set_language(Language::Zh);
     assert_eq!(qyzs::msg!(AllSystemsOperational), "系统全链路状态正常");
 
     set_language(Language::En);
     assert_eq!(qyzs::msg!(AllSystemsOperational), "All systems operational");
+    set_language(saved);
 
     // 探测函数测试
     let lang = detect_environment_language();
