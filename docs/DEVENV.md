@@ -18,7 +18,7 @@ rustup component add clippy rustfmt
 ## 2. 六个 CI 目标的 Rust 标准库
 
 CI 已通过 `cross-target-check` job 在**原生 runner** 上检查 Windows 与 macOS 目标
-（windows-latest / macos-13 / macos-latest），PR 阶段不再有平台分支盲区。本地装齐
+本（windows-latest / macos-15-intel / macos-latest），PR 阶段不再有平台分支盲区。本地装齐
 目标 std 的意义在于**提前发现平台相关编译问题**，而不用等 CI：
 
 ```bash

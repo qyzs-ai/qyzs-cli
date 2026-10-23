@@ -121,7 +121,7 @@
       `#[cfg(windows)]` / `#[cfg(target_os = "macos")]` 分支
       （`src/term/i18n.rs` 的系统语言读取、`src/updater/installer.rs`）
       **完全无编译覆盖**，只在 tag 触发的发布构建里才被编译；现由
-      windows-latest / macos-13 / macos-latest 原生 runner 分别检查
+      windows-latest / macos-15-intel / macos-latest 原生 runner 分别检查
       windows-msvc 与两个 apple-darwin 目标，另有 ubuntu-latest + musl-tools
       检查 x86_64-unknown-linux-musl。
   - 文档指向不存在的文件：`QYZS-MARKITDOWN.md` / `QYZS-SCAN.md` 统一改为
