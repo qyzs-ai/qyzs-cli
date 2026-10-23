@@ -17,8 +17,10 @@ const TERM_TABLE_LIMIT: usize = 32;
 
 /// 提取高频候选术语 (CJK n-gram 频次统计, 功能字边缘过滤)
 pub fn extract_term_table(text: &str) -> Vec<String> {
-    const FUNCTION_CHARS: &[char] = &['的', '了', '在', '是', '和', '与', '及', '或', '等',
-        '对', '为', '以', '于', '由', '从', '向', '并', '按', '其', '各', '该', '一'];
+    const FUNCTION_CHARS: &[char] = &[
+        '的', '了', '在', '是', '和', '与', '及', '或', '等', '对', '为', '以', '于', '由', '从',
+        '向', '并', '按', '其', '各', '该', '一',
+    ];
 
     let cjk: Vec<char> = text
         .chars()
@@ -44,11 +46,9 @@ pub fn extract_term_table(text: &str) -> Vec<String> {
     }
 
     // 频次 ≥3 的候选按 (频次×长度) 降序, 去重叠取 Top-K
-    let mut candidates: Vec<(String, usize)> = counts
-        .into_iter()
-        .filter(|(_, c)| *c >= 3)
-        .collect();
-    candidates.sort_by(|a, b| (b.1 * b.0.len()).cmp(&(a.1 * a.0.len())));
+    let mut candidates: Vec<(String, usize)> =
+        counts.into_iter().filter(|(_, c)| *c >= 3).collect();
+    candidates.sort_by_key(|a| std::cmp::Reverse(a.1 * a.0.len()));
 
     let mut selected: Vec<String> = Vec::new();
     for (gram, _) in candidates {
@@ -244,7 +244,11 @@ mod tests {
         let segments = segment_markdown(&doc, 1000);
         assert!(segments.len() > 1);
         for (path, body) in &segments {
-            assert!(body.len() <= 3000 + 100, "段应接近目标尺寸, 实际 {}", body.len());
+            assert!(
+                body.len() <= 3000 + 100,
+                "段应接近目标尺寸, 实际 {}",
+                body.len()
+            );
             let _ = path;
         }
     }
@@ -255,6 +259,8 @@ mod tests {
         let doc = "```\n# not heading\n```\n# real\ncontent\n".repeat(20);
         let segments = segment_markdown(&doc, 200);
         // 内容能合并时不乱切
-        assert!(segments.iter().all(|(_, b)| b.contains("```") || b.contains("# real")));
+        assert!(segments
+            .iter()
+            .all(|(_, b)| b.contains("```") || b.contains("# real")));
     }
 }

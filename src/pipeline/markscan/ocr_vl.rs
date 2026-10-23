@@ -23,7 +23,8 @@ const AUTO_SPARSE_TEXT_CHARS: usize = 20;
 const OCR_AGREEMENT_THRESHOLD: f64 = 0.70;
 
 /// VL 转录提示词 (与 paddle 输出形态对齐的纯文本转录, 最大化干净页一致度)
-const VL_TRANSCRIBE_PROMPT: &str = "逐字转录这张图片中的全部文字内容, 保留段落与标题层级。只输出转录文本, 不要解释。";
+const VL_TRANSCRIBE_PROMPT: &str =
+    "逐字转录这张图片中的全部文字内容, 保留段落与标题层级。只输出转录文本, 不要解释。";
 
 /// 字符 bigram Dice 相似度 (0.0~1.0)
 fn bigram_dice(a: &str, b: &str) -> f64 {
@@ -31,7 +32,11 @@ fn bigram_dice(a: &str, b: &str) -> f64 {
     let strip = |s: &str| -> String { s.chars().filter(|c| !c.is_whitespace()).collect() };
     let (a, b) = (strip(a), strip(b));
     let grams = |s: &str| -> HashSet<(char, char)> {
-        s.chars().collect::<Vec<_>>().windows(2).map(|w| (w[0], w[1])).collect()
+        s.chars()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .map(|w| (w[0], w[1]))
+            .collect()
     };
     let (ga, gb) = (grams(&a), grams(&b));
     if ga.is_empty() || gb.is_empty() {
@@ -161,10 +166,7 @@ pub async fn extract_image(
                 if desc.trim().is_empty() {
                     format!("# OCR 文字\n\n{}\n", text)
                 } else {
-                    format!(
-                        "# OCR 文字\n\n{}\n\n# 图像描述\n\n{}\n",
-                        text, desc
-                    )
+                    format!("# OCR 文字\n\n{}\n\n# 图像描述\n\n{}\n", text, desc)
                 }
             } else {
                 format!("# OCR 文字\n\n{}\n", text)
@@ -253,7 +255,7 @@ mod tests {
     /// auto 决策逻辑抽成纯函数测试 (extract_image 的分支依据)
     #[test]
     fn test_auto_sparse_threshold() {
-        assert!(AUTO_SPARSE_TEXT_CHARS > 0);
+        const { assert!(AUTO_SPARSE_TEXT_CHARS > 0) };
         // 阈值语义: OCR 产出不足 20 字符视为版面稀疏
         let dense = "财政部关于政府采购评审专家管理办法的通知";
         let sparse = "2024";

@@ -35,11 +35,7 @@ struct MineruTaskResult {
 
 impl QyzsClient {
     /// 上传文档文件到 MinerU 专线进行结构化解析并提取 Markdown
-    pub async fn parse_document(
-        &self,
-        file_path: &str,
-        is_ocr: bool,
-    ) -> QyzsResult<String> {
+    pub async fn parse_document(&self, file_path: &str, is_ocr: bool) -> QyzsResult<String> {
         let key = self.config.ensure_auth()?;
         let path = Path::new(file_path);
         if !path.exists() {
@@ -79,11 +75,17 @@ impl QyzsClient {
         let status = resp.status();
         if !status.is_success() {
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(QyzsError::Server(format!("MinerU 网关返回 HTTP {}: {}", status, err_text)));
+            return Err(QyzsError::Server(format!(
+                "MinerU 网关返回 HTTP {}: {}",
+                status, err_text
+            )));
         }
 
         // 尝试解析结构化响应
-        let raw_text = resp.text().await.map_err(|e| QyzsError::Server(e.to_string()))?;
+        let raw_text = resp
+            .text()
+            .await
+            .map_err(|e| QyzsError::Server(e.to_string()))?;
 
         // 形态一 (旧包装): {code, msg, data: {markdown | content}}
         if let Ok(res) = serde_json::from_str::<MineruResponse>(&raw_text) {

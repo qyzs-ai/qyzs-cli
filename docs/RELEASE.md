@@ -40,7 +40,10 @@
 
 ## 2. 发布流程
 
-1. `main` 分支 CI 绿（离线 `cargo check` + `cargo test`）。
+1. `main` 分支 CI 全绿：`rust-check`（`cargo fmt --check` + `cargo check` +
+   `cargo clippy --deny warnings` + `cargo test`）、`secret-scan`（提交历史密钥扫描，
+   需 `fetch-depth: 0`）、`cross-target-check`（Windows/macOS/Linux-musl 目标类型检查），
+   三个 job 全绿。
 2. 发布准备提交：`Cargo.toml` 版本号 + CHANGELOG（`Unreleased` 段落固化为版本段）
    + 需要时的 README 更新。
 3. 打 tag `vX.Y.Z` 并推送 tag → CI 自动：版本一致性校验、六平台二进制上传
@@ -50,7 +53,7 @@
 
 ## 3. 发布条件清单
 
-状态标注（2026-10-18）：✅ 完成｜🔄 进行中｜⬜ 未开始
+状态标注（2026-10-23）：✅ 完成｜🔄 进行中｜⬜ 未开始
 
 | # | 条件 | 状态 | 说明 |
 |---|---|---|---|
@@ -58,15 +61,15 @@
 | C2 | npm 包族版本一致性 | ✅ | `build.sh` 现同步改写 `optionalDependencies` 版本钉（已用测试版本实测） |
 | C3 | CHANGELOG 建立 | ✅ | 见根目录 `CHANGELOG.md` |
 | C4 | 版本与发布制度文档 | ✅ | 即本文档 |
-| C5 | markscan 阶段②~⑤落地并真实网关验证 | ✅ | 五阶段全部落地（2026-10-18，提交链 df95251→…→81331ba，含图像/HTML 通道 631c0f3），真实网关验证通过；契约见 `tests/docs/QYZS-MARKITDOWN.md` |
-| C6 | 骨架审美重构完成且测试全绿 | ✅ | dispatch 按域拆分/thiserror/models 数据驱动（81331ba）；CI 离线 83 单元 + 9 集成全绿零警告 |
-| C7 | 安全门：历史泄露的 API Key 在平台侧吊销并复验失效 | ⬜ | **阻塞级**。旧 key 实测仍有效（2026-10-17 复验 200），须运营方吊销后用同款探针复验返回鉴权失败 |
-| C8 | `NPM_TOKEN` secret 配置 + npm provenance 流水线端到端实跑 | ⬜ | 0.1.0 从未打 tag，发布链路一次都没跑过 |
-| C9 | 六平台二进制首次真实发布并抽查安装 | ⬜ | install.sh / install.ps1 / npm 三种方式各至少一台真实机器 |
-| C10 | `qyzs upgrade` 自更新链路实测 | ⬜ | 依赖 C9 的已发布版本 |
-| C11 | CI 版本一致性守卫 | ✅ | tag 触发时校验 tag == Cargo.toml 版本，不符即失败；数据集 tests_data.zip 已纳入 Release 资产打包（`qyzs dataset` 默认 URL 指向 v0.2.0，首个 tag 发布后生效） |
-| C12 | 命令参考与 i18n 覆盖 | ✅ | README 子命令速览覆盖全 18 子命令；markscan/usage 运行时消息全量双语目录化（`msg!`/`msgf!`）。注：帮助文本与错误详情以中文为主，系 README「核心特性」明示的设计边界，不计入本项 |
-| C13 | 1.0.0 门槛 | ⬜ | CLI 契约稳定承诺 + 连续两个版本的发布实践 + 安全审查通过（依赖 C7-C10） |
+| C5 | markscan 阶段②~⑤落地并真实网关验证 | ✅ | 五阶段全部落地（2026-10-18，提交链 df95251→…→81331ba，含图像/HTML 通道 631c0f3），真实网关验证通过；契约见 `tests/docs/QYZS-MARKSCAN.md` |
+| C6 | 骨架审美重构完成且测试全绿 | ✅ | dispatch 按域拆分/thiserror/models 数据驱动（81331ba）；CI 离线 284 项全绿零警告（240 单元 + 43 集成/回归 + 1 网关离线守卫；另 3 项真实网关调用用例按 `#[ignore]` 门控跳过） |
+| C7 | 提交历史中无 API Key 记录 | ✅ | **责任边界**：本项目负责「凭据不进入 git 历史」，历史中若曾出现则须重写历史；已在 key 平台侧吊销由运营方负责，不计入本项目发布门槛。核查与门禁：`tests/scripts/check_no_secrets.sh` 扫描**全对象库**（含可达提交与悬空/不可达对象——`git add` 后又删除的凭据同样会留在对象库里）与已跟踪文件，CI 以 `secret-scan` job 逐次拦截（需 `fetch-depth: 0`）。当前实测：`.env` 从未进入提交，真实 Key 在对象库中零命中 |
+| C8 | `NPM_TOKEN` secret 配置 + npm provenance 流水线端到端实跑 | ⬜ | 0.1.0 从未打 tag，发布链路一次都没跑过。**本地已就绪**：`tests/scripts/verify_release_pipeline.py` 验证包族装配、顶层与六个平台包版本钉同步、启动器平台调度三方一致（19/19 通过）。仍需 `NPM_TOKEN` 与真实 `npm publish` |
+| C9 | 六平台二进制首次真实发布并抽查安装 | ⬜ | install.sh / install.ps1 / npm 三种方式各至少一台真实机器。**本地已就绪**：模拟 Release 全链路验证 25/25 通过——install.sh 查版本→下载→解包→安装→可执行；install.ps1 经 pwsh 在 Linux 上验证 URL 构造→下载→Expand-Archive→安装→PATH 注入（Windows 专属的重命名替换仍须真机）；`upgrade --package` 本地安装包路径；`qyzs dataset` 解压落点；npm 启动器实际调度到正确平台包。CI 以 `release-pipeline-verify` job 逐次拦截 |
+| C10 | `qyzs upgrade` 自更新链路实测 | ⬜ | 依赖 C9 的已发布版本。**本地已就绪**：模拟 Release 验证 `upgrade --check` 版本比较、`upgrade` 下载→解包→原子替换自身（替换后二进制可执行、权限 0755 保持）。另修复一处阻塞缺陷——自更新此前只解 `.zip`，Linux/macOS 的 `.tar.gz` 资产会被原样写入导致二进制损坏 |
+| C11 | CI 版本一致性守卫 | ✅ | tag 触发时校验 tag == Cargo.toml 版本，不符即失败；数据集 tests_data.zip 已纳入 Release 资产打包。`Cargo.toml` 版本与 `qyzs dataset` 默认 URL 现均指向 v0.2.0，首个 tag 推送后该 URL 生效 |
+| C12 | 命令参考与 i18n 覆盖 | ✅ | README 子命令速览覆盖全 16 子命令；markscan/usage 运行时消息全量双语目录化（`msg!`/`msgf!`）。注：帮助文本与错误详情以中文为主，系 README「核心特性」明示的设计边界，不计入本项 |
+| C13 | 1.0.0 门槛 | ⬜ | CLI 契约稳定承诺 + 连续两个版本的发布实践 + 安全审查通过（依赖 C8~C10；C7 已按「历史无凭据」口径达成） |
 
 ## 4. 版本历史锚点
 
@@ -74,8 +77,10 @@
   探测固化（capability_matrix.toml）、客户端护栏（embeddings 分块/256 批拆批、
   chat 16 图分批）。注：仓库 git 历史曾被并行进程重建为单初始提交，0.1.0
   **从未打 tag 发布**。
-- **0.2.0**（开发完成，未打 tag）：markscan 全能文档转 Markdown 流水线——
-  五阶段全部落地并真实网关验证（自动识别格式 + pdf/docx/xls/xlsx/pptx/vsdx/
-  image/html 全通道 + 三档流水线 speed/balanced/rigor + 图像/HTML 通道）；
-  同版本新增 `usage` 本地用量统计子命令；移除被吸收的独立 PDF 转换入口
-  （迁移豁免见 §1）。发布待 C7~C10 条件清零。
+- **0.2.0**（2026-10-22 发布准备完成，待打 tag）：markscan 全能文档转 Markdown
+  流水线——五阶段全部落地并真实网关验证（自动识别格式 + pdf/docx/xls/xlsx/pptx/
+  vsdx/csv/json/xml/zip/image/html 全通道 + **两档**流水线 rigor（默认）/speed
+  （旧值 balanced 兼容接受并映射到 rigor）+ 图像/HTML 通道）；
+  同版本新增 `usage` 本地用量统计子命令；移除被吸收的独立 PDF 转换入口，
+  以及 `ocr`/`parse`/`markitdown` 三个已被 markscan 吸收的子命令
+    （迁移豁免见 §1）。发布待 C8~C10 条件清零（C7「提交历史无凭据」已达成）。

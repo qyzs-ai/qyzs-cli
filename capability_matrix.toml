@@ -66,36 +66,41 @@ max_tokens = 2048
 # mineru/sam：任务型接口，无 Token 数据。
 
 # ── 文档解析 ─────────────────────────────────────────────────────────────
-# mineru3.2.3：同步通道实测 30 页（0.2 MB）7.7s 无断点，约 0.26 s/页；
-#   CLI 同步/异步切换阈值：页数 >30 或体积 >10 MB 转异步轮询。
+# mineru3.2.3：同步通道实测 30 页（0.2 MB）7.7s 无断点，约 0.26 s/页。
+#   **CLI 仅实现同步通道**：无 /tasks 端点、无轮询循环、无自动转异步；
+#   网关返回 pending/running 时直接报错，提示减小页数或体积后重试
+#   （src/client/mineru.rs）。要落地「同步/异步自动切换」须先补异步通道实现。
 #   2026-10-18 实测（markscan 通道验证）：.doc 旧版 Word 不被网关接受
 #   （HTTP 400 {"detail":"Unsupported file type: doc"}）；.docx 正常。
 #   客户端路由按此约束：.doc 明确报错并提示另存为 .docx。
-#   2026-10-18 补充实测：40 页/10.7MB 文档同步通道 15.9s 完成（三批串行），
-#   "30 页/10MB 转异步"阈值未复现触发；空白页文档 md_content 为空属合法返回。
+#   2026-10-18 补充实测：40 页/10.7MB 文档同步通道 15.9s 完成（三批串行）；
+#   空白页文档 md_content 为空属合法返回。
 #   qwen3-VL 非流式偶发完整回答置于 reasoning 字段而 content 为空（客户端
 #   ChatResponse::primary_text 已统一回退）。
 
 # ── 离线/禁用路由（实测禁止调度）────────────────────────────────────────────
-# qwen36        → 500 Connection error（节点宕机）
-# deepseek_v3_2 → 404 未查询到模型配置
-# qwen2.5-72b   → 404 未查询到模型配置
-# text-embedding-v4 → 500（不存在，用 bge-m3 替代）
-# mymodel-paddleocr-udhyfg → 400 base_url_missing（用 paddleocrvl 替代）
+# 已结构化进 [models.matrix] 的 `online = false` 行（`qyzs models --all-models`
+# 可见），此处不再重复枚举。
 
 # ── CLI `qyzs models` 渲染数据 ──────────────────────────────────────────────
 # `qyzs models` 由本段数据驱动渲染（编译期嵌入二进制）。延时与特性描述与
 # 上方注释及 tests/docs 的实测数值保持一致；此处为结构化镜像，简体中文。
+# `online = false` 的行仅 `--all-models` 时展示（默认 --online-only 过滤掉）。
 [models.matrix]
 rows = [
-  { code = "dsv4",               category = "通用对话",   latency = "1.02s",  feature = "极速响应，实测 51.8 万 Tokens 100% 召回 (默认主模型)" },
-  { code = "qwen3.6-27b",        category = "深度推理",   latency = "6.02s",  feature = "具思维链深度推理能力，实测 13.8 万 Tokens 100% 召回" },
-  { code = "qwen3-VL-30B-A3B",   category = "视觉多模态", latency = "5.62s",  feature = "16 图可靠并发（>16 图需分批），文本硬限 131,072 Tokens" },
-  { code = "paddleocrvl",        category = "公文OCR",    latency = "1.95s",  feature = "毫秒级文字转录，限制 <=800px 自动缩放" },
-  { code = "mineru3.2.3",        category = "文档解析",   latency = "0.59s",  feature = "PDF/Word(docx) 一键结构化输出 Markdown 大纲与表格" },
-  { code = "bge-m3",             category = "向量表征",   latency = "0.27s",  feature = "1024 维密集向量，知识库检索首选" },
-  { code = "qwen3-embadding-8b", category = "超大向量",   latency = "0.39s",  feature = "4096 维超高分辨率语义向量" },
-  { code = "qwen3-reranker-8b",  category = "语义重排",   latency = "0.28s",  feature = "Top1 > 0.90 置信度打分，精排首选" },
-  { code = "Qwen3-ASR-1.7B",     category = "语音识别",   latency = "0.89s",  feature = "16kHz 语音直接转写" },
-  { code = "acid-sam3-full",     category = "遥感变化",   latency = "异步表单", feature = "双时相遥感大模型变化检测流水线" },
+  { code = "dsv4",               category = "通用对话",   latency = "1.02s",  feature = "极速响应，实测 51.8 万 Tokens 100% 召回 (默认主模型)", online = true },
+  { code = "qwen3.6-27b",        category = "深度推理",   latency = "6.02s",  feature = "具思维链深度推理能力，实测 13.8 万 Tokens 100% 召回", online = true },
+  { code = "qwen3-VL-30B-A3B",   category = "视觉多模态", latency = "5.62s",  feature = "16 图可靠并发（客户端 >16 图自动分批，每批 ≤16），文本硬限 131,072 Tokens", online = true },
+  { code = "paddleocrvl",        category = "公文OCR",    latency = "1.95s",  feature = "毫秒级文字转录，限制 <=800px 自动缩放", online = true },
+  { code = "mineru3.2.3",        category = "文档解析",   latency = "0.59s",  feature = "PDF/Word(docx) 一键结构化输出 Markdown 大纲与表格", online = true },
+  { code = "bge-m3",             category = "向量表征",   latency = "0.27s",  feature = "1024 维密集向量，知识库检索首选", online = true },
+  { code = "qwen3-embadding-8b", category = "超大向量",   latency = "0.39s",  feature = "4096 维超高分辨率语义向量", online = true },
+  { code = "qwen3-reranker-8b",  category = "语义重排",   latency = "0.28s",  feature = "Top1 > 0.90 置信度打分，精排首选", online = true },
+  { code = "Qwen3-ASR-1.7B",     category = "语音识别",   latency = "0.89s",  feature = "16kHz 语音直接转写", online = true },
+  { code = "acid-sam3-full",     category = "遥感变化",   latency = "异步表单", feature = "双时相遥感大模型变化检测流水线", online = true },
+  { code = "qwen36",             category = "已下线",     latency = "—",      feature = "500 Connection error（节点宕机），禁止调度", online = false },
+  { code = "deepseek_v3_2",      category = "已下线",     latency = "—",      feature = "404 未查询到模型配置，禁止调度", online = false },
+  { code = "qwen2.5-72b",        category = "已下线",     latency = "—",      feature = "404 未查询到模型配置，禁止调度", online = false },
+  { code = "text-embedding-v4",  category = "已下线",     latency = "—",      feature = "500 不存在，禁止调度（用 bge-m3 替代）", online = false },
+  { code = "mymodel-paddleocr-udhyfg", category = "已下线", latency = "—",    feature = "400 base_url_missing，禁止调度（用 paddleocrvl 替代）", online = false },
 ]

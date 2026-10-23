@@ -12,7 +12,10 @@ impl UpdateManager {
     pub fn is_running_under_npm() -> bool {
         if let Ok(exe) = std::env::current_exe() {
             let path_str = exe.to_string_lossy().to_lowercase();
-            if path_str.contains("node_modules") || path_str.contains(".npm") || path_str.ends_with(".js") {
+            if path_str.contains("node_modules")
+                || path_str.contains(".npm")
+                || path_str.ends_with(".js")
+            {
                 return true;
             }
         }
@@ -22,7 +25,9 @@ impl UpdateManager {
     /// 执行在线自更新 (从 GitHub Release 下载匹配平台的最新包)
     pub async fn self_update(repo: &str) -> QyzsResult<bool> {
         if Self::is_running_under_npm() {
-            return Err(QyzsError::Usage(crate::msg!(SelfUpdateNpmWarning).to_string()));
+            return Err(QyzsError::Usage(
+                crate::msg!(SelfUpdateNpmWarning).to_string(),
+            ));
         }
 
         let release = GitHubClient::get_latest_release(repo).await?;
@@ -35,7 +40,10 @@ impl UpdateManager {
 
         let (target, _) = GitHubClient::current_platform_target();
         let asset = GitHubClient::find_matching_asset(&release, target).ok_or_else(|| {
-            QyzsError::Server(format!("未在 Release 中找到适配平台 '{}' 的构建产物", target))
+            QyzsError::Server(format!(
+                "未在 Release 中找到适配平台 '{}' 的构建产物",
+                target
+            ))
         })?;
 
         // 流式下载资产包
@@ -59,7 +67,10 @@ impl UpdateManager {
     pub fn install_from_local_package(package_path: &str) -> QyzsResult<()> {
         let p = Path::new(package_path);
         if !p.exists() {
-            return Err(QyzsError::Io(format!("指定安装包文件不存在: {}", package_path)));
+            return Err(QyzsError::Io(format!(
+                "指定安装包文件不存在: {}",
+                package_path
+            )));
         }
 
         let bytes = std::fs::read(p)
@@ -79,15 +90,65 @@ impl UpdateManager {
         let current_exe = std::env::current_exe()
             .map_err(|e| QyzsError::Io(format!("无法获取当前程序运行路径: {}", e)))?;
 
-        let binary_bytes = if filename.ends_with(".zip") {
-            Self::extract_binary_from_zip(bytes)?
-        } else {
-            // 对于单二进制文件或 gzip，直接提取
-            bytes.to_vec()
-        };
+        let binary_bytes = Self::extract_binary_from_archive(bytes, filename)?;
 
         Self::atomic_replace_binary(&current_exe, &binary_bytes)?;
         Ok(())
+    }
+
+    /// 按资产文件名后缀取出其中的 qyzs 可执行文件
+    ///
+    /// CI 的资产格式与平台对应：Linux / macOS 为 `qyzs-<target>.tar.gz`
+    /// （upload-rust-binary-action），Windows 为 `qyzs-<target>.zip`。
+    /// 无后缀时视为裸二进制直接透传。
+    ///
+    /// 注意: `.tar.gz` **必须**解包——否则会把 gzip 字节当成可执行文件写下去,
+    /// 自更新后二进制直接损坏。
+    pub fn extract_binary_from_archive(bytes: &[u8], filename: &str) -> QyzsResult<Vec<u8>> {
+        let lower = filename.to_ascii_lowercase();
+        if lower.ends_with(".zip") {
+            Self::extract_binary_from_zip(bytes)
+        } else if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
+            Self::extract_binary_from_targz(bytes)
+        } else {
+            // 裸二进制 (无压缩): 原样使用
+            Ok(bytes.to_vec())
+        }
+    }
+
+    /// 从 gzip 压缩的 tar 包中提取 qyzs / qyzs.exe
+    pub fn extract_binary_from_targz(bytes: &[u8]) -> QyzsResult<Vec<u8>> {
+        use std::io::Read;
+
+        let decoder = flate2::read::GzDecoder::new(bytes);
+        let mut archive = tar::Archive::new(decoder);
+        let entries = archive
+            .entries()
+            .map_err(|e| QyzsError::Io(format!("读取 tar.gz 条目失败: {}", e)))?;
+
+        for entry in entries {
+            let mut entry =
+                entry.map_err(|e| QyzsError::Io(format!("遍历 tar.gz 条目失败: {}", e)))?;
+            let path = entry
+                .path()
+                .map_err(|e| QyzsError::Io(format!("获取 tar.gz 条目路径失败: {}", e)))?;
+            let name = path.to_string_lossy();
+            if name == "qyzs"
+                || name == "qyzs.exe"
+                || name.ends_with("/qyzs")
+                || name.ends_with("/qyzs.exe")
+            {
+                let mut content = Vec::new();
+                entry
+                    .read_to_end(&mut content)
+                    .map_err(|e| QyzsError::Io(format!("解压 tar.gz 内二进制失败: {}", e)))?;
+                return Ok(content);
+            }
+        }
+
+        Err(QyzsError::Io(
+            "tar.gz 压缩包中未找到 qyzs 二进制文件".to_string(),
+        ))
     }
 
     /// 从 ZIP 压缩包提取 qyzs/qyzs.exe 二进制
@@ -97,13 +158,19 @@ impl UpdateManager {
             .map_err(|e| QyzsError::Io(format!("解压 ZIP 失败: {}", e)))?;
 
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i)
+            let mut file = archive
+                .by_index(i)
                 .map_err(|e| QyzsError::Io(format!("读取 ZIP 内文件失败: {}", e)))?;
-            let name_cow = file.name()
+            let name_cow = file
+                .name()
                 .map_err(|e| QyzsError::Io(format!("获取 ZIP 条目名称失败: {}", e)))?;
             let name = name_cow.as_ref();
 
-            if name == "qyzs" || name == "qyzs.exe" || name.ends_with("/qyzs") || name.ends_with("/qyzs.exe") {
+            if name == "qyzs"
+                || name == "qyzs.exe"
+                || name.ends_with("/qyzs")
+                || name.ends_with("/qyzs.exe")
+            {
                 use std::io::Read;
                 let mut content = Vec::new();
                 file.read_to_end(&mut content)
@@ -112,7 +179,9 @@ impl UpdateManager {
             }
         }
 
-        Err(QyzsError::Io("ZIP 压缩包中未找到 qyzs 二进制文件".to_string()))
+        Err(QyzsError::Io(
+            "ZIP 压缩包中未找到 qyzs 二进制文件".to_string(),
+        ))
     }
 
     /// 跨平台就地原子替换二进制
@@ -157,5 +226,127 @@ impl UpdateManager {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UpdateManager;
+    use std::io::{Cursor, Write};
+
+    /// 构造一个含指定条目的 .tar.gz (CI 对 Linux/macOS 发布的资产格式)
+    fn make_targz(name: &str, data: &[u8]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        {
+            let enc = flate2::write::GzEncoder::new(&mut buf, flate2::Compression::default());
+            let mut builder = tar::Builder::new(enc);
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            builder.append_data(&mut header, name, data).unwrap();
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+        buf
+    }
+
+    /// 构造一个含指定条目的 .zip (CI 对 Windows 发布的资产格式)
+    fn make_zip(name: &str, data: &[u8]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        {
+            let mut zw = zip::ZipWriter::new(Cursor::new(&mut buf));
+            zw.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zw.write_all(data).unwrap();
+            zw.finish().unwrap();
+        }
+        buf
+    }
+
+    #[test]
+    fn tar_gz_asset_yields_binary_not_archive_bytes() {
+        // 回归: 此前 .tar.gz 走「原样透传」分支, 自更新会把 gzip 字节当可执行文件写入
+        let payload = b"ELF-PLACEHOLDER-BINARY";
+        let asset = make_targz("qyzs", payload);
+        assert_ne!(asset.as_slice(), payload, "前置条件: 资产本身不是裸二进制");
+
+        let out = UpdateManager::extract_binary_from_archive(
+            &asset,
+            "qyzs-x86_64-unknown-linux-musl.tar.gz",
+        )
+        .unwrap();
+        assert_eq!(out, payload, "必须解包取出二进制, 而非透传 tar.gz 原始字节");
+    }
+
+    #[test]
+    fn zip_asset_yields_binary() {
+        let payload = b"PE-PLACEHOLDER-BINARY";
+        let asset = make_zip("qyzs.exe", payload);
+        let out =
+            UpdateManager::extract_binary_from_archive(&asset, "qyzs-x86_64-pc-windows-msvc.zip")
+                .unwrap();
+        assert_eq!(out, payload);
+    }
+
+    #[test]
+    fn archive_dispatch_covers_all_ci_asset_formats() {
+        let payload = b"BINARY";
+        let targz = make_targz("qyzs", payload);
+        let zip = make_zip("qyzs.exe", payload);
+
+        // CI 六平台矩阵中 Linux/macOS 为 .tar.gz, Windows 为 .zip
+        for name in [
+            "qyzs-x86_64-unknown-linux-musl.tar.gz",
+            "qyzs-aarch64-unknown-linux-musl.tar.gz",
+            "qyzs-loongarch64-unknown-linux-gnu.tar.gz",
+            "qyzs-x86_64-apple-darwin.tar.gz",
+            "qyzs-aarch64-apple-darwin.tar.gz",
+        ] {
+            assert_eq!(
+                UpdateManager::extract_binary_from_archive(&targz, name).unwrap(),
+                payload,
+                "{name} 应解包"
+            );
+        }
+        // Windows 目标 (CI 产出 .zip)
+        assert_eq!(
+            UpdateManager::extract_binary_from_archive(&zip, "qyzs-x86_64-pc-windows-msvc.zip")
+                .unwrap(),
+            payload,
+            "Windows 资产应解包"
+        );
+
+        // .tgz 是 .tar.gz 的常见别名
+        assert_eq!(
+            UpdateManager::extract_binary_from_archive(&targz, "qyzs-linux.tgz").unwrap(),
+            payload
+        );
+
+        // 裸二进制 (无后缀): 原样透传
+        assert_eq!(
+            UpdateManager::extract_binary_from_archive(payload, "qyzs-x86_64-unknown-linux-musl")
+                .unwrap(),
+            payload
+        );
+    }
+
+    #[test]
+    fn archive_without_qyzs_entry_errors() {
+        let targz = make_targz("README.txt", b"not a binary");
+        let err = UpdateManager::extract_binary_from_archive(&targz, "x.tar.gz").unwrap_err();
+        assert!(
+            format!("{err}").contains("未找到"),
+            "应给出可读错误, 实际: {err}"
+        );
+    }
+
+    #[test]
+    fn targz_entry_in_subdirectory_is_found() {
+        let payload = b"NESTED-BINARY";
+        let asset = make_targz("bin/qyzs", payload);
+        assert_eq!(
+            UpdateManager::extract_binary_from_archive(&asset, "x.tar.gz").unwrap(),
+            payload
+        );
     }
 }

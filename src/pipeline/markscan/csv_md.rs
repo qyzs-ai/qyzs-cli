@@ -28,7 +28,7 @@ pub fn csv_to_markdown(bytes: &[u8]) -> QyzsResult<String> {
     let rows: Vec<Vec<String>> = reader
         .records()
         .map(|r| {
-            r.map(|rec| rec.iter().map(|f| sanitize_cell(f)).collect::<Vec<_>>())
+            r.map(|rec| rec.iter().map(sanitize_cell).collect::<Vec<_>>())
                 .map_err(|e| QyzsError::Server(format!("CSV 解析失败: {}", e)))
         })
         .collect::<QyzsResult<Vec<_>>>()?;
@@ -53,7 +53,10 @@ pub fn csv_to_markdown(bytes: &[u8]) -> QyzsResult<String> {
     };
 
     let total_data_rows = rows.len() - data_start;
-    out.push_str(&format!("**{} 行 × {} 列**\n\n", total_data_rows, col_count));
+    out.push_str(&format!(
+        "**{} 行 × {} 列**\n\n",
+        total_data_rows, col_count
+    ));
 
     // 切续表: 每个 chunk 输出独立 Markdown 表格 (表头重复)
     let data = &rows[data_start..];
@@ -105,7 +108,7 @@ fn md_row_padded(row: &[String], width: usize) -> String {
 }
 
 fn md_separator(n: usize) -> String {
-    let parts: Vec<&str> = std::iter::repeat("---").take(n).collect();
+    let parts: Vec<&str> = std::iter::repeat_n("---", n).collect();
     format!("| {} |", parts.join(" | "))
 }
 
@@ -139,9 +142,7 @@ fn detect_header(rows: &[Vec<String>]) -> (Vec<String>, usize) {
     }
     // 数据行若存在数字字段, 而首行同列无数字, 判为表头
     if rows.len() >= 2 {
-        let data_has_num = rows[1..]
-            .iter()
-            .any(|r| r.iter().any(|c| looks_numeric(c)));
+        let data_has_num = rows[1..].iter().any(|r| r.iter().any(|c| looks_numeric(c)));
         let header_no_num = first.iter().all(|c| !looks_numeric(c));
         if data_has_num && header_no_num {
             return (first.clone(), 1);
@@ -200,10 +201,7 @@ fn sniff_delim(bytes: &[u8]) -> u8 {
 fn decode_csv_bytes(bytes: &[u8]) -> (String, &'static str) {
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
         let body = &bytes[3..];
-        return (
-            String::from_utf8_lossy(body).into_owned(),
-            "UTF-8 (BOM)",
-        );
+        return (String::from_utf8_lossy(body).into_owned(), "UTF-8 (BOM)");
     }
     match std::str::from_utf8(bytes) {
         Ok(s) => (s.to_string(), "UTF-8"),

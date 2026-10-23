@@ -143,7 +143,10 @@ impl QyzsClient {
         let status = resp.status();
         if !status.is_success() {
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(QyzsError::Server(format!("网关返回 HTTP {}: {}", status, err_text)));
+            return Err(QyzsError::Server(format!(
+                "网关返回 HTTP {}: {}",
+                status, err_text
+            )));
         }
 
         let chat_resp: ChatResponse = resp.json().await?;
@@ -161,7 +164,9 @@ impl QyzsClient {
     ) -> QyzsResult<String> {
         let mut req = self.build_chat_request(prompt, system_prompt, &opts)?;
         req.stream = true;
-        req.stream_options = Some(StreamOptions { include_usage: true });
+        req.stream_options = Some(StreamOptions {
+            include_usage: true,
+        });
         let key = self.config.ensure_auth()?;
 
         let resp = self
@@ -174,7 +179,10 @@ impl QyzsClient {
         let status = resp.status();
         if !status.is_success() {
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(QyzsError::Server(format!("网关返回 HTTP {}: {}", status, err_text)));
+            return Err(QyzsError::Server(format!(
+                "网关返回 HTTP {}: {}",
+                status, err_text
+            )));
         }
 
         let mut stream = resp.bytes_stream();
@@ -245,7 +253,9 @@ impl QyzsClient {
         let model = if let Some(m) = &opts.model {
             // 防呆校验：严格排除 paddleocrvl
             if m.eq_ignore_ascii_case("paddleocrvl") {
-                return Err(QyzsError::Usage(crate::msg!(ChatExcludesPaddleOcr).to_string()));
+                return Err(QyzsError::Usage(
+                    crate::msg!(ChatExcludesPaddleOcr).to_string(),
+                ));
             }
             m.clone()
         } else if has_images {
@@ -262,7 +272,11 @@ impl QyzsClient {
 
         let max_tokens = opts
             .max_tokens
-            .or_else(|| self.config.get_model_param_i64(&model, "max_tokens").map(|v| v as u32))
+            .or_else(|| {
+                self.config
+                    .get_model_param_i64(&model, "max_tokens")
+                    .map(|v| v as u32)
+            })
             .unwrap_or(4096);
 
         let top_p = opts

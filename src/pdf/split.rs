@@ -52,7 +52,10 @@ impl PdfSplitter {
                     return Err(QyzsError::Usage("页码必须从 1 开始计数".to_string()));
                 }
                 if start > end {
-                    return Err(QyzsError::Usage(format!("页码范围起始 '{}' 不能大于结束 '{}'", start, end)));
+                    return Err(QyzsError::Usage(format!(
+                        "页码范围起始 '{}' 不能大于结束 '{}'",
+                        start, end
+                    )));
                 }
 
                 for p in start..=end.min(total_pages) {
@@ -82,11 +85,14 @@ impl PdfSplitter {
     pub fn split(input_path: &str, pages_to_keep: &[u32], output_path: &str) -> QyzsResult<()> {
         let in_p = Path::new(input_path);
         if !in_p.exists() {
-            return Err(QyzsError::Io(format!("待拆分 PDF 文件不存在: {}", input_path)));
+            return Err(QyzsError::Io(format!(
+                "待拆分 PDF 文件不存在: {}",
+                input_path
+            )));
         }
 
-        let doc = Document::load(in_p)
-            .map_err(|e| QyzsError::Pdf(format!("加载 PDF 失败: {}", e)))?;
+        let doc =
+            Document::load(in_p).map_err(|e| QyzsError::Pdf(format!("加载 PDF 失败: {}", e)))?;
 
         let slice = Self::build_slice(&doc, pages_to_keep)?;
         Self::save_slice(slice, output_path)
@@ -96,14 +102,18 @@ impl PdfSplitter {
     ///
     /// 全程只加载源文档一次: 逐切片复用同一份已解析的文档树, 避免
     /// 「每切片重新解析全文」带来的 O(切片数 × 文件体积) 解析开销。
-    pub fn chunk(input_path: &str, chunk_size: usize, output_dir: &str) -> QyzsResult<Vec<PathBuf>> {
+    pub fn chunk(
+        input_path: &str,
+        chunk_size: usize,
+        output_dir: &str,
+    ) -> QyzsResult<Vec<PathBuf>> {
         if chunk_size == 0 {
             return Err(QyzsError::Usage("切片页数必须大于 0".to_string()));
         }
 
         let in_p = Path::new(input_path);
-        let doc = Document::load(in_p)
-            .map_err(|e| QyzsError::Pdf(format!("加载 PDF 失败: {}", e)))?;
+        let doc =
+            Document::load(in_p).map_err(|e| QyzsError::Pdf(format!("加载 PDF 失败: {}", e)))?;
 
         let total_pages = doc.get_pages().len();
         if total_pages == 0 {
@@ -276,7 +286,9 @@ impl PdfSplitter {
         let mut catalog = lopdf::Dictionary::new();
         catalog.set("Type", Object::Name(b"Catalog".to_vec()));
         catalog.set("Pages", Object::Reference(root_pages_id));
-        slice.objects.insert(catalog_id, Object::Dictionary(catalog));
+        slice
+            .objects
+            .insert(catalog_id, Object::Dictionary(catalog));
         slice.trailer.set("Root", Object::Reference(catalog_id));
 
         // /Prev 指向旧文件的 xref 偏移, 对新文件无效

@@ -23,8 +23,7 @@ const API_KEY_ENV_VAR: &str = "QYZS_APIKEY";
 
 /// 规整环境变量值：去除首尾空白，空白视为未设置
 fn normalize_env_value(raw: Option<String>) -> Option<String> {
-    raw.map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
+    raw.map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
 }
 
 /// 校验网关 Base URL 协议前缀 (http/https)
@@ -84,7 +83,13 @@ impl ResolvedConfig {
         } else if let Some(k) = normalize_env_value(std::env::var(API_KEY_ENV_VAR).ok()) {
             (k, format!("Environment Variable ({})", API_KEY_ENV_VAR))
         } else if let Some(c) = creds.filter(|c| !c.api_key.is_empty()) {
-            (c.api_key, format!("Credentials File ({})", Credentials::default_path().display()))
+            (
+                c.api_key,
+                format!(
+                    "Credentials File ({})",
+                    Credentials::default_path().display()
+                ),
+            )
         } else {
             (String::new(), "None".to_string())
         };
@@ -111,7 +116,10 @@ impl ResolvedConfig {
         // 3. 解析超时
         let timeout_seconds = if let Some(t) = cli_timeout {
             t
-        } else if let Some(t) = std::env::var("QYZS_TIMEOUT").ok().and_then(|s| s.parse::<u64>().ok()) {
+        } else if let Some(t) = std::env::var("QYZS_TIMEOUT")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+        {
             t
         } else {
             config.network.timeout
@@ -201,7 +209,7 @@ impl ResolvedConfig {
 
     /// 获取针对特定模型的专属超参 (如 temperature, max_tokens 等)
     pub fn get_model_param_f64(&self, model: &str, param: &str) -> Option<f64> {
-        let normalized = model.replace('.', "_").replace('-', "_");
+        let normalized = model.replace(['.', '-'], "_");
         self.config
             .model
             .params
@@ -212,7 +220,7 @@ impl ResolvedConfig {
     }
 
     pub fn get_model_param_i64(&self, model: &str, param: &str) -> Option<i64> {
-        let normalized = model.replace('.', "_").replace('-', "_");
+        let normalized = model.replace(['.', '-'], "_");
         self.config
             .model
             .params
@@ -223,7 +231,7 @@ impl ResolvedConfig {
     }
 
     pub fn get_model_param_bool(&self, model: &str, param: &str) -> Option<bool> {
-        let normalized = model.replace('.', "_").replace('-', "_");
+        let normalized = model.replace(['.', '-'], "_");
         self.config
             .model
             .params

@@ -39,7 +39,7 @@ impl Styler {
         }
     }
 
-    pub fn green<'a>(&self, text: &'a str) -> String {
+    pub fn green(&self, text: &str) -> String {
         if self.enabled {
             format!("\x1b[32m{}\x1b[0m", text)
         } else {
@@ -47,7 +47,7 @@ impl Styler {
         }
     }
 
-    pub fn red<'a>(&self, text: &'a str) -> String {
+    pub fn red(&self, text: &str) -> String {
         if self.enabled {
             format!("\x1b[31m{}\x1b[0m", text)
         } else {
@@ -55,7 +55,7 @@ impl Styler {
         }
     }
 
-    pub fn yellow<'a>(&self, text: &'a str) -> String {
+    pub fn yellow(&self, text: &str) -> String {
         if self.enabled {
             format!("\x1b[33m{}\x1b[0m", text)
         } else {
@@ -63,7 +63,7 @@ impl Styler {
         }
     }
 
-    pub fn cyan<'a>(&self, text: &'a str) -> String {
+    pub fn cyan(&self, text: &str) -> String {
         if self.enabled {
             format!("\x1b[36m{}\x1b[0m", text)
         } else {
@@ -71,7 +71,7 @@ impl Styler {
         }
     }
 
-    pub fn bold<'a>(&self, text: &'a str) -> String {
+    pub fn bold(&self, text: &str) -> String {
         if self.enabled {
             format!("\x1b[1m{}\x1b[0m", text)
         } else {
@@ -79,7 +79,7 @@ impl Styler {
         }
     }
 
-    pub fn dim<'a>(&self, text: &'a str) -> String {
+    pub fn dim(&self, text: &str) -> String {
         if self.enabled {
             format!("\x1b[2m{}\x1b[0m", text)
         } else {

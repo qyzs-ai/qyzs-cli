@@ -54,7 +54,13 @@ pub fn extract(
 fn sanitize(stem: &str) -> String {
     let s: String = stem
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let trimmed = s.trim_matches('_').to_string();
     if trimmed.is_empty() {
@@ -68,7 +74,11 @@ fn sanitize(stem: &str) -> String {
 
 const MEDIA_PREFIXES: &[&str] = &["word/media/", "ppt/media/", "xl/media/", "visio/media/"];
 
-fn extract_ooxml_media(source_path: &str, dir: &Path, rel_base: &Path) -> QyzsResult<Vec<ExtractedAsset>> {
+fn extract_ooxml_media(
+    source_path: &str,
+    dir: &Path,
+    rel_base: &Path,
+) -> QyzsResult<Vec<ExtractedAsset>> {
     let bytes = std::fs::read(source_path)
         .map_err(|e| QyzsError::Io(format!("读取源文件失败 {}: {}", source_path, e)))?;
     let cursor = std::io::Cursor::new(&bytes[..]);
@@ -79,7 +89,9 @@ fn extract_ooxml_media(source_path: &str, dir: &Path, rel_base: &Path) -> QyzsRe
     let mut entries: Vec<String> = Vec::new();
     for i in 0..archive.len() {
         if let Ok(f) = archive.by_index(i) {
-            let Ok(name) = f.name().map(|n| n.to_string()) else { continue };
+            let Ok(name) = f.name().map(|n| n.to_string()) else {
+                continue;
+            };
             if MEDIA_PREFIXES.iter().any(|p| name.starts_with(p)) && !name.ends_with('/') {
                 entries.push(name);
             }
@@ -123,7 +135,11 @@ fn rel_path(rel_base: &Path, target: &Path) -> String {
 
 // ── PDF: 区分整页底图与真实插图 ─────────────────────────────────────────
 
-fn extract_pdf_figures(source_path: &str, dir: &Path, rel_base: &Path) -> QyzsResult<Vec<ExtractedAsset>> {
+fn extract_pdf_figures(
+    source_path: &str,
+    dir: &Path,
+    rel_base: &Path,
+) -> QyzsResult<Vec<ExtractedAsset>> {
     let doc = lopdf::Document::load(source_path)
         .map_err(|e| QyzsError::Pdf(format!("加载 PDF 失败: {}", e)))?;
 

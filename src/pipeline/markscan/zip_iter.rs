@@ -105,9 +105,7 @@ pub fn zip_to_markdown(path: &str) -> QyzsResult<String> {
         if entry_size > MAX_ENTRY_UNPACKED_BYTES {
             skipped.push(format!(
                 "{} (解压前 {} 字节 > 单条目上限 {})",
-                entry_name,
-                entry_size,
-                MAX_ENTRY_UNPACKED_BYTES
+                entry_name, entry_size, MAX_ENTRY_UNPACKED_BYTES
             ));
             continue;
         }
@@ -343,7 +341,11 @@ mod tests {
         .unwrap();
         match zip_to_markdown(&path.to_string_lossy()) {
             Ok(md) => {
-                assert!(md.contains("## data.zip/data.csv"), "missing section: {}", md);
+                assert!(
+                    md.contains("## data.zip/data.csv"),
+                    "missing section: {}",
+                    md
+                );
                 assert!(md.contains("Alice"));
                 assert!(md.contains("2 行 × 2 列"));
             }
@@ -368,7 +370,7 @@ mod tests {
         assert!(md.contains("## mixed.zip/a.csv"));
         assert!(md.contains("## mixed.zip/b.json"));
         assert!(md.contains("## mixed.zip/c.xml"));
-        assert!(md.contains("Alice") == false); // sanity
+        assert!(!md.contains("Alice")); // sanity
         assert!(md.contains("k"));
         assert!(md.contains("\"x\": 1"));
         assert!(md.contains("**root**: v"));
@@ -382,7 +384,7 @@ mod tests {
             &path,
             make_zip(&[
                 ("a.csv", b"k,v\n1,2\n"),
-                ("b.pdf", b"%PDF-1.5\nfake"), // PDF 在容器内跳过
+                ("b.pdf", b"%PDF-1.5\nfake"),   // PDF 在容器内跳过
                 ("c.doc", b"\xD0\xCF\x11\xE0"), // OLE2/旧 doc
             ]),
         )

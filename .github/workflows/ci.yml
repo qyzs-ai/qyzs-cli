@@ -25,10 +25,96 @@ jobs:
             echo "::error::tag v${TAG} != Cargo.toml ${CARGO_VER}: 打 tag 前需在发布准备提交中对齐版本号 (docs/RELEASE.md §2)"
             exit 1
           fi
+      - name: Cargo Format
+        run: cargo fmt --all -- --check
       - name: Cargo Check
         run: cargo check --verbose
+      - name: Cargo Clippy
+        run: cargo clippy --all-targets -- --deny warnings
       - name: Cargo Test
         run: cargo test --verbose
+
+  # 提交历史密钥门禁: 凭据一旦写入历史就必须重写历史, 因此在提交环节拦住。
+  # 需 fetch-depth: 0 (浅克隆拿不到完整历史, 扫不到历史中的凭据)。
+  secret-scan:
+    name: Secret scan (history + tracked tree)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan git history and tracked files
+        run: bash tests/scripts/check_no_secrets.sh
+
+  # 发布链路本地验证: 用模拟的 GitHub Release 端到端跑 install.sh / upgrade /
+  # dataset / npm 包族, 防止发布路径在 tag 推送前才暴露问题
+  release-pipeline-verify:
+    name: Release pipeline local verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      # ring 的 build script 需编译目标平台 C 代码, musl 目标必须装 musl-tools
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      # install.ps1 是随 Release 发布的资产 (Windows 唯一安装入口), 用 pwsh 在
+      # Linux 上验证其逻辑 (URL 构造 / 下载 / Expand-Archive / 安装 / PATH);
+      # 装不上 pwsh 时该段自动跳过, 不阻断流水线
+      - name: Install PowerShell (optional)
+        continue-on-error: true
+        run: |
+          PWSH_VERSION=7.6.8
+          curl -sSL --max-time 300 -o /tmp/pwsh.tar.gz \
+            "https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-linux-x64.tar.gz" \
+            && sudo mkdir -p /opt/microsoft/powershell/7 \
+            && sudo tar -xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7 \
+            && sudo chmod +x /opt/microsoft/powershell/7/pwsh \
+            && sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh \
+            && pwsh --version \
+            || echo "[WARN] pwsh 安装失败, 将跳过 install.ps1 验证"
+      - name: Verify release pipeline
+        run: python3 tests/scripts/verify_release_pipeline.py
+
+  # 平台相关代码 (`#[cfg(windows)]` / `#[cfg(target_os = "macos")]`) 此前只在
+  # tag 触发的发布构建里才被编译, PR 阶段完全无覆盖 —— 本 job 补上该盲区。
+  # 各目标在能原生处理它的 runner 上检查, 无需交叉工具链。
+  cross-target-check:
+    name: Type check ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            setup: ""
+          - target: x86_64-apple-darwin
+            os: macos-13
+            setup: ""
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            setup: ""
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            setup: musl
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      # ring (rustls 的 TLS 实现) 的 build script 需编译目标平台 C/汇编代码,
+      # musl 目标必须装 musl-tools 才能链接
+      - name: Install musl toolchain
+        if: matrix.setup == 'musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Cargo Check
+        run: cargo check --target ${{ matrix.target }} --verbose
 
   release-binaries:
     name: Build & Upload Release Binaries
@@ -86,7 +172,10 @@ jobs:
 
       - name: Package benchmark dataset (tests_data.zip)
         run: |
-          cd tests && zip -qr "${{ github.workspace }}/tests_data.zip" data
+          # 打包 tests/data/ 的**内容** (而非 data/ 目录本身): qyzs dataset 的
+          # 解压契约是「归档内容原样展开到 --dest」, 若把 data/ 目录打进去,
+          # 解到默认的 tests/data 会多出一层 data/
+          cd tests && zip -qr "${{ github.workspace }}/tests_data.zip" data/*
 
       - name: Upload Release Assets (install scripts + dataset)
         uses: softprops/action-gh-release@v2

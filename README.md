@@ -14,11 +14,11 @@
 - **全平台多架构矩阵**：
   - **Linux**: `amd64` (x86_64), `arm64` (aarch64), **`loong64` (龙芯 loongarch64 全国产化支持)**；
   - **macOS**: `amd64` (Intel), `arm64` (Apple Silicon M系列)；
-  - **Windows**: `amd64` (`x86_64-pc-windows-gnu`)。
+  - **Windows**: `amd64` (`x86_64-pc-windows-msvc`)。
 - **命令行双形式兼容**：原生支持标准子命令 `qyzs <command>`，且内置 `argv[0]` 自动重写，无缝兼容 `qyzs-<command>`（如软链接调用）。
 - **实测评分最优默认模型**：未指定 `--model` 时，自动装载经基准压测评定最高分的模型（对话默认 `dsv4` 1.0s、实测 51.8 万 Tokens 上下文 100% 召回；多图默认 `qwen3-VL` 16图并发；公文OCR默认 `paddleocrvl` 带800px防崩溃缩放；文档结构化默认 `mineru3.2.3`）。
 - **双语环境自适应 (i18n)**：运行时状态/进度提示自动适配中英文（默认跟随系统语言：POSIX locale 变量优先，Windows 读取系统 UI 语言 API、macOS 读取 CoreFoundation 系统区域，均无法识别回退英文；`--lang zh|en` 显式切换，`QYZS_LANG` 环境变量同效），上游模型返回内容原样透传；帮助文本与错误详情以中文为主。
-- **四层级联配置优先级**：`CLI 参数` > `环境变量 (QYZS_*)` > `配置文件 (~/.config/qyzs/)` > `代码基准真值`；敏感 API Key 严格采用 XDG 0600 安全隔离。
+- **四层级联配置优先级**：`CLI 参数` > `环境变量 (QYZS_APIKEY / QYZS_BASE_URL / QYZS_TIMEOUT / QYZS_LANG / QYZS_MODEL_LANG)` > `配置文件 (~/.config/qyzs/)` > `代码基准真值`；敏感 API Key 严格采用 XDG 0600 安全隔离。注：`--color` 与 `--format` 仅有 CLI 参数与配置文件两层，无环境变量层。
 
 ---
 
@@ -48,13 +48,33 @@ npm install -g @qyzs-ai/cli
 cargo install --path .
 ```
 
+### 4. 镜像源 / 内网自建（可选）
+
+安装脚本与自更新模块的下载地址可通过环境变量覆盖，便于走国内镜像源或内网自建
+GitHub 兼容服务（**这四个变量不属于下面的「四层级联配置优先级」**——它们只作用于
+安装与升级链路的地址，不参与 CLI 配置解析）：
+
+| 变量 | 作用 | 默认值 |
+|---|---|---|
+| `QYZS_REPO` | 仓库标识 | `qyzs-ai/qyzs-cli` |
+| `QYZS_GITHUB_URL` | Release 资产下载前缀 | `https://github.com/<repo>` |
+| `QYZS_RELEASE_API_URL` | 最新版本查询接口（`qyzs upgrade` 亦生效） | GitHub Release API |
+| `QYZS_FALLBACK_TAG` | 版本查询失败时的兜底 tag | `v0.2.0` |
+
+```bash
+# 示例: 走镜像源安装
+QYZS_GITHUB_URL=https://mirror.example.com/qyzs-ai/qyzs-cli \
+QYZS_RELEASE_API_URL=https://mirror.example.com/api/releases/latest \
+bash install.sh
+```
+
 ---
 
 ## 常用子命令速览
 
 ### 全局参数与短语法规范
 
-所有全局参数置于子命令**前后均可**。短形式规范：`-h/-V` 为保留字；同义参数跨子命令统一字母（`--model` = `-m`、`--output` = `-o`）；不同含义允许复用字母（如 `-p` 在 `pdf-split` 为 pages、在 `config` 为路径）；规范全文见 `src/cli/args.rs` 模块头注释。
+所有全局参数置于子命令**前后均可**。短形式规范：`-h/-V` 为保留字；同义参数跨子命令统一字母（`--model` = `-m`、`--output` = `-o`）；不同含义允许复用字母（如 `-d` 在 `rerank` 为 documents、在 `dataset` 为 dest，`-p` 在 `pdf-split` 为 pages）；规范全文见 `src/cli/args.rs` 模块头注释。
 
 | 短 | 长 | 说明 |
 |---|---|---|
@@ -95,7 +115,7 @@ qyzs status --json
 qyzs status --no-probe
 qyzs status --no-probe --json
 
-# 查看智算中心全量高可靠模型矩阵与实测延时
+# 查看智算中心在线可用模型矩阵与实测延时
 qyzs models
 ```
 
@@ -155,7 +175,7 @@ qyzs chat "请阐述《测试文献A》的关键要求。"
 # 深度思维链推理 (调用 qwen3.6-27b，展示实时思考过程)
 qyzs chat -m qwen3.6-27b --reasoning "核算以下建设用地指标与争议仲裁推演..."
 
-# 多图并发视觉理解 (自动切换至 qwen3-VL-30B-A3B，支持 1~16 张图片)
+# 多图并发视觉理解 (自动切换至 qwen3-VL-30B-A3B; 超过 16 张自动分批, 每批 ≤16)
 qyzs chat -i p1.png -i p2.png -i p3.png "对比数张公文扫描件，指出印章盖章单位与签字页位置。"
 
 # 采样与流式控制 (--stream/--no-stream 互斥; 默认流式)
@@ -275,14 +295,20 @@ qyzs upgrade
 qyzs upgrade --check
 qyzs upgrade --repo my-org/my-fork --package my-pkg
 
-# 模型矩阵查询 (--online-only 联机实测, --all-models 列出全部含未实测项)
-qyzs models
-qyzs models --online-only
-qyzs models --all-models
+# 模型矩阵查询 (矩阵数据来自 capability_matrix.toml, 非在线探测)
+qyzs models                # 仅在线可用模型 (默认即 --online-only)
+qyzs models --all-models   # 追加列出实测禁止调度的已下线项
 
 # 生成 Shell 补全脚本 (bash/zsh/fish/powershell)
 qyzs completions bash
 ```
+
+---
+
+## 本地开发环境
+
+在 Linux 开发机上复现六平台构建矩阵（交叉编译工具链、各目标的可行性边界、
+质量门禁与实测脚本）：[docs/DEVENV.md](docs/DEVENV.md)
 
 ---
 

@@ -28,9 +28,7 @@ fn next_image_target(text: &str) -> Option<(String, usize)> {
         }
         // 跳过 alt 文本 (不支持嵌套 `]`; Markdown 规范本身也不允许)
         let alt_start = i + 2;
-        let Some(alt_end_rel) = text[alt_start..].find(']') else {
-            return None;
-        };
+        let alt_end_rel = text[alt_start..].find(']')?;
         let alt_end = alt_start + alt_end_rel;
         // 必须紧跟 `(`
         if alt_end + 1 >= bytes.len() || bytes[alt_end + 1] != b'(' {
@@ -39,9 +37,7 @@ fn next_image_target(text: &str) -> Option<(String, usize)> {
         }
         // 目标地址: 到未转义的 `)` 为止, 不含空白
         let target_start = alt_end + 2;
-        let Some(target_end_rel) = text[target_start..].find(')') else {
-            return None;
-        };
+        let target_end_rel = text[target_start..].find(')')?;
         let target_end = target_start + target_end_rel;
         let target = text[target_start..target_end].trim();
         // 目标内含空白 → 不是合法的简单引用 (可能是带标题的引用, 跳过)

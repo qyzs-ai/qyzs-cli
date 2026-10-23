@@ -11,7 +11,9 @@
 //! 8. status 的 MinerU 探针不再假阴性
 
 use qyzs::pdf::{PdfExtractor, PdfSplitter};
-use qyzs::pipeline::markscan::cross_verify::{count_table_rows, is_markdown_table, split_paragraphs};
+use qyzs::pipeline::markscan::cross_verify::{
+    count_table_rows, is_markdown_table, split_paragraphs,
+};
 use qyzs::pipeline::markscan::image_refs::ImageRefStats;
 use qyzs::pipeline::OcrVerifier;
 use std::path::Path;
@@ -33,8 +35,12 @@ fn test_chunk_preserves_page_counts() {
 
     let mut total = 0usize;
     for chunk in &chunks {
-        let meta = PdfExtractor::read_metadata(chunk.to_str().unwrap()).expect("读取切片元数据失败");
-        assert!(meta.page_count >= 1 && meta.page_count <= 3, "切片页数应在 1~3");
+        let meta =
+            PdfExtractor::read_metadata(chunk.to_str().unwrap()).expect("读取切片元数据失败");
+        assert!(
+            meta.page_count >= 1 && meta.page_count <= 3,
+            "切片页数应在 1~3"
+        );
         total += meta.page_count;
     }
     assert_eq!(total, 10, "切片页数合计应等于原文页数");
@@ -57,17 +63,21 @@ fn test_chunk_content_matches_source_pages() {
             .page_count as u32;
         assert_eq!(chunk_pages, end - start + 1, "第 {} 片页数不符", i + 1);
 
-        let expected = PdfExtractor::extract_text(
-            TEXT_PDF,
-            &(start..=end).collect::<Vec<u32>>(),
+        let expected = PdfExtractor::extract_text(TEXT_PDF, &(start..=end).collect::<Vec<u32>>())
+            .expect("提取失败");
+        let actual = PdfExtractor::extract_text(
+            chunk.to_str().unwrap(),
+            &(1..=chunk_pages).collect::<Vec<u32>>(),
         )
-        .expect("提取失败");
-        let actual =
-            PdfExtractor::extract_text(chunk.to_str().unwrap(), &(1..=chunk_pages).collect::<Vec<u32>>())
-                .expect("提取切片失败");
+        .expect("提取切片失败");
 
         let (exp, act) = (norm(&expected), norm(&actual));
-        assert!(!exp.is_empty(), "原文 {}-{} 页应有内容 (供比对基准)", start, end);
+        assert!(
+            !exp.is_empty(),
+            "原文 {}-{} 页应有内容 (供比对基准)",
+            start,
+            end
+        );
         // 切片内容应与对应区间高度一致 (允许尾部因页数差异而多出内容)
         let common = exp
             .chars()
@@ -105,7 +115,10 @@ fn test_chunk_does_not_leak_other_pages() {
     let p1 = norm(&PdfExtractor::extract_text(TEXT_PDF, &[1]).expect("提取原文失败"));
     let p3 = norm(&PdfExtractor::extract_text(TEXT_PDF, &[3]).expect("提取原文失败"));
 
-    assert!(first.starts_with(&p1[..p1.len().min(30)]), "首片应以原文第 1 页开头");
+    assert!(
+        first.starts_with(&p1[..p1.len().min(30)]),
+        "首片应以原文第 1 页开头"
+    );
     assert!(
         !first.contains(&p3[..p3.len().min(30)]),
         "首片不应混入原文第 3 页的内容"
@@ -165,10 +178,7 @@ fn test_table_blocks_excluded_from_paragraph_split() {
 /// 表格行计数
 #[test]
 fn test_count_table_rows() {
-    assert_eq!(
-        count_table_rows("| a | b |\n|---|---|\n| 1 | 2 |"),
-        3
-    );
+    assert_eq!(count_table_rows("| a | b |\n|---|---|\n| 1 | 2 |"), 3);
     assert_eq!(count_table_rows("没有表格"), 0);
 }
 
@@ -338,7 +348,6 @@ fn test_scanned_pdf_chunking() {
     assert_eq!(total, 10);
 }
 
-
 // ─────────────────── CLI 一致性守卫 ───────────────────
 
 /// 英文界面不得出现中文字符 (i18n 契约守卫)
@@ -391,10 +400,6 @@ fn test_english_output_has_no_chinese() {
     ];
     for id in all {
         let en = id.get_for(Language::En);
-        assert!(
-            en.chars().all(|c| c.is_ascii()),
-            "英文文案不得含中文字符: {:?}",
-            en
-        );
+        assert!(en.is_ascii(), "英文文案不得含中文字符: {:?}", en);
     }
 }

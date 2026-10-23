@@ -1,6 +1,6 @@
 {
   "name": "@qyzs-ai/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Natural Resources Ministry Qingyang AI Computing Center CLI & Document Pipeline",
   "bin": {
     "qyzs": "./bin/qyzs.js"
@@ -24,11 +24,11 @@
     "url": "https://github.com/qyzs-ai/qyzs-cli.git"
   },
   "optionalDependencies": {
-    "@qyzs-ai/cli-linux-x64": "0.1.0",
-    "@qyzs-ai/cli-linux-arm64": "0.1.0",
-    "@qyzs-ai/cli-linux-loong64": "0.1.0",
-    "@qyzs-ai/cli-darwin-x64": "0.1.0",
-    "@qyzs-ai/cli-darwin-arm64": "0.1.0",
-    "@qyzs-ai/cli-win32-x64": "0.1.0"
+    "@qyzs-ai/cli-linux-x64": "0.2.0",
+    "@qyzs-ai/cli-linux-arm64": "0.2.0",
+    "@qyzs-ai/cli-linux-loong64": "0.2.0",
+    "@qyzs-ai/cli-darwin-x64": "0.2.0",
+    "@qyzs-ai/cli-darwin-arm64": "0.2.0",
+    "@qyzs-ai/cli-win32-x64": "0.2.0"
   }
 }

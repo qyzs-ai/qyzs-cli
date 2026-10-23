@@ -9,8 +9,8 @@
 use super::workspace::Workspace;
 use crate::error::{QyzsError, QyzsResult};
 use quick_xml::events::Event;
-use quick_xml::XmlVersion;
 use quick_xml::Reader;
+use quick_xml::XmlVersion;
 use std::io::{BufReader, Read as _};
 
 /// 提取元素文本 (含嵌套, 仅取文本节点)
@@ -168,7 +168,9 @@ pub fn extract_vsdx_text(bytes: &[u8]) -> QyzsResult<String> {
             .flatten()
             .filter(|n| {
                 let lower = n.to_ascii_lowercase();
-                lower.starts_with("visio/pages/page") && lower.ends_with(".xml") && !lower.ends_with("pages.xml")
+                lower.starts_with("visio/pages/page")
+                    && lower.ends_with(".xml")
+                    && !lower.ends_with("pages.xml")
             })
             .map(|n| n.into_owned())
             .collect();
@@ -238,7 +240,10 @@ fn parse_page_list(pages_xml: &str) -> Vec<(u64, String)> {
                                 id = attr.value.as_ref().parse().ok();
                             }
                             "Name" => {
-                                name = attr.normalized_value(XmlVersion::Implicit1_0).ok().map(|v| v.into_owned());
+                                name = attr
+                                    .normalized_value(XmlVersion::Implicit1_0)
+                                    .ok()
+                                    .map(|v| v.into_owned());
                             }
                             _ => {}
                         }
@@ -264,8 +269,8 @@ pub fn extract_pptx(ws: &mut Workspace, path: &str) -> QyzsResult<String> {
     if ws.stage_done("document", "extract") {
         return ws.read_segment_text("document");
     }
-    let bytes = std::fs::read(path)
-        .map_err(|e| QyzsError::Io(format!("读取文件失败 {}: {}", path, e)))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| QyzsError::Io(format!("读取文件失败 {}: {}", path, e)))?;
     let output = extract_pptx_text(&bytes)?;
     ws.write_segment_text("document", &output)?;
     ws.complete_stage("document", "extract", &[])?;
@@ -276,8 +281,8 @@ pub fn extract_vsdx(ws: &mut Workspace, path: &str) -> QyzsResult<String> {
     if ws.stage_done("document", "extract") {
         return ws.read_segment_text("document");
     }
-    let bytes = std::fs::read(path)
-        .map_err(|e| QyzsError::Io(format!("读取文件失败 {}: {}", path, e)))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| QyzsError::Io(format!("读取文件失败 {}: {}", path, e)))?;
     let output = extract_vsdx_text(&bytes)?;
     ws.write_segment_text("document", &output)?;
     ws.complete_stage("document", "extract", &[])?;
@@ -343,9 +348,11 @@ pub fn extract_docx_text(bytes: &[u8]) -> QyzsResult<String> {
             _ => {}
         }
     }
-    Ok(paragraphs.join("
+    Ok(paragraphs.join(
+        "
 
-"))
+",
+    ))
 }
 
 fn open_zip(bytes: &[u8]) -> QyzsResult<zip::ZipArchive<BufReader<std::io::Cursor<&[u8]>>>> {
@@ -407,7 +414,7 @@ mod tests {
         assert!(md.contains("坚持底线思维"));
         // 段落独立成行
         let lines: Vec<&str> = md.lines().collect();
-        assert!(lines.iter().any(|l| *l == "国土空间规划"));
+        assert!(lines.contains(&"国土空间规划"));
         // slide10 排在 slide2 之后
         assert!(md.contains("## 幻灯片 2"));
         assert!(md.find("国土空间规划").unwrap() < md.find("第二页").unwrap());
@@ -416,7 +423,8 @@ mod tests {
     #[test]
     fn test_pptx_numeric_slide_order() {
         // slide10 必须排在 slide2 之后 (字符串序会错)
-        let mut entries: Vec<(String, String)> = vec![("[Content_Types].xml".into(), "<x/>".into())];
+        let mut entries: Vec<(String, String)> =
+            vec![("[Content_Types].xml".into(), "<x/>".into())];
         for i in 1..=10 {
             entries.push((
                 format!("ppt/slides/slide{}.xml", i),
@@ -426,7 +434,10 @@ mod tests {
                 ),
             ));
         }
-        let refs: Vec<(&str, String)> = entries.iter().map(|(a, b)| (a.as_str(), b.clone())).collect();
+        let refs: Vec<(&str, String)> = entries
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.clone()))
+            .collect();
         let bytes = build_zip(&refs);
         let md = extract_pptx_text(&bytes).unwrap();
         let pos = |tag: &str| md.find(tag).unwrap();

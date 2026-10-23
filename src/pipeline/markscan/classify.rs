@@ -127,15 +127,20 @@ pub fn from_text(sample: &str, format: &SourceFormat) -> DocKind {
 /// 完整判定 (含置信度), 供调用方决定是否送模型仲裁
 pub fn decide(sample: &str, format: &SourceFormat) -> Decision {
     if let Some(k) = from_format(format) {
-        return Decision { kind: k, confidence: Confidence::Strong };
+        return Decision {
+            kind: k,
+            confidence: Confidence::Strong,
+        };
     }
     // 合同先于标准/公文判定: 合同同样会引用标准编号、带文号, 但核心是双方约定
     if is_contract(sample) {
-        return Decision { kind: DocKind::Contract, confidence: Confidence::Strong };
+        return Decision {
+            kind: DocKind::Contract,
+            confidence: Confidence::Strong,
+        };
     }
-    match standard_decision(sample) {
-        Some(d) => return d,
-        None => {}
+    if let Some(d) = standard_decision(sample) {
+        return d;
     }
     official_decision(sample)
 }
@@ -164,16 +169,28 @@ const STD_SKELETON: &[&str] = &["范围", "术语和定义", "规范性引用文
 fn standard_decision(sample: &str) -> Option<Decision> {
     let strong = |d: Decision| Some(d);
     if STRONG_STD.iter().any(|m| sample.contains(m)) {
-        return strong(Decision { kind: DocKind::Standard, confidence: Confidence::Strong });
+        return strong(Decision {
+            kind: DocKind::Standard,
+            confidence: Confidence::Strong,
+        });
     }
-    let skeleton_hits = STD_SKELETON.iter().filter(|k| numbered_skeleton_line(sample, k)).count();
+    let skeleton_hits = STD_SKELETON
+        .iter()
+        .filter(|k| numbered_skeleton_line(sample, k))
+        .count();
     if skeleton_hits >= 2 {
-        return strong(Decision { kind: DocKind::Standard, confidence: Confidence::Strong });
+        return strong(Decision {
+            kind: DocKind::Standard,
+            confidence: Confidence::Strong,
+        });
     }
     // 弱标记 + 完整标准编号形 (如 GB/T 22239-2019): 可能是标准, 也可能是
     // 公文+标准附件的合订本 —— 弱置信, 交仲裁
     if WEAK_STD.iter().any(|m| sample.contains(m)) && has_std_number(sample) {
-        return Some(Decision { kind: DocKind::Standard, confidence: Confidence::Weak });
+        return Some(Decision {
+            kind: DocKind::Standard,
+            confidence: Confidence::Weak,
+        });
     }
     None
 }
@@ -190,7 +207,9 @@ fn numbered_skeleton_line(sample: &str, keyword: &str) -> bool {
         loop {
             match it.next() {
                 Some((i, c)) if c.is_ascii_digit() || c == '.' || c == ' ' || c == '\u{3000}' => {
-                    if c.is_ascii_digit() { saw_digit = true; }
+                    if c.is_ascii_digit() {
+                        saw_digit = true;
+                    }
                     end = i + c.len_utf8();
                 }
                 _ => break,
@@ -200,7 +219,9 @@ fn numbered_skeleton_line(sample: &str, keyword: &str) -> bool {
             return false;
         }
         let _ = chars.next();
-        t[end..].trim_start_matches([' ', '\u{3000}']).starts_with(keyword)
+        t[end..]
+            .trim_start_matches([' ', '\u{3000}'])
+            .starts_with(keyword)
     })
 }
 
@@ -252,13 +273,19 @@ const OFFICIAL_MARKERS: &[&str] = &[
 /// - 红头词尾补 函/意见/决定/公告/批复/纪要
 /// - 「第一章+第一条」单层骨架只给弱置信 (技术手册也可能有)
 fn official_decision(sample: &str) -> Decision {
-    let official = |c: Confidence| Decision { kind: DocKind::Official, confidence: c };
+    let official = |c: Confidence| Decision {
+        kind: DocKind::Official,
+        confidence: c,
+    };
 
     // 文号: 强
     if has_doc_number(sample) {
         return official(Confidence::Strong);
     }
-    let hits = OFFICIAL_MARKERS.iter().filter(|m| sample.contains(*m)).count();
+    let hits = OFFICIAL_MARKERS
+        .iter()
+        .filter(|m| sample.contains(*m))
+        .count();
     let red = has_red_header(sample);
     if hits >= 2 || (hits >= 1 && red) || red {
         return official(Confidence::Strong);
@@ -281,13 +308,15 @@ fn official_decision(sample: &str) -> Decision {
     if sample.contains("一、") && sample.contains("（一）") {
         return official(Confidence::Weak);
     }
-    Decision { kind: DocKind::Generic, confidence: Confidence::Strong }
+    Decision {
+        kind: DocKind::Generic,
+        confidence: Confidence::Strong,
+    }
 }
 
 /// 附则 (容中间空白: 「附　则」「附 则」)
 fn has_loose_fuze(sample: &str) -> bool {
-    let mut chars = sample.char_indices();
-    while let Some((i, c)) = chars.next() {
+    for (i, c) in sample.char_indices() {
         if c != '附' {
             continue;
         }
@@ -326,13 +355,34 @@ fn has_red_header(sample: &str) -> bool {
 /// - 签署: 签字/盖章/签订地点/合同编号/生效日期
 pub fn is_contract(sample: &str) -> bool {
     const PARTIES: &[&str] = &[
-        "甲方", "乙方", "丙方", "发包人", "承包人", "委托方", "受托方", "承租方", "出租方",
+        "甲方",
+        "乙方",
+        "丙方",
+        "发包人",
+        "承包人",
+        "委托方",
+        "受托方",
+        "承租方",
+        "出租方",
     ];
     const AGREEMENT: &[&str] = &[
-        "本合同", "本协议", "经双方", "经甲", "协商一致", "达成如下", "兹就", "特订立",
+        "本合同",
+        "本协议",
+        "经双方",
+        "经甲",
+        "协商一致",
+        "达成如下",
+        "兹就",
+        "特订立",
     ];
     const SIGNING: &[&str] = &[
-        "签字", "盖章", "签订地点", "合同编号", "协议编号", "生效日期", "签订日期",
+        "签字",
+        "盖章",
+        "签订地点",
+        "合同编号",
+        "协议编号",
+        "生效日期",
+        "签订日期",
     ];
 
     let parties = PARTIES.iter().filter(|m| sample.contains(*m)).count();
@@ -356,10 +406,7 @@ pub fn has_doc_number(sample: &str) -> bool {
             && (chars[i + 5] == '〕' || chars[i + 5] == ']' || chars[i + 5] == '】')
         {
             // 其后应有 数字+号
-            let rest: String = chars[(i + 6).min(chars.len())..]
-                .iter()
-                .take(8)
-                .collect();
+            let rest: String = chars[(i + 6).min(chars.len())..].iter().take(8).collect();
             if rest.contains('号') && rest.chars().any(|c| c.is_ascii_digit()) {
                 return true;
             }
@@ -369,7 +416,8 @@ pub fn has_doc_number(sample: &str) -> bool {
 }
 
 /// 体裁识别模型提示词 (规则判不出去时的模型兜底)
-const GENRE_PROMPT_TEMPLATE: &str = "你是公文与专业文档的体裁分类器。根据以下文档片段判断体裁, 只回答一个关键词:\n\
+const GENRE_PROMPT_TEMPLATE: &str =
+    "你是公文与专业文档的体裁分类器。根据以下文档片段判断体裁, 只回答一个关键词:\n\
 - contract: 合同/协议/契约 (甲乙双方权利义务、标的、价款、签署条款)\n\
 - official: 公文/法规/规章 (红头、文号、通知、批复、条例、办法、第一条…)\n\
 - standard: 标准规范 (GB/T、ICS、范围、规范性引用文件、术语和定义)\n\
@@ -418,10 +466,7 @@ pub fn parse_genre_reply(text: &str) -> Option<DocKind> {
         ("standard", DocKind::Standard),
         ("generic", DocKind::Generic),
     ];
-    ORDER
-        .iter()
-        .find(|(kw, _)| t.contains(kw))
-        .map(|(_, k)| *k)
+    ORDER.iter().find(|(kw, _)| t.contains(kw)).map(|(_, k)| *k)
 }
 
 /// 图像内容判定: 文档扫描件/截图 vs 真实照片
@@ -517,7 +562,10 @@ mod tests {
         assert!(numbered_skeleton_line(s, "规范性引用文件"));
         // 「适用范围」不在行首编号位, 不命中
         let s2 = "一、适用范围\n详见附录。";
-        assert!(!numbered_skeleton_line(s2, "范围"), "正文『适用范围』不应蹭票");
+        assert!(
+            !numbered_skeleton_line(s2, "范围"),
+            "正文『适用范围』不应蹭票"
+        );
     }
 
     #[test]
@@ -527,7 +575,11 @@ mod tests {
                    第十二章 附　则\n第七十条 本法自…施行";
         let d = decide(law, &SourceFormat::Pdf);
         assert_eq!(d.kind, DocKind::Official);
-        assert_eq!(d.confidence, Confidence::Strong, "三条+附则(容空白)应为强置信");
+        assert_eq!(
+            d.confidence,
+            Confidence::Strong,
+            "三条+附则(容空白)应为强置信"
+        );
     }
 
     #[test]
@@ -596,7 +648,10 @@ mod tests {
         assert_eq!(from_format(&SourceFormat::Vsdx), Some(DocKind::Diagram));
         assert_eq!(from_format(&SourceFormat::Pdf), None);
         // 格式直判优先于文本规则
-        assert_eq!(from_text("中华人民共和国国家标准", &SourceFormat::Xlsx), DocKind::Table);
+        assert_eq!(
+            from_text("中华人民共和国国家标准", &SourceFormat::Xlsx),
+            DocKind::Table
+        );
     }
 
     #[test]

@@ -36,16 +36,12 @@ pub async fn chat(ctx: &Ctx<'_>, args: ChatArgs) -> QyzsResult<()> {
         images,
     } = args;
 
-    // qwen3-VL-30B-A3B 实测 16 图为可靠工作上限 (QYZS-ANALYZE.md §3.6)，>16 图自动分批
-    const VLM_MAX_IMAGES: usize = 16;
-
     // clap 层保证 --stream 与 --no-stream 不可同时出现; 这里只需按 no_stream 取反
     let use_stream = !no_stream && stream;
-    let image_batches: Vec<Vec<String>> = if images.len() > VLM_MAX_IMAGES {
-        images.chunks(VLM_MAX_IMAGES).map(<[String]>::to_vec).collect()
-    } else {
-        vec![images]
-    };
+
+    // qwen3-VL-30B-A3B 实测 16 图为可靠工作上限 (QYZS-ANALYZE.md §3.6);
+    // 超过上限自动分批, 不拒绝用户输入
+    let image_batches = split_image_batches(images);
     let batch_count = image_batches.len();
 
     if batch_count > 1 {
@@ -101,7 +97,10 @@ pub async fn chat(ctx: &Ctx<'_>, args: ChatArgs) -> QyzsResult<()> {
             }
             match ctx.config.output_format {
                 OutputFormat::Json => {
-                    println!("{}", serde_json::to_string_pretty(&resp).unwrap_or_default());
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&resp).unwrap_or_default()
+                    );
                 }
                 _ => {
                     if let Some(c) = resp.choices.first() {
@@ -134,12 +133,18 @@ pub async fn embed(ctx: &Ctx<'_>, text: Vec<String>, model: Option<String>) -> Q
     let resp = ctx.client.embed(text, model.as_deref()).await?;
     match ctx.config.output_format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&resp).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&resp).unwrap_or_default()
+            );
         }
         _ => {
             for item in &resp.data {
-                ctx.printer
-                    .info(&format!("Index {}: 向量维度 {}", item.index, item.embedding.len()));
+                ctx.printer.info(&format!(
+                    "Index {}: 向量维度 {}",
+                    item.index,
+                    item.embedding.len()
+                ));
                 if let Some(first) = item.embedding.first() {
                     ctx.printer.dim(&format!("  [{}, ...]", first));
                 }
@@ -162,7 +167,10 @@ pub async fn rerank(
         .await?;
     match ctx.config.output_format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&resp).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&resp).unwrap_or_default()
+            );
         }
         _ => {
             for (rank, item) in resp.results.iter().enumerate() {
@@ -178,7 +186,10 @@ pub async fn rerank(
 }
 
 pub async fn asr(ctx: &Ctx<'_>, audio: String, model: Option<String>) -> QyzsResult<()> {
-    let text = ctx.client.transcribe_audio(&audio, model.as_deref()).await?;
+    let text = ctx
+        .client
+        .transcribe_audio(&audio, model.as_deref())
+        .await?;
     println!("{}", text);
     Ok(())
 }
@@ -207,4 +218,61 @@ pub async fn sam(
         .await?;
     println!("{}", res);
     Ok(())
+}
+
+/// qwen3-VL-30B-A3B 实测 16 图为可靠工作上限 (QYZS-ANALYZE.md §3.6)
+pub(crate) const VLM_MAX_IMAGES: usize = 16;
+
+/// 按单请求可靠上限切分图片批次: 超过上限自动分批, **不拒绝**用户输入
+///
+/// 0 张图返回单个空批次 (纯文本对话走同一条路径); 恰好 16 张不拆;
+/// 17 张拆为 16 + 1, 20 张拆为 16 + 4。
+pub(crate) fn split_image_batches(images: Vec<String>) -> Vec<Vec<String>> {
+    if images.len() > VLM_MAX_IMAGES {
+        images
+            .chunks(VLM_MAX_IMAGES)
+            .map(<[String]>::to_vec)
+            .collect()
+    } else {
+        vec![images]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{split_image_batches, VLM_MAX_IMAGES};
+
+    fn imgs(n: usize) -> Vec<String> {
+        (1..=n).map(|i| format!("{i}.png")).collect()
+    }
+
+    #[test]
+    fn image_batches_respect_reliable_limit() {
+        // 无图: 单个空批次 (纯文本对话)
+        let b = split_image_batches(vec![]);
+        assert_eq!(b.len(), 1);
+        assert!(b[0].is_empty());
+
+        // 未达上限: 不拆
+        assert_eq!(split_image_batches(imgs(1)).len(), 1);
+        assert_eq!(split_image_batches(imgs(16)).len(), 1);
+
+        // 超上限: 按 16 拆分, 总数守恒
+        for n in [17usize, 20, 32, 33, 64, 100] {
+            let b = split_image_batches(imgs(n));
+            let total: usize = b.iter().map(Vec::len).sum();
+            assert_eq!(total, n, "分批后图片总数须守恒 (n={n})");
+            assert!(
+                b.iter().all(|x| x.len() <= VLM_MAX_IMAGES),
+                "每批不得超过可靠上限 (n={n})"
+            );
+            assert_eq!(b.len(), n.div_ceil(VLM_MAX_IMAGES), "批次数 (n={n})");
+        }
+
+        // 顺序保持
+        let b = split_image_batches(imgs(17));
+        assert_eq!(b[0][0], "1.png");
+        assert_eq!(b[0][15], "16.png");
+        assert_eq!(b[1][0], "17.png");
+    }
 }

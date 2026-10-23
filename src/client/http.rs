@@ -13,10 +13,7 @@ pub struct HttpClient {
 impl HttpClient {
     pub fn new(base_url: &str, timeout_secs: u64) -> QyzsResult<Self> {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("application/json"),
-        );
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
         let client = reqwest::Client::builder()
             .default_headers(headers)

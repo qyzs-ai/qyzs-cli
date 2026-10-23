@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-VERSION="${1:-0.1.0}"
+VERSION="${1:-0.2.0}"
 VERSION="${VERSION#v}" # 剥除前导 v
 
 DIST_DIR="dist/npm"

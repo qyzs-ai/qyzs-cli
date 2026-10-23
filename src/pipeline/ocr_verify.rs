@@ -1,4 +1,7 @@
-//! OCR 与 MinerU 结构化解析同源互验与红头/印章仲裁 (对齐 QYZS-ANALYZE.md §4)
+//! OCR 与 MinerU 结构化解析同源互验 (对齐 QYZS-ANALYZE.md §4)
+//!
+//! 仅做相似度度量与通过/不通过判定; 不涉及红头、印章或正文的任何改写,
+//! 也不调用二次模型复核 —— 提示文案不得暗示这些行为。
 //!
 //! 相似度口径 (2026-10-20 实测校正):
 //! 旧实现用「唯一字符集合」的 Jaccard —— 只看两段文本用到了哪些字, 不看字的
@@ -34,18 +37,23 @@ impl OcrVerifier {
     /// 执行 OCR 识别结果与 MinerU 解析结果的同源互验
     pub fn verify(ocr_text: &str, mineru_markdown: &str) -> VerificationReport {
         let ocr_clean: String = ocr_text.chars().filter(|c| !c.is_whitespace()).collect();
-        let md_clean: String = mineru_markdown.chars().filter(|c| !c.is_whitespace()).collect();
+        let md_clean: String = mineru_markdown
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
 
         let jaccard = ngram_jaccard(&ocr_clean, &md_clean);
 
         // 依据实测指标：n-gram 相似度大于阈值判定为互验通过
         // (单页 OCR vs 全篇解析存在长度差异, 阈值取较低以适配)
         let passed = jaccard >= PASS_THRESHOLD;
+        // 注意: 本校验器只计算相似度并给结论, 不做任何后处理改写、
+        // 印章/红头剥离, 也不调用二次模型复核 —— 提示文案不得暗示这些行为
         let notes = if passed {
             "n-gram 相似度正常, 两通道内容同源".to_string()
         } else {
             format!(
-                "n-gram 相似度低于 {:.0}% 熔断阈值, 触发双模型二次复核机制",
+                "n-gram 相似度低于 {:.0}% 阈值, 两通道可能错配或非同源, 建议人工复核",
                 PASS_THRESHOLD * 100.0
             )
         };

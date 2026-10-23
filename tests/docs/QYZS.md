@@ -38,7 +38,7 @@
 | **深度逻辑思考** | `qwen3.6-27b` | **ONLINE** | 思维链推理（输出至 `reasoning` 字段）；上下文实测 **≥13.8 万 Tokens 100% 针孔召回**（梯度内未触顶），但延迟极高（13.8 万 Tokens 约 237s，同规模约为 `dsv4` 的 10 倍延时）。**注意：`max_tokens` 须给足思维链预算（≥2048），过小预算会先耗尽推理 Tokens 导致 `content` 为空** | `temperature`: 推荐 0~2（实测 2.1~8.0 仍被接受，无严格上界校验）；`max_tokens`: **1~65536 均接受** | 业务指标计算、空间几何推演、多轮复杂争议仲裁 |
 | **视觉多模态** | `qwen3-VL-30B-A3B` | **ONLINE** | 多图并发：4 图计数准确，8/16 图轻微漏数（-1），**16 图为可靠工作上限**；网关可承载 ≥48 图（13.2 MB，无 413），但 24 图以上输出质量劣化（32 图起输出为空）。纯文本通道上下文**硬上限 131,072 Tokens（服务端报错确认）**，实测 10.2 万 Tokens 通过 | `temperature`: 0~2 推荐；`max_tokens`: 1~65536 均接受 | 规划图审查、架构流程图推演、跨页多图对比核验 |
 | **文档OCR** | `paddleocrvl` | **ONLINE** | 毫秒级版面文字转录（~1.9s）。**限制：需前置缩放至 $\le 800\text{px}$** | `temperature`: 0.0, 图像最长边 $\le 800\text{px}$ | 扫描件公文识别、公章文本提取、表格行级转录 |
-| **智能文档解析** | `mineru3.2.3` | **ONLINE** | PDF/DOC/DOCX 一键结构化输出 Markdown，保留表格与大纲；同步解析实测 30 页（0.2 MB）7.7s 完成，梯度内无页数断点 | 需使用 `files` 多文件表单；同步通道实测 ≥30 页可用 | 政策汇编解析、招标文档结构化、图文分流提取 |
+| **智能文档解析** | `mineru3.2.3` | **ONLINE** | PDF/DOCX 一键结构化输出 Markdown，保留表格与大纲；同步解析实测 30 页（0.2 MB）7.7s 完成，梯度内无页数断点。**不支持旧版 `.doc`**（网关返回 HTTP 400 `Unsupported file type: doc`，需另存为 `.docx`） | 需使用 `files` 多文件表单；同步通道实测 ≥30 页可用 | 政策汇编解析、招标文档结构化、图文分流提取 |
 | **通用向量表征** | `bge-m3` | **ONLINE** | 1024 维多语言高密度向量表示，延时 ~0.27s；**单条输入实测上限 1.3 万~1.6 万字符**（13k 通过、16k 拒绝，约 8192 Token 硬限），**批量 ≥256 条/请求** | `input`: 字符串或数组；长文本需客户端分块 | 规划政策知识库检索、语义去重 |
 | **超大向量表征** | `qwen3-embadding-8b` | **ONLINE** | 4096 维超高分辨率语义向量（**注意：代码拼写含 `embadding`**）；**单条输入实测上限 1.2 万~1.3 万字符**（12k 通过、13k 拒绝），**批量 ≥256 条/请求** | `input`: 文本，输出 4096 维浮点数组；长文本需分块 | 复杂专业术语匹配、跨法律跨政策精确对齐 |
 | **标准中文向量** | `bge-large-zh-v1.5` | **ONLINE** | 1024 维中文优化向量表示，延时 ~0.28s；**单条输入实测上限约 500~800 字符**（500 通过、800 拒绝，512 Token 级短向量模型），**批量 ≥256 条/请求** | `input`: 短文本（≤约 500 字符），超限返回 500 | 中文政务公文专属索引 |
@@ -91,7 +91,7 @@
 - **URL**：`POST http://59.219.113.13:9200/api/aiCenterChat/v1/chat/completions`
 - **支持模型**：`qwen3-VL-30B-A3B`（推荐多图）、`paddleocrvl`（推荐单页快速OCR）
 
-#### 多图并发核验示例（支持 1~16 张图片）：
+  #### 多图并发核验示例（单请求 ≤16 张；CLI 侧超过 16 张自动分批，每批 ≤16）：
 ```json
 {
   "model": "qwen3-VL-30B-A3B",
@@ -118,9 +118,9 @@
 - **Headers**：`Authorization: Bearer <API_KEY>`
 - **Content-Type**：`multipart/form-data`
 - **表单字段规范**：
-  - `files`：待解析的文件二进制流（**必须使用复数 `files`**，支持 `.pdf`, `.doc`, `.docx`）
-  - `output_dir`：固定为 `"output"`
-  - `is_ocr`：可选 `"true"` 或 `"false"`（扫描件推荐 `"true"`）
+  - `files`：待解析的文件二进制流（**必须使用复数 `files`**，仅支持 `.pdf`, `.docx`；旧版 `.doc` 网关实测拒绝 HTTP 400 `Unsupported file type: doc`，2026-10-18）
+  - `is_ocr`：可选 `"true"` 或 `"false"`（扫描件推荐 `"true"`；CLI 默认发送 `"true"`）
+  - ~~`output_dir`~~：CLI **从不发送**该字段（`src/client/mineru.rs` 仅上送 `files` 与 `is_ocr`），请求照样成功；实测网关忽略它，无需再传
 
 #### 响应结构定义：
 ```json
@@ -211,7 +211,7 @@ curl -X POST "http://59.219.113.13:9200/api/aiCenterChat/v1/chat/completions" \
 curl -X POST "http://59.219.113.13:9200/ai-gateway/mineru3.2.3/file_parse" \
   -H "Authorization: Bearer $QYZS_APIKEY" \
   -F "files=@tests/data/mineru/public_doc/SAMPLE-0106_测试审查表.docx" \
-  -F "output_dir=output"
+  -F "is_ocr=true"
 ```
 
 ### 4.2 Python SDK 封装
@@ -240,8 +240,8 @@ def qyzs_parse_document(file_path: str) -> str:
     fname = os.path.splitext(os.path.basename(file_path))[0]
     with open(file_path, "rb") as f:
         files = {"files": (os.path.basename(file_path), f)}
-        data = {"output_dir": "output"}
-        resp = requests.post(url, headers={"Authorization": f"Bearer {API_KEY}"}, files=files, data=data, timeout=60)
+        resp = requests.post(url, headers={"Authorization": f"Bearer {API_KEY}"},
+                             files=files, data={"is_ocr": "true"}, timeout=60)
         resp.raise_for_status()
         return resp.json().get("results", {}).get(fname, {}).get("md_content", "")
 ```

@@ -23,24 +23,36 @@ pub struct GitHubClient;
 
 impl GitHubClient {
     /// 获取 qyzs-ai/qyzs-cli 仓库最新 Release
+    ///
+    /// 接口地址可用环境变量 `QYZS_RELEASE_API_URL` 覆盖 (默认 GitHub Release API),
+    /// 便于走镜像源或本地离线验证发布链路。
     pub async fn get_latest_release(repo: &str) -> QyzsResult<GitHubRelease> {
-        let url = format!("https://api.github.com/repos/{}/releases/latest", repo);
+        let url = match std::env::var("QYZS_RELEASE_API_URL") {
+            Ok(u) if !u.trim().is_empty() => u,
+            _ => format!("https://api.github.com/repos/{}/releases/latest", repo),
+        };
         let client = reqwest::Client::builder()
             .user_agent("qyzs-cli-updater")
             .build()
             .map_err(|e| QyzsError::Network(format!("创建 GitHub 客户端失败: {}", e)))?;
 
-        let resp = client.get(&url).send().await.map_err(|e| {
-            QyzsError::Network(format!("连接 GitHub Release API 失败: {}", e))
-        })?;
+        let resp = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| QyzsError::Network(format!("连接 GitHub Release API 失败: {}", e)))?;
 
         if !resp.status().is_success() {
-            return Err(QyzsError::Server(format!("GitHub API 返回 HTTP {}", resp.status())));
+            return Err(QyzsError::Server(format!(
+                "GitHub API 返回 HTTP {}",
+                resp.status()
+            )));
         }
 
-        let release: GitHubRelease = resp.json().await.map_err(|e| {
-            QyzsError::Server(format!("解析 GitHub Release 失败: {}", e))
-        })?;
+        let release: GitHubRelease = resp
+            .json()
+            .await
+            .map_err(|e| QyzsError::Server(format!("解析 GitHub Release 失败: {}", e)))?;
 
         Ok(release)
     }
@@ -50,13 +62,15 @@ impl GitHubClient {
         let os = std::env::consts::OS;
         let arch = std::env::consts::ARCH;
 
+        // 必须与 CI 构建矩阵一致（.github/workflows/ci.yml matrix）；
+        // 对不上时资产名不存在，`qyzs upgrade` 会 404
         let target = match (os, arch) {
             ("linux", "x86_64") => "x86_64-unknown-linux-musl",
             ("linux", "aarch64") => "aarch64-unknown-linux-musl",
-            ("linux", "loongarch64") => "loongarch64-unknown-linux-musl",
+            ("linux", "loongarch64") => "loongarch64-unknown-linux-gnu",
             ("macos", "x86_64") => "x86_64-apple-darwin",
             ("macos", "aarch64") => "aarch64-apple-darwin",
-            ("windows", "x86_64") => "x86_64-pc-windows-gnu",
+            ("windows", "x86_64") => "x86_64-pc-windows-msvc",
             _ => "unknown",
         };
 

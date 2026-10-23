@@ -326,10 +326,7 @@ impl FormatDetector {
         let start = usize::from(head.starts_with(&[0xEF, 0xBB, 0xBF]));
         let window = &head[start..head.len().min(start + 512)];
         let lower: Vec<u8> = window.to_ascii_lowercase();
-        lower
-            .windows(14)
-            .any(|w| w == b"<!doctype html")
-            || lower.windows(5).any(|w| w == b"<html")
+        lower.windows(14).any(|w| w == b"<!doctype html") || lower.windows(5).any(|w| w == b"<html")
     }
 
     /// XML 嗅探: `<?xml ...?>` 声明优先; 否则 `<` 开头 + 元素名首字符为字母/下划线/中文
@@ -371,7 +368,10 @@ impl FormatDetector {
             Some(ImageKind::Jpeg)
         } else if head.starts_with(b"GIF8") {
             Some(ImageKind::Gif)
-        } else if head.starts_with(b"BM") && head.len() >= 6 && u32::from_le_bytes([head[2], head[3], head[4], head[5]]) != 0 {
+        } else if head.starts_with(b"BM")
+            && head.len() >= 6
+            && u32::from_le_bytes([head[2], head[3], head[4], head[5]]) != 0
+        {
             Some(ImageKind::Bmp)
         } else if head.starts_with(b"II\x2a\x00") || head.starts_with(b"MM\x00\x2a") {
             Some(ImageKind::Tiff)
@@ -422,7 +422,8 @@ impl FormatDetector {
             12 => 4096,
             _ => return None,
         };
-        let fat_count = u32::from_le_bytes([head[0x2C], head[0x2D], head[0x2E], head[0x2F]]) as usize;
+        let fat_count =
+            u32::from_le_bytes([head[0x2C], head[0x2D], head[0x2E], head[0x2F]]) as usize;
         let dir_first = u32::from_le_bytes([head[0x30], head[0x31], head[0x32], head[0x33]]);
         let fat_first = u32::from_le_bytes([head[0x4C], head[0x4D], head[0x4E], head[0x4F]]);
         if fat_count == 0 || fat_count > 64 || dir_first == CFB_END_OF_CHAIN {
@@ -436,7 +437,9 @@ impl FormatDetector {
             return None;
         }
         let fat: Vec<u32> = head[fat_off..fat_off + fat_len]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect();
 
@@ -448,15 +451,16 @@ impl FormatDetector {
             if off + sector_size > head.len() {
                 break;
             }
-            for entry in head[off..off + sector_size].chunks_exact(128) {
+            for entry in head[off..off + sector_size].as_chunks::<128>().0 {
                 if entry[66] != 2 {
                     continue; // 仅 stream 条目
                 }
-                let name_len =
-                    u16::from_le_bytes([entry[64], entry[65]]) as usize;
-                if name_len >= 4 && name_len <= 64 && name_len % 2 == 0 {
+                let name_len = u16::from_le_bytes([entry[64], entry[65]]) as usize;
+                if (4..=64).contains(&name_len) && name_len.is_multiple_of(2) {
                     let units: Vec<u16> = entry[..name_len - 2]
-                        .chunks_exact(2)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
                         .map(|c| u16::from_le_bytes([c[0], c[1]]))
                         .collect();
                     names.push(String::from_utf16_lossy(&units));
@@ -506,15 +510,11 @@ impl FormatDetector {
 
 /// 扇区 n 的文件内偏移 (文件头独占虚拟扇区 -1)
 fn sector_offset(sector: u32, sector_size: usize) -> Option<usize> {
-    (sector as usize)
-        .checked_add(1)?
-        .checked_mul(sector_size)
+    (sector as usize).checked_add(1)?.checked_mul(sector_size)
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 #[cfg(test)]
@@ -563,7 +563,10 @@ mod tests {
 
     #[test]
     fn test_pdf_magic() {
-        assert_eq!(FormatDetector::detect_bytes(b"%PDF-1.7\njunk"), SourceFormat::Pdf);
+        assert_eq!(
+            FormatDetector::detect_bytes(b"%PDF-1.7\njunk"),
+            SourceFormat::Pdf
+        );
         // 前导垃圾仍在扫描窗口内
         let prefixed = [vec![0xEF, 0xBB, 0xBF], b"%PDF-1.5 rest".to_vec()].concat();
         assert_eq!(FormatDetector::detect_bytes(&prefixed), SourceFormat::Pdf);
@@ -596,16 +599,31 @@ mod tests {
 
     #[test]
     fn test_ole2_stream_names() {
-        assert_eq!(FormatDetector::detect_bytes(&make_ole("WordDocument")), SourceFormat::Doc);
-        assert_eq!(FormatDetector::detect_bytes(&make_ole("Workbook")), SourceFormat::Xls);
-        assert_eq!(FormatDetector::detect_bytes(&make_ole("Book")), SourceFormat::Xls);
+        assert_eq!(
+            FormatDetector::detect_bytes(&make_ole("WordDocument")),
+            SourceFormat::Doc
+        );
+        assert_eq!(
+            FormatDetector::detect_bytes(&make_ole("Workbook")),
+            SourceFormat::Xls
+        );
+        assert_eq!(
+            FormatDetector::detect_bytes(&make_ole("Book")),
+            SourceFormat::Xls
+        );
         assert_eq!(
             FormatDetector::detect_bytes(&make_ole("PowerPoint Document")),
             SourceFormat::Ppt
         );
-        assert_eq!(FormatDetector::detect_bytes(&make_ole("VisioDocument")), SourceFormat::Vs);
+        assert_eq!(
+            FormatDetector::detect_bytes(&make_ole("VisioDocument")),
+            SourceFormat::Vs
+        );
         // 无特征流名的 OLE2 → 未知 (交由扩展名兜底)
-        assert_eq!(FormatDetector::detect_bytes(&make_ole("UnknownStream")), SourceFormat::Unknown);
+        assert_eq!(
+            FormatDetector::detect_bytes(&make_ole("UnknownStream")),
+            SourceFormat::Unknown
+        );
     }
 
     #[test]
@@ -627,7 +645,10 @@ mod tests {
             b.extend_from_slice(&12345u32.to_le_bytes());
             b
         };
-        assert_eq!(FormatDetector::detect_bytes(&bmp), SourceFormat::Image(ImageKind::Bmp));
+        assert_eq!(
+            FormatDetector::detect_bytes(&bmp),
+            SourceFormat::Image(ImageKind::Bmp)
+        );
         assert_eq!(
             FormatDetector::detect_bytes(b"II\x2a\x00\x00"),
             SourceFormat::Image(ImageKind::Tiff)
@@ -638,13 +659,22 @@ mod tests {
             b.extend_from_slice(b"WEBP");
             b
         };
-        assert_eq!(FormatDetector::detect_bytes(&webp), SourceFormat::Image(ImageKind::Webp));
+        assert_eq!(
+            FormatDetector::detect_bytes(&webp),
+            SourceFormat::Image(ImageKind::Webp)
+        );
     }
 
     #[test]
     fn test_html_detection() {
-        assert_eq!(FormatDetector::detect_bytes(b"<!DOCTYPE html><html>"), SourceFormat::Html);
-        assert_eq!(FormatDetector::detect_bytes(b"  <HTML><BODY>x"), SourceFormat::Html);
+        assert_eq!(
+            FormatDetector::detect_bytes(b"<!DOCTYPE html><html>"),
+            SourceFormat::Html
+        );
+        assert_eq!(
+            FormatDetector::detect_bytes(b"  <HTML><BODY>x"),
+            SourceFormat::Html
+        );
         let bom_html = [vec![0xEF, 0xBB, 0xBF], b"<!doctype html>x".to_vec()].concat();
         assert_eq!(FormatDetector::detect_bytes(&bom_html), SourceFormat::Html);
     }
@@ -752,15 +782,21 @@ mod tests {
     #[test]
     fn test_real_fixtures() {
         let root = env!("CARGO_MANIFEST_DIR");
-        let pdf = Path::new(root).join("tests/data/mineru/text_pdf/REF-0056_政府采购评审专家管理办法.pdf");
+        let pdf = Path::new(root)
+            .join("tests/data/mineru/text_pdf/REF-0056_政府采购评审专家管理办法.pdf");
         let det = FormatDetector::detect_file(&pdf).unwrap();
         assert_eq!(det.format, SourceFormat::Pdf);
         assert_eq!(det.method, DetectMethod::ContentSniff);
 
-        let docx = Path::new(root).join("tests/data/mineru/public_doc/REF-0106_项目验收前符合性审查表.docx");
-        assert_eq!(FormatDetector::detect_file(&docx).unwrap().format, SourceFormat::Docx);
+        let docx = Path::new(root)
+            .join("tests/data/mineru/public_doc/REF-0106_项目验收前符合性审查表.docx");
+        assert_eq!(
+            FormatDetector::detect_file(&docx).unwrap().format,
+            SourceFormat::Docx
+        );
 
-        let doc = Path::new(root).join("tests/data/mineru/public_doc/REF-0017_国土空间规划实施监测网络工作方案.doc");
+        let doc = Path::new(root)
+            .join("tests/data/mineru/public_doc/REF-0017_国土空间规划实施监测网络工作方案.doc");
         let det = FormatDetector::detect_file(&doc).unwrap();
         assert_eq!(det.format, SourceFormat::Doc);
         assert_eq!(det.method, DetectMethod::ContentSniff);

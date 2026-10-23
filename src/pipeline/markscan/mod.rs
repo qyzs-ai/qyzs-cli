@@ -9,12 +9,11 @@
 //!    图像走 paddleocrvl + qwen3-VL; 扫描件在 rigor 档另有 OCR/VL 双通道
 //!    证据。 (`pdf` / `ooxml` / `sheet_tables` / `ocr_vl` / `pdf_ocr`)
 //! 4. **档位后处理** — rigor (默认) 分段润色 + 多通道交叉验证 + 逐段仲裁 +
-//!    rigor 多通道交叉验证 + 逐段仲裁 + 全局审查。 (`clean` / `polish` /
-//!    `cross_verify`)
+//!    全局审查。 (`clean` / `polish` / `cross_verify`)
 //! 5. **收尾** — 体裁识别与体裁特化排版 (按编号/样式重建层级)、图片附件
 //!    抽取与引用重写。 (`classify` / `profile` / `style` / `assets`)
 //!
-//! 行为契约见 `tests/docs/QYZS-SCAN.md`; 抽取能力边界实测数据见
+//! 行为契约见 `tests/docs/QYZS-MARKSCAN.md`; 抽取能力边界实测数据见
 //! `capability_matrix.toml`。
 
 pub mod assets;
@@ -58,7 +57,7 @@ const MAX_DOWNLOAD_BYTES: u64 = 200 * 1024 * 1024;
 /// MinerU 同步通道实测吞吐 (秒/页，capability_matrix 校准真值)
 const MINERU_SECONDS_PER_PAGE: f64 = 0.26;
 
-/// 转换场景超时下限 (秒): 网关同步解析存在长尾, 扫描件实测需 >60s
+/// 转换场景超时下限 (秒): 网关同步解析存在长尾, 扫描件实测需 >30s
 const EXTRACT_TIMEOUT_FLOOR_SECS: u64 = 300;
 
 /// 处理档位
@@ -227,7 +226,10 @@ impl MarkScanPipeline {
         } else {
             let path = PathBuf::from(single_input);
             if !path.exists() {
-                return Err(QyzsError::Usage(format!("输入文件不存在: {}", single_input)));
+                return Err(QyzsError::Usage(format!(
+                    "输入文件不存在: {}",
+                    single_input
+                )));
             }
             if !path.is_file() {
                 return Err(QyzsError::Usage(format!(
@@ -268,10 +270,7 @@ impl MarkScanPipeline {
         let (channel, unsupported_reason) = Self::route(&detection.format);
         let supported = channel.is_some();
 
-        let polish_model = opts
-            .model
-            .clone()
-            .unwrap_or_else(|| "dsv4".to_string());
+        let polish_model = opts.model.clone().unwrap_or_else(|| "dsv4".to_string());
         let stages = match (&channel, &unsupported_reason) {
             (Some(ch), _) => Self::stages_for(opts.mode, ch, opts.image_handling, &polish_model),
             _ => Vec::new(),
@@ -399,18 +398,33 @@ impl MarkScanPipeline {
                 if zh {
                     format!("extract(mineru3.2.3, {}页/批切片)", pdf::SLICE_BATCH_PAGES)
                 } else {
-                    format!("extract(mineru3.2.3, {} pages/batch)", pdf::SLICE_BATCH_PAGES)
+                    format!(
+                        "extract(mineru3.2.3, {} pages/batch)",
+                        pdf::SLICE_BATCH_PAGES
+                    )
                 }
             }
             "mineru-document" => "extract(mineru3.2.3)".to_string(),
             "sheet-tables" => {
-                if zh { "extract(本地表格解析)".to_string() } else { "extract(local table parsing)".to_string() }
+                if zh {
+                    "extract(本地表格解析)".to_string()
+                } else {
+                    "extract(local table parsing)".to_string()
+                }
             }
             "ooxml-text" => {
-                if zh { "extract(ooxml 文本抽取)".to_string() } else { "extract(ooxml text extraction)".to_string() }
+                if zh {
+                    "extract(ooxml 文本抽取)".to_string()
+                } else {
+                    "extract(ooxml text extraction)".to_string()
+                }
             }
             "csv-tables" => {
-                if zh { "extract(本地 csv 表格化)".to_string() } else { "extract(local csv to table)".to_string() }
+                if zh {
+                    "extract(本地 csv 表格化)".to_string()
+                } else {
+                    "extract(local csv to table)".to_string()
+                }
             }
             "json-pretty" => {
                 if zh {
@@ -420,7 +434,11 @@ impl MarkScanPipeline {
                 }
             }
             "xml-to-md" => {
-                if zh { "extract(xml 元素展开)".to_string() } else { "extract(xml element expansion)".to_string() }
+                if zh {
+                    "extract(xml 元素展开)".to_string()
+                } else {
+                    "extract(xml element expansion)".to_string()
+                }
             }
             "zip-iterate" => {
                 if zh {
@@ -430,7 +448,11 @@ impl MarkScanPipeline {
                 }
             }
             "html-to-md" => {
-                if zh { "extract(html 结构化解析)".to_string() } else { "extract(html structured)".to_string() }
+                if zh {
+                    "extract(html 结构化解析)".to_string()
+                } else {
+                    "extract(html structured)".to_string()
+                }
             }
             "ocr-vl" => match image_handling {
                 ImageHandling::Auto => {
@@ -444,7 +466,11 @@ impl MarkScanPipeline {
                 ImageHandling::Describe => "extract(qwen3-VL)".to_string(),
                 ImageHandling::Both => "extract(paddleocrvl + qwen3-VL)".to_string(),
                 ImageHandling::Skip => {
-                    if zh { "extract(跳过图像内容)".to_string() } else { "extract(image content skipped)".to_string() }
+                    if zh {
+                        "extract(跳过图像内容)".to_string()
+                    } else {
+                        "extract(image content skipped)".to_string()
+                    }
                 }
             },
             _ => "extract".to_string(),
@@ -452,7 +478,10 @@ impl MarkScanPipeline {
     }
 
     /// 下载 URL 输入到临时文件 (强制大小上限；临时目录随返回值生命周期删除)
-    async fn download_to_temp(url: &str, timeout_secs: u64) -> QyzsResult<(tempfile::TempDir, PathBuf)> {
+    async fn download_to_temp(
+        url: &str,
+        timeout_secs: u64,
+    ) -> QyzsResult<(tempfile::TempDir, PathBuf)> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(timeout_secs))
             .user_agent(concat!("qyzs-cli/", env!("CARGO_PKG_VERSION")))
@@ -502,7 +531,7 @@ impl MarkScanPipeline {
     /// → 规则清洗 (结构归一契约) → 交付 (返回值, 由调用层写 -o 或 stdout)
     /// → 工作区收尾 (成功清理/失败保留)。
     ///
-/// `on_progress`: (已完成片段序号, 片段总数) 回调，长文档切片串行时提供反馈。
+    /// `on_progress`: (已完成片段序号, 片段总数) 回调，长文档切片串行时提供反馈。
     /// `single_input` 是单文件路径/URL；顶层多文件编排由 `multi::run` 承担。
     pub async fn convert(
         client: &QyzsClient,
@@ -515,7 +544,7 @@ impl MarkScanPipeline {
         let mut metrics = PipelineMetrics::default();
         let (result, ws) = {
             // 抽取/润色共用的宽延时客户端: 网关同步解析存在长尾 (实测扫描件
-            // 默认 60s 超时误伤, 300s 内完成), 转换场景取 max(用户超时, 300s)
+            // 在默认 30s 超时下误伤, 300s 内完成), 转换场景取 max(用户超时, 300s)
             let mut cfg = client.config().clone();
             cfg.timeout_seconds = cfg.timeout_seconds.max(EXTRACT_TIMEOUT_FLOOR_SECS);
             let extract_client = QyzsClient::new(cfg)?;
@@ -553,17 +582,16 @@ impl MarkScanPipeline {
 
                 // 图片引用落盘缺口: 网关只回 Markdown 正文, 不提供图片字节。
                 // 已由 assets 通道落盘的引用会通过存在性校验, 不再误报。
-                let md_dir = opts
-                    .output
-                    .as_ref()
-                    .map(|o| {
-                        let p = PathBuf::from(o);
-                        if p.extension().is_some() {
-                            p.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."))
-                        } else {
-                            p
-                        }
-                    });
+                let md_dir = opts.output.as_ref().map(|o| {
+                    let p = PathBuf::from(o);
+                    if p.extension().is_some() {
+                        p.parent()
+                            .map(Path::to_path_buf)
+                            .unwrap_or_else(|| PathBuf::from("."))
+                    } else {
+                        p
+                    }
+                });
                 let image_stats =
                     image_refs::ImageRefStats::analyze_with_base(&md, md_dir.as_deref());
                 if image_stats.unresolved > 0 {
@@ -655,7 +683,13 @@ impl MarkScanPipeline {
     fn collect_report_meta(
         opts: &MarkScanOptions,
         single_input: &str,
-    ) -> (SourceFormat, DetectMethod, u64, Option<usize>, Option<usize>) {
+    ) -> (
+        SourceFormat,
+        DetectMethod,
+        u64,
+        Option<usize>,
+        Option<usize>,
+    ) {
         let detection = if let Some(t) = &opts.type_override {
             Detection {
                 format: t.clone(),
@@ -678,7 +712,9 @@ impl MarkScanPipeline {
         let size_bytes = if is_url_input(single_input) {
             0
         } else {
-            std::fs::metadata(single_input).map(|m| m.len()).unwrap_or(0)
+            std::fs::metadata(single_input)
+                .map(|m| m.len())
+                .unwrap_or(0)
         };
         let page_count = if detection.format == SourceFormat::Pdf && !is_url_input(single_input) {
             crate::pdf::PdfExtractor::read_metadata(single_input)
@@ -688,7 +724,13 @@ impl MarkScanPipeline {
             None
         };
         let slice_count = page_count.map(pdf::estimate_slices);
-        (detection.format, detection.method, size_bytes, page_count, slice_count)
+        (
+            detection.format,
+            detection.method,
+            size_bytes,
+            page_count,
+            slice_count,
+        )
     }
 
     /// MinerU 解析默认开启 OCR 辅助 (扫描件为难点, 文本件不受影响)
@@ -714,7 +756,10 @@ impl MarkScanPipeline {
             let path = PathBuf::from(single_input);
             if !path.exists() {
                 return (
-                    Err(QyzsError::Usage(format!("输入文件不存在: {}", single_input))),
+                    Err(QyzsError::Usage(format!(
+                        "输入文件不存在: {}",
+                        single_input
+                    ))),
                     None,
                 );
             }
@@ -865,16 +910,19 @@ impl MarkScanPipeline {
                         let table_exact =
                             matches!(detection.format, SourceFormat::Xls | SourceFormat::Xlsx);
                         if table_exact {
-                            eprintln!(
-                                "\x1b[36m[INFO]\x1b[0m {}",
-                                crate::msg!(MdTableExactPath)
-                            );
+                            eprintln!("\x1b[36m[INFO]\x1b[0m {}", crate::msg!(MdTableExactPath));
                             metrics.record("rule-clean", 0.0);
                             Ok(clean::rule_clean(&raw))
                         } else {
                             Self::rigor_document(
-                                client, opts, &mut ws, &raw, &local_path_str, &detection.format,
-                                on_progress, metrics,
+                                client,
+                                opts,
+                                &mut ws,
+                                &raw,
+                                &local_path_str,
+                                &detection.format,
+                                on_progress,
+                                metrics,
                             )
                             .await
                         }
@@ -922,7 +970,9 @@ impl MarkScanPipeline {
 
         // PDF 专属: 页数 (廉价 lopdf 头解析, 失败降级 None)
         let page_count = if detection.format == SourceFormat::Pdf && !is_url_input(source) {
-            PdfExtractor::read_metadata(source).ok().map(|m| m.page_count)
+            PdfExtractor::read_metadata(source)
+                .ok()
+                .map(|m| m.page_count)
         } else {
             None
         };
@@ -974,7 +1024,13 @@ impl MarkScanPipeline {
                                 "\x1b[33m[WARN]\x1b[0m {}",
                                 crate::msgf!(MdClassifyModelFailed, e)
                             );
-                            (rule.kind, crate::msgf!(MdDecideRuleModelFailed, format!("{:?}", rule.confidence)))
+                            (
+                                rule.kind,
+                                crate::msgf!(
+                                    MdDecideRuleModelFailed,
+                                    format!("{:?}", rule.confidence)
+                                ),
+                            )
                         }
                     }
                 }
@@ -986,11 +1042,16 @@ impl MarkScanPipeline {
                                 "\x1b[33m[WARN]\x1b[0m {}",
                                 crate::msgf!(MdClassifyFallbackFailed, e)
                             );
-                            (classify::DocKind::Generic, crate::msg!(MdDecideModelFallbackFailed).to_string())
+                            (
+                                classify::DocKind::Generic,
+                                crate::msg!(MdDecideModelFallbackFailed).to_string(),
+                            )
                         }
                     }
                 }
-                (None, classify::Confidence::Strong, k) => (k, crate::msg!(MdDecideRuleStrong).to_string()),
+                (None, classify::Confidence::Strong, k) => {
+                    (k, crate::msg!(MdDecideRuleStrong).to_string())
+                }
                 (None, classify::Confidence::Weak, k) => {
                     match classify::classify_genre_model(client, &md, None).await {
                         Ok(arbitrated) if arbitrated != k => (
@@ -1003,7 +1064,13 @@ impl MarkScanPipeline {
                                 "\x1b[33m[WARN]\x1b[0m {}",
                                 crate::msgf!(MdWeakArbitrateFailed, e)
                             );
-                            (k, crate::msgf!(MdDecideWeakArbitrateFailed, format!("{:?}", rule.confidence)))
+                            (
+                                k,
+                                crate::msgf!(
+                                    MdDecideWeakArbitrateFailed,
+                                    format!("{:?}", rule.confidence)
+                                ),
+                            )
                         }
                     }
                 }
@@ -1127,18 +1194,16 @@ impl MarkScanPipeline {
         opts: &MarkScanOptions,
         single_input: &str,
     ) -> Option<(PathBuf, String, PathBuf)> {
-        let md_dir = match &opts.output {
-            Some(out) => {
-                let p = PathBuf::from(out);
-                if p.extension().is_some() {
-                    p.parent()
-                        .map(Path::to_path_buf)
-                        .unwrap_or_else(|| PathBuf::from("."))
-                } else {
-                    p
-                }
+        let out = opts.output.as_ref()?;
+        let md_dir = {
+            let p = PathBuf::from(out);
+            if p.extension().is_some() {
+                p.parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| PathBuf::from("."))
+            } else {
+                p
             }
-            None => return None,
         };
         let root = match &opts.assets_dir {
             Some(d) => PathBuf::from(d),
@@ -1172,7 +1237,7 @@ impl MarkScanPipeline {
         }
         md.push_str("\n\n## 图片附件\n\n");
         md.push_str("> ");
-        md.push_str(&crate::msg!(MdAssetIndexNote));
+        md.push_str(crate::msg!(MdAssetIndexNote));
         md.push_str("\n\n");
         for a in assets {
             let name = a
@@ -1221,8 +1286,12 @@ impl MarkScanPipeline {
                 let accepted = if check.passed {
                     polished
                 } else {
-                    warnings
-                        .extend(check.issues.iter().map(|i| format!("段 {}: {}", idx + 1, i)));
+                    warnings.extend(
+                        check
+                            .issues
+                            .iter()
+                            .map(|i| format!("段 {}: {}", idx + 1, i)),
+                    );
                     body.clone()
                 };
                 ws.write_segment_text(&seg_id, &accepted)?;
@@ -1237,7 +1306,11 @@ impl MarkScanPipeline {
         }
 
         for w in &warnings {
-            eprintln!("\x1b[33m[WARN]\x1b[0m {}: {}", crate::msg!(MdPolishFallback), w);
+            eprintln!(
+                "\x1b[33m[WARN]\x1b[0m {}: {}",
+                crate::msg!(MdPolishFallback),
+                w
+            );
             let _ = ws.add_warning(format!("{}: {}", crate::msg!(MdPolishFallback), w));
         }
 
@@ -1268,8 +1341,7 @@ impl MarkScanPipeline {
         // 双通道并发执行 (各自内部 4 路并发), 单通道失败不拖垮另一通道
         let ocr_fut = pdf_ocr::ocr_pages(client, &pages, on_progress);
         let vl_fut = pdf_ocr::vl_pages(client, &pages, on_progress);
-        let ((ocr_texts, ocr_warns), (vl_texts, vl_warns)) =
-            tokio::join!(ocr_fut, vl_fut);
+        let ((ocr_texts, ocr_warns), (vl_texts, vl_warns)) = tokio::join!(ocr_fut, vl_fut);
         let evidence: Vec<pdf_ocr::PageEvidence> = pages
             .iter()
             .zip(ocr_texts)
@@ -1393,7 +1465,8 @@ impl MarkScanPipeline {
         let paragraphs = cross_verify::split_paragraphs(&polished);
         let evidence_chunks = cross_verify::chunk_secondary(&secondary);
         let verify_started = std::time::Instant::now();
-        let similarity = cross_verify::verify_paragraphs(client, &paragraphs, &evidence_chunks).await?;
+        let similarity =
+            cross_verify::verify_paragraphs(client, &paragraphs, &evidence_chunks).await?;
         metrics.record("cross-verify", verify_started.elapsed().as_secs_f64());
 
         // 交叉验证阈值 (默认 0.55)。
@@ -1412,7 +1485,12 @@ impl MarkScanPipeline {
         metrics.conflicts = conflicts.len();
         eprintln!(
             "\x1b[36m[INFO]\x1b[0m {}",
-            crate::msgf!(MdCrossVerifySummary, paragraphs.len(), conflicts.len(), threshold)
+            crate::msgf!(
+                MdCrossVerifySummary,
+                paragraphs.len(),
+                conflicts.len(),
+                threshold
+            )
         );
 
         // 5. 冲突仲裁 (≤2 轮; manifest 阶段 "arbitrate")
@@ -1431,25 +1509,21 @@ impl MarkScanPipeline {
             for attempt in 1..=cross_verify::ARBITRATION_ROUNDS {
                 // 对抗式双模型仲裁: primary 与深度推理模型各自独立裁决,
                 // 双方一致才定案 (准确率优先, 令牌开销 ×2)
-                let (secondary_model, verdict) =
-                    match cross_verify::arbitrate_adversarial(
-                        client,
-                        &arbitrate_model,
-                        paragraph,
-                        evidence,
-                        attempt,
-                    )
-                    .await
-                    {
-                        Ok(v) => v,
-                        Err(e) => {
-                            warnings.push(format!(
-                                "段落仲裁请求失败 (轮 {}, 双模型): {}",
-                                attempt, e
-                            ));
-                            break;
-                        }
-                    };
+                let (secondary_model, verdict) = match cross_verify::arbitrate_adversarial(
+                    client,
+                    &arbitrate_model,
+                    paragraph,
+                    evidence,
+                    attempt,
+                )
+                .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warnings.push(format!("段落仲裁请求失败 (轮 {}, 双模型): {}", attempt, e));
+                        break;
+                    }
+                };
                 let _ = secondary_model;
                 match verdict {
                     cross_verify::Verdict::Correct(corrected) => {
@@ -1486,10 +1560,8 @@ impl MarkScanPipeline {
                 }
                 None => {
                     let marker = format!("<!-- qyzs:unverified (相似度 {:.2}) -->\n\n", score);
-                    final_md = final_md.replace(
-                        paragraph.as_str(),
-                        &format!("{}{}", marker, paragraph),
-                    );
+                    final_md =
+                        final_md.replace(paragraph.as_str(), &format!("{}{}", marker, paragraph));
                     warnings.push(crate::msgf!(MdArbitrateUnverified, format!("{:.2}", score)));
                 }
             }
@@ -1501,7 +1573,11 @@ impl MarkScanPipeline {
         // 6. 全局结构复核 —— 双模型独立审查, 发现合并去重 (准确率优先:
         //    单模型审查会漏, 双模型互为盲区补位)
         let review_started = std::time::Instant::now();
-        let review_secondary = if arbitrate_model.starts_with("qwen3.6") { "dsv4" } else { "qwen3.6-27b" };
+        let review_secondary = if arbitrate_model.starts_with("qwen3.6") {
+            "dsv4"
+        } else {
+            "qwen3.6-27b"
+        };
         let (r_primary, r_secondary) = tokio::join!(
             Self::global_review(client, &arbitrate_model, &final_md),
             Self::global_review(client, review_secondary, &final_md),
@@ -1533,7 +1609,11 @@ impl MarkScanPipeline {
                         if !dup {
                             findings.push(format!(
                                 "{t} [{}]",
-                                if src == "primary" { arbitrate_model.as_str() } else { review_secondary }
+                                if src == "primary" {
+                                    arbitrate_model.as_str()
+                                } else {
+                                    review_secondary
+                                }
                             ));
                         }
                     }
@@ -1588,7 +1668,7 @@ impl MarkScanPipeline {
         for line in md.lines() {
             let t = line.trim_start();
             let hashes = t.chars().take_while(|&c| c == '#').count();
-            if hashes >= 1 && hashes <= 6 {
+            if (1..=6).contains(&hashes) {
                 let title = t[hashes..].trim();
                 if !title.is_empty() {
                     outline.push_str(&format!("{}|{}\n", hashes, title));
@@ -1626,7 +1706,12 @@ impl MarkScanPipeline {
         for line in resp.primary_text().lines() {
             let t = line.trim();
             let Some(bar) = t.find('|') else { continue };
-            let Some(level) = t[..bar].trim().parse::<usize>().ok().filter(|n| (1..=6).contains(n)) else {
+            let Some(level) = t[..bar]
+                .trim()
+                .parse::<usize>()
+                .ok()
+                .filter(|n| (1..=6).contains(n))
+            else {
                 continue;
             };
             let title = t[bar + 1..].trim().to_string();
@@ -1652,7 +1737,7 @@ impl MarkScanPipeline {
                 continue;
             }
             let hashes = t.chars().take_while(|&c| c == '#').count();
-            if !in_fence && hashes >= 1 && hashes <= 6 {
+            if !in_fence && (1..=6).contains(&hashes) {
                 let title = t[hashes..].trim();
                 if let Some(level) = fixes.get(&normalize_title(title)) {
                     out.push_str(&format!("{} {}\n", "#".repeat((*level).clamp(1, 6)), title));
@@ -1670,16 +1755,12 @@ impl MarkScanPipeline {
     }
 
     /// 全局轮: 目录树 + 每节 200 字摘要 → 结构问题清单 (仅报告)
-    async fn global_review(
-        client: &QyzsClient,
-        model: &str,
-        document: &str,
-    ) -> QyzsResult<String> {
+    async fn global_review(client: &QyzsClient, model: &str, document: &str) -> QyzsResult<String> {
         let mut outline = String::new();
         let mut current_heading = String::new();
         for line in document.lines() {
-            let is_heading = line.starts_with('#')
-                && line.chars().nth(1).is_some_and(|c| c == ' ' || c == '#');
+            let is_heading =
+                line.starts_with('#') && line.chars().nth(1).is_some_and(|c| c == ' ' || c == '#');
             if is_heading {
                 outline.push_str(&format!("\n{}\n", line));
                 current_heading = line.trim_start_matches('#').trim().to_string();
@@ -1766,16 +1847,34 @@ mod tests {
 
     #[test]
     fn test_stages_per_mode() {
-        let speed = MarkScanPipeline::stages_for(PipelineMode::Speed, "mineru-slice", ImageHandling::Auto, "dsv4");
+        let speed = MarkScanPipeline::stages_for(
+            PipelineMode::Speed,
+            "mineru-slice",
+            ImageHandling::Auto,
+            "dsv4",
+        );
         assert_eq!(speed.first().unwrap(), "extract(mineru3.2.3, 15页/批切片)");
         assert!(!speed.iter().any(|s| s.contains("polish")));
 
         // balanced 档已移除: 旧值映射到 rigor (对抗式全流程)
-        let legacy = MarkScanPipeline::stages_for(PipelineMode::parse("balanced").unwrap(), "ocr-vl", ImageHandling::Ocr, "dsv4");
+        let legacy = MarkScanPipeline::stages_for(
+            PipelineMode::parse("balanced").unwrap(),
+            "ocr-vl",
+            ImageHandling::Ocr,
+            "dsv4",
+        );
         assert_eq!(legacy.first().unwrap(), "extract(paddleocrvl)");
-        assert!(legacy.iter().any(|s| s == "cross-verify(bge-m3)"), "旧 balanced 值应映射到 rigor 全流程");
+        assert!(
+            legacy.iter().any(|s| s == "cross-verify(bge-m3)"),
+            "旧 balanced 值应映射到 rigor 全流程"
+        );
 
-        let rigor = MarkScanPipeline::stages_for(PipelineMode::Rigor, "mineru-document", ImageHandling::Auto, "dsv4");
+        let rigor = MarkScanPipeline::stages_for(
+            PipelineMode::Rigor,
+            "mineru-document",
+            ImageHandling::Auto,
+            "dsv4",
+        );
         assert!(rigor.iter().any(|s| s == "cross-verify(bge-m3)"));
         assert!(rigor.iter().any(|s| s == "global-review"));
         assert_eq!(rigor.last().unwrap(), "emit");

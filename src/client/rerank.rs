@@ -44,7 +44,11 @@ impl QyzsClient {
         let key = self.config.ensure_auth()?;
         let model = model_override.unwrap_or_else(|| self.config.get_default_model("rerank"));
         let top = top_n
-            .or_else(|| self.config.get_model_param_i64(model, "top_n").map(|v| v as usize))
+            .or_else(|| {
+                self.config
+                    .get_model_param_i64(model, "top_n")
+                    .map(|v| v as usize)
+            })
             .unwrap_or(5);
 
         let req = RerankRequest {
@@ -64,7 +68,10 @@ impl QyzsClient {
         let status = resp.status();
         if !status.is_success() {
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(QyzsError::Server(format!("重排网关返回 HTTP {}: {}", status, err_text)));
+            return Err(QyzsError::Server(format!(
+                "重排网关返回 HTTP {}: {}",
+                status, err_text
+            )));
         }
 
         let rerank_resp: RerankResponse = resp.json().await?;

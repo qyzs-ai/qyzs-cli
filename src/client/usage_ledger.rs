@@ -61,7 +61,11 @@ impl UsageRecord {
     }
 
     /// 从 chat/completions 系响应 (chat/ocr/asr) 的 usage 构造
-    pub fn from_chat_usage(kind: &str, model: &str, usage: Option<&super::chat::ChatUsage>) -> Self {
+    pub fn from_chat_usage(
+        kind: &str,
+        model: &str,
+        usage: Option<&super::chat::ChatUsage>,
+    ) -> Self {
         let u = usage;
         Self::now(
             kind,
@@ -151,7 +155,7 @@ pub fn format_num(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -187,7 +191,11 @@ fn append_to(path: &std::path::Path, rec: &UsageRecord) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
         let _ = f.write_all(line.as_bytes());
     }
 }
@@ -229,7 +237,11 @@ pub fn compact_if_needed() -> bool {
 }
 
 fn compact_at(path: &std::path::Path, retain_days: u32) -> bool {
-    compact_stale(path, retain_days, std::time::Duration::from_secs(LOCK_STALE_SECS))
+    compact_stale(
+        path,
+        retain_days,
+        std::time::Duration::from_secs(LOCK_STALE_SECS),
+    )
 }
 
 fn compact_stale(
@@ -238,9 +250,9 @@ fn compact_stale(
     stale_after: std::time::Duration,
 ) -> bool {
     let cutoff = utc_date_days_ago(retain_days as u64);
-    let needs = read_from(path).iter().any(|r| {
-        !r.is_rollup() && r.day().len() == 10 && r.day() < cutoff.as_str()
-    });
+    let needs = read_from(path)
+        .iter()
+        .any(|r| !r.is_rollup() && r.day().len() == 10 && r.day() < cutoff.as_str());
     if !needs {
         return false;
     }
@@ -268,7 +280,12 @@ fn compact_stale(
             continue;
         }
         let entry = pool
-            .entry((r.day().to_string(), r.model.clone(), r.kind.clone(), r.key.clone()))
+            .entry((
+                r.day().to_string(),
+                r.model.clone(),
+                r.kind.clone(),
+                r.key.clone(),
+            ))
             .or_insert_with(|| {
                 let mut rollup = UsageRecord::now(&r.kind, &r.model, None, None, None);
                 rollup.ts = format!("{}T00:00:00Z", r.day());
@@ -315,7 +332,9 @@ fn sum_opt(a: Option<u64>, b: Option<u64>) -> Option<u64> {
 fn lock_path_for(path: &std::path::Path) -> PathBuf {
     path.with_file_name(format!(
         "{}.lock",
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("usage.jsonl")
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("usage.jsonl")
     ))
 }
 
@@ -334,12 +353,7 @@ impl LedgerLock {
                 .open(&path)
             {
                 Ok(mut f) => {
-                    let _ = writeln!(
-                        f,
-                        "pid={} ts={}",
-                        std::process::id(),
-                        now_rfc3339()
-                    );
+                    let _ = writeln!(f, "pid={} ts={}", std::process::id(), now_rfc3339());
                     return Some(Self { path });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -369,7 +383,10 @@ fn lock_is_stale(path: &std::path::Path, stale_after: std::time::Duration) -> bo
     let Ok(modified) = meta.modified() else {
         return true;
     };
-    modified.elapsed().map(|age| age >= stale_after).unwrap_or(true)
+    modified
+        .elapsed()
+        .map(|age| age >= stale_after)
+        .unwrap_or(true)
 }
 
 /// 过滤: days = 仅最近 N 天 (含今天, UTC 日界)；model/kind/key = 精确匹配
@@ -383,10 +400,10 @@ pub fn filter_records(records: &[UsageRecord], filter: &UsageFilter<'_>) -> Vec<
     records
         .iter()
         .filter(|r| {
-            cutoff.as_ref().map_or(true, |c| r.day() >= c.as_str())
-                && model.map_or(true, |m| r.model == m)
-                && kind.map_or(true, |k| r.kind == k)
-                && key.map_or(true, |k| r.key.as_deref() == Some(k))
+            cutoff.as_ref().is_none_or(|c| r.day() >= c.as_str())
+                && model.is_none_or(|m| r.model == m)
+                && kind.is_none_or(|k| r.kind == k)
+                && key.is_none_or(|k| r.key.as_deref() == Some(k))
         })
         .cloned()
         .collect()
@@ -473,10 +490,10 @@ pub fn summarize(records: &[UsageRecord]) -> UsageSummary {
             let ds = s.by_day.entry(r.day().to_string()).or_default();
             ds.requests += n;
             ds.total_tokens += total;
-            if s.first_day.as_ref().map_or(true, |d| r.day() < d.as_str()) {
+            if s.first_day.as_ref().is_none_or(|d| r.day() < d.as_str()) {
                 s.first_day = Some(r.day().to_string());
             }
-            if s.last_day.as_ref().map_or(true, |d| r.day() > d.as_str()) {
+            if s.last_day.as_ref().is_none_or(|d| r.day() > d.as_str()) {
                 s.last_day = Some(r.day().to_string());
             }
         }
@@ -548,7 +565,10 @@ mod tests {
         // 2000-02-29: 世纪闰年 (400 倍数) 边界
         assert_eq!(format_rfc3339(951_782_400), "2000-02-29T00:00:00Z");
         assert_eq!(format_rfc3339(1_792_286_216), "2026-10-18T01:16:56Z");
-        assert_eq!(format_rfc3339(1_792_286_216 + 86_400), "2026-10-19T01:16:56Z");
+        assert_eq!(
+            format_rfc3339(1_792_286_216 + 86_400),
+            "2026-10-19T01:16:56Z"
+        );
     }
 
     #[test]
@@ -584,7 +604,10 @@ mod tests {
     fn append_read_roundtrip_and_tolerates_broken_lines() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("usage.jsonl");
-        append_to(&path, &rec("2026-10-18T01:16:56Z", "chat", "dsv4", Some(168)));
+        append_to(
+            &path,
+            &rec("2026-10-18T01:16:56Z", "chat", "dsv4", Some(168)),
+        );
         append_to(&path, &rec("2026-10-18T02:00:00Z", "embed", "bge-m3", None));
         // 模拟历史损坏行
         std::fs::write(
@@ -607,30 +630,66 @@ mod tests {
         a.key = Some("sk-abc***8816".to_string());
         let mut b = rec(&ts_of(0, 8), "embed", "bge-m3", Some(50));
         b.key = Some("sk-xyz***0001".to_string());
-        let records = vec![
-            rec(&ts_of(30, 0), "chat", "dsv4", Some(100)),
-            a,
-            b,
-        ];
+        let records = vec![rec(&ts_of(30, 0), "chat", "dsv4", Some(100)), a, b];
 
         // --days 2 (前天起)
         let got = filter_records(
             &records,
-            &UsageFilter { days: Some(2), ..Default::default() },
+            &UsageFilter {
+                days: Some(2),
+                ..Default::default()
+            },
         );
         assert_eq!(got.len(), 2);
         let cutoff = utc_date_days_ago(2);
         assert!(got.iter().all(|r| r.day() >= cutoff.as_str()));
 
         // --model / --kind / --key
-        assert_eq!(filter_records(&records, &UsageFilter { model: Some("bge-m3"), ..Default::default() }).len(), 1);
-        assert_eq!(filter_records(&records, &UsageFilter { kind: Some("chat"), ..Default::default() }).len(), 2);
-        let got = filter_records(&records, &UsageFilter { key: Some("sk-xyz***0001"), ..Default::default() });
+        assert_eq!(
+            filter_records(
+                &records,
+                &UsageFilter {
+                    model: Some("bge-m3"),
+                    ..Default::default()
+                }
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            filter_records(
+                &records,
+                &UsageFilter {
+                    kind: Some("chat"),
+                    ..Default::default()
+                }
+            )
+            .len(),
+            2
+        );
+        let got = filter_records(
+            &records,
+            &UsageFilter {
+                key: Some("sk-xyz***0001"),
+                ..Default::default()
+            },
+        );
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].kind, "embed");
 
         // 组合过滤
-        assert_eq!(filter_records(&records, &UsageFilter { days: Some(2), model: Some("dsv4"), ..Default::default() }).len(), 1);
+        assert_eq!(
+            filter_records(
+                &records,
+                &UsageFilter {
+                    days: Some(2),
+                    model: Some("dsv4"),
+                    ..Default::default()
+                }
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
@@ -650,7 +709,14 @@ mod tests {
             "\tsk-abc***8816\n",
         ] {
             assert_eq!(
-                filter_records(&records, &UsageFilter { key: Some(raw), ..Default::default() }).len(),
+                filter_records(
+                    &records,
+                    &UsageFilter {
+                        key: Some(raw),
+                        ..Default::default()
+                    }
+                )
+                .len(),
                 1,
                 "--key {:?} 应匹配 (空白被忽略)",
                 raw
@@ -658,16 +724,37 @@ mod tests {
         }
         // 前后空白对 --model / --kind 同样容忍
         assert_eq!(
-            filter_records(&records, &UsageFilter { model: Some("dsv4 "), ..Default::default() }).len(),
+            filter_records(
+                &records,
+                &UsageFilter {
+                    model: Some("dsv4 "),
+                    ..Default::default()
+                }
+            )
+            .len(),
             1
         );
         assert_eq!(
-            filter_records(&records, &UsageFilter { kind: Some(" chat"), ..Default::default() }).len(),
+            filter_records(
+                &records,
+                &UsageFilter {
+                    kind: Some(" chat"),
+                    ..Default::default()
+                }
+            )
+            .len(),
             1
         );
         // trim 不放宽真实差异: 掩码本身不同仍匹配不到
         assert_eq!(
-            filter_records(&records, &UsageFilter { key: Some("sk-xyz***0001"), ..Default::default() }).len(),
+            filter_records(
+                &records,
+                &UsageFilter {
+                    key: Some("sk-xyz***0001"),
+                    ..Default::default()
+                }
+            )
+            .len(),
             0
         );
     }
@@ -677,7 +764,12 @@ mod tests {
         let records = vec![
             rec("2026-10-16T10:00:00Z", "chat", "dsv4", Some(100)),
             rec("2026-10-18T10:00:00Z", "chat", "dsv4", Some(60)),
-            rec("2026-10-17T10:00:00Z", "rerank", "bge-reranker-v2-m3", Some(46)),
+            rec(
+                "2026-10-17T10:00:00Z",
+                "rerank",
+                "bge-reranker-v2-m3",
+                Some(46),
+            ),
             rec("2026-10-18T11:00:00Z", "embed", "bge-m3", None),
         ];
         let s = summarize(&records);
@@ -803,9 +895,15 @@ mod tests {
         assert!(compact_at(&path, 30));
         let out = read_from(&path);
         assert_eq!(out.len(), 3, "不同 (调用族, 凭据) 各自成行");
-        let chat_a = out.iter().find(|r| r.key.as_deref() == Some("sk-a***1111")).unwrap();
+        let chat_a = out
+            .iter()
+            .find(|r| r.key.as_deref() == Some("sk-a***1111"))
+            .unwrap();
         assert_eq!(chat_a.count, Some(1));
-        let chat_b = out.iter().find(|r| r.key.as_deref() == Some("sk-b***2222")).unwrap();
+        let chat_b = out
+            .iter()
+            .find(|r| r.key.as_deref() == Some("sk-b***2222"))
+            .unwrap();
         assert_eq!(chat_b.count, Some(1));
         assert!(out.iter().any(|r| r.kind == "embed" && r.key.is_none()));
     }

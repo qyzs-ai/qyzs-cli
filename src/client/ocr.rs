@@ -1,6 +1,9 @@
 //! 公文 OCR 与版面文字提取 (/api/aiCenterChat/v1/chat/completions with paddleocrvl)
 
-use super::chat::{encode_image_to_data_url, ChatRequest, ChatResponse, ContentPart, ImageUrlDetail, Message, MessageContent};
+use super::chat::{
+    encode_image_to_data_url, ChatRequest, ChatResponse, ContentPart, ImageUrlDetail, Message,
+    MessageContent,
+};
 use super::QyzsClient;
 use crate::error::{QyzsError, QyzsResult};
 use base64::Engine;
@@ -28,13 +31,18 @@ impl QyzsClient {
 
         // 1. 智能预处理：执行长边等比缩放至 <= 800px (规避 FastDeploy 2048 崩溃)
         let max_dimension = max_dim
-            .or_else(|| self.config.get_model_param_i64(model, "max_dim").map(|v| v as u32))
+            .or_else(|| {
+                self.config
+                    .get_model_param_i64(model, "max_dim")
+                    .map(|v| v as u32)
+            })
             .unwrap_or(800);
 
         let data_url = preprocess_and_encode_image(image_path, max_dimension)?;
 
         // 2. 组装 OCR 提示词
-        let prompt_text = prompt_override.unwrap_or("提取图中的所有文字内容，保留原有版面段落结构。");
+        let prompt_text =
+            prompt_override.unwrap_or("提取图中的所有文字内容，保留原有版面段落结构。");
 
         let messages = vec![Message {
             role: "user".to_string(),
@@ -69,7 +77,10 @@ impl QyzsClient {
         let status = resp.status();
         if !status.is_success() {
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(QyzsError::Server(format!("OCR 网关返回 HTTP {}: {}", status, err_text)));
+            return Err(QyzsError::Server(format!(
+                "OCR 网关返回 HTTP {}: {}",
+                status, err_text
+            )));
         }
 
         let chat_resp: ChatResponse = resp.json().await?;

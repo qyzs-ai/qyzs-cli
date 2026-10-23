@@ -55,7 +55,8 @@ impl PageEvidence {
 }
 
 /// VL 逐页转录提示词: 逐字优先 + 版面结构显式化 (排版验证的证据基础)
-const VL_PAGE_PROMPT: &str = "你是公文版面转录引擎。逐字转录这张页面图片中的全部内容, 并显式保留版面结构:\n\
+const VL_PAGE_PROMPT: &str =
+    "你是公文版面转录引擎。逐字转录这张页面图片中的全部内容, 并显式保留版面结构:\n\
 1. 标题与章节编号按层级输出;\n\
 2. 表格用 Markdown 表格逐格转录, 不许省略行列;\n\
 3. 印章、签名、日期、页码、文号等要素单独标注 (格式: 〔印章〕/〔文号〕...);\n\
@@ -68,8 +69,8 @@ const VL_PAGE_PROMPT: &str = "你是公文版面转录引擎。逐字转录这�
 /// 每页取面积最大的位图 XObject (扫描件通常每页只有一张; 少数页面含页眉
 /// logo 等小图时, 整页正文图必然面积最大)。产出写入 `out_dir`。
 pub fn extract_page_images(pdf_path: &str, out_dir: &Path) -> QyzsResult<Vec<PageImage>> {
-    let doc = Document::load(pdf_path)
-        .map_err(|e| QyzsError::Pdf(format!("加载 PDF 失败: {}", e)))?;
+    let doc =
+        Document::load(pdf_path).map_err(|e| QyzsError::Pdf(format!("加载 PDF 失败: {}", e)))?;
     std::fs::create_dir_all(out_dir)?;
 
     let mut out = Vec::new();
@@ -98,7 +99,10 @@ pub fn extract_page_images(pdf_path: &str, out_dir: &Path) -> QyzsResult<Vec<Pag
             Err(())
         };
         if let Ok(path) = result {
-            out.push(PageImage { page: page_no as u32, path });
+            out.push(PageImage {
+                page: page_no,
+                path,
+            });
         }
     }
     Ok(out)
@@ -176,19 +180,24 @@ pub async fn ocr_pages(
         .enumerate()
         .map(|(i, p)| (i, p.clone()))
         .collect();
-    let results = run_bounded(items, CHANNEL_CONCURRENCY, |page: PageImage| async move {
-        client
-            .ocr(page.path.to_string_lossy().as_ref(), None, None)
-            .await
-            .map(|r| r.text.trim().to_string())
-            .and_then(|t| {
-                if t.is_empty() {
-                    Err(QyzsError::Server("OCR 返回空内容".to_string()))
-                } else {
-                    Ok(t)
-                }
-            })
-    }, on_progress)
+    let results = run_bounded(
+        items,
+        CHANNEL_CONCURRENCY,
+        |page: PageImage| async move {
+            client
+                .ocr(page.path.to_string_lossy().as_ref(), None, None)
+                .await
+                .map(|r| r.text.trim().to_string())
+                .and_then(|t| {
+                    if t.is_empty() {
+                        Err(QyzsError::Server("OCR 返回空内容".to_string()))
+                    } else {
+                        Ok(t)
+                    }
+                })
+        },
+        on_progress,
+    )
     .await;
 
     let warnings = collect_page_warnings("OCR", pages, &results);
@@ -208,28 +217,33 @@ pub async fn vl_pages(
         .enumerate()
         .map(|(i, p)| (i, p.clone()))
         .collect();
-    let results = run_bounded(items, CHANNEL_CONCURRENCY, |page: PageImage| async move {
-        let resp = client
-            .chat(
-                VL_PAGE_PROMPT,
-                None,
-                ChatOptions {
-                    model: None,
-                    temperature: Some(0.1),
-                    max_tokens: Some(VL_PAGE_MAX_TOKENS),
-                    top_p: None,
-                    stream: false,
-                    show_reasoning: false,
-                    images: vec![page.path.to_string_lossy().to_string()],
-                },
-            )
-            .await?;
-        let t = resp.primary_text().trim().to_string();
-        if t.is_empty() {
-            return Err(QyzsError::Server("VL 转录返回空内容".to_string()));
-        }
-        Ok(t)
-    }, on_progress)
+    let results = run_bounded(
+        items,
+        CHANNEL_CONCURRENCY,
+        |page: PageImage| async move {
+            let resp = client
+                .chat(
+                    VL_PAGE_PROMPT,
+                    None,
+                    ChatOptions {
+                        model: None,
+                        temperature: Some(0.1),
+                        max_tokens: Some(VL_PAGE_MAX_TOKENS),
+                        top_p: None,
+                        stream: false,
+                        show_reasoning: false,
+                        images: vec![page.path.to_string_lossy().to_string()],
+                    },
+                )
+                .await?;
+            let t = resp.primary_text().trim().to_string();
+            if t.is_empty() {
+                return Err(QyzsError::Server("VL 转录返回空内容".to_string()));
+            }
+            Ok(t)
+        },
+        on_progress,
+    )
     .await;
 
     let warnings = collect_page_warnings("VL 图像理解", pages, &results);
@@ -296,7 +310,12 @@ mod tests {
             let data = std::fs::read(&p.path).expect("页图应存在");
             assert!(data.len() > 1000, "页图不应为空: {:?}", p.path);
             // JPEG magic (DCTDecode 流即为 JPEG 文件字节)
-            assert_eq!(&data[..2], b"\xff\xd8", "DCTDecode 提取应为合法 JPEG: {:?}", p.path);
+            assert_eq!(
+                &data[..2],
+                b"\xff\xd8",
+                "DCTDecode 提取应为合法 JPEG: {:?}",
+                p.path
+            );
         }
     }
 
@@ -316,10 +335,25 @@ mod tests {
     #[test]
     fn test_merge_page_evidence() {
         let evs = vec![
-            PageEvidence { page: 1, ocr: Some("甲".into()), vl: Some("乙".into()) },
-            PageEvidence { page: 2, ocr: None, vl: Some("丙".into()) },
-            PageEvidence { page: 3, ocr: Some("丁".into()), vl: None },
-            PageEvidence { page: 4, ..Default::default() },
+            PageEvidence {
+                page: 1,
+                ocr: Some("甲".into()),
+                vl: Some("乙".into()),
+            },
+            PageEvidence {
+                page: 2,
+                ocr: None,
+                vl: Some("丙".into()),
+            },
+            PageEvidence {
+                page: 3,
+                ocr: Some("丁".into()),
+                vl: None,
+            },
+            PageEvidence {
+                page: 4,
+                ..Default::default()
+            },
         ];
         let m = merge_page_evidence(&evs);
         assert!(m.contains("[第1页]"));

@@ -105,4 +105,49 @@
 
 ## 6. 本项目的具体纪律
 
+### 6.1 事实源（SSOT）分层，改动前先确认改哪一层
+
+| 层面 | 事实源 | 说明 |
+|---|---|---|
+| 参数面 | `src/cli/args.rs` 模块头注释 + 各字段 `help` | 短形式规范、取值白名单、默认值、互斥关系的唯一真源 |
+| 数值边界 | `src/cli/validate.rs` | 所有 CLI 显式取值的硬校验；报错文案统一 `--flag 取值必须在 A~B 之间` |
+| 行为契约 | `src/` 实现 + `tests/docs/QYZS-MARKSCAN.md` | markscan 的行为契约在该文档；其余子命令以 `--help` 为准 |
+| 能力边界 | `capability_matrix.toml` | 模型清单、实测边界、离线/禁用路由、`qyzs models` 渲染数据 |
+| 发布制度 | `docs/RELEASE.md` | 版本号制度、发布流程、C1~C13 发布条件清单 |
+| 本地环境 | `docs/DEVENV.md` | 工具链、交叉编译、门禁与实测脚本 |
+
+**对齐纪律**：改动代码时同步改上述对应层；只改一层会造成文档与实现漂移。
+尤其注意 `capability_matrix.toml` 内部也会自相矛盾（如曾同时声称「有异步轮询通道」
+和「阈值未复现」），它是 SSOT，出现分歧须以实现为准并回头修正。
+
+### 6.2 质量门禁（改动后必须全绿）
+
+```bash
+cargo fmt --all -- --check                    # 格式（代码库已是 rustfmt-clean）
+cargo clippy --all-targets -- --deny warnings # lint（须 0 告警）
+cargo test                                     # 离线用例全绿
+shellcheck -S warning install.sh tests/scripts/*.sh npm/build.sh
+bash tests/scripts/check_no_secrets.sh         # 提交历史密钥扫描
+python3 tests/scripts/verify_release_pipeline.py  # 发布流水线本地验证
+```
+
+CI 另有 `cross-target-check`（Windows/macOS/Linux-musl 目标类型检查）与
+`secret-scan`（需 `fetch-depth: 0`）两个 job。
+
+### 6.3 凭据与历史
+
+- **凭据绝不入库**：`.env` / `credentials.toml` / `*.key` / `*.pem` 已在
+  `.gitignore`；`tests/scripts/check_no_secrets.sh` 扫描**全对象库**（含悬空对象）
+  与已跟踪文件，CI 逐次拦截。
+- **一次 `git add` 即写入历史**：即便随后 `git rm`，凭据仍留在 `.git/objects` 里，
+  只有 `git gc` 才清除。故扫描必须覆盖对象库，不能只扫跟踪文件。
+- 历史中若已出现凭据，唯一出路是**重写历史**（`git filter-repo` / plumbing），
+  而非删除文件。
+
+### 6.4 破坏性变更
+
+移除子命令/参数须在 CHANGELOG 给出**迁移映射表**，且映射目标必须是**发布版的
+最终命令名**（0.2.0 中 `markitdown` → `scan` → `markscan` 两次更名，早期条目里
+残留的 `qyzs scan` 照抄会直接失败）。迁移豁免规则见 `docs/RELEASE.md` §1。
+
 

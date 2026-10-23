@@ -25,9 +25,9 @@ pub fn cosine(a: &[f64], b: &[f64]) -> f64 {
     let mut na = 0f64;
     let mut nb = 0f64;
     for (x, y) in a.iter().zip(b.iter()) {
-        dot += (*x as f64) * (*y as f64);
-        na += (*x as f64) * (*x as f64);
-        nb += (*y as f64) * (*y as f64);
+        dot += *x * *y;
+        na += *x * *x;
+        nb += *y * *y;
     }
     if na == 0.0 || nb == 0.0 {
         return 0.0;
@@ -120,7 +120,8 @@ pub fn chunk_secondary(text: &str) -> Vec<String> {
             }
             continue;
         }
-        if !buf.is_empty() && buf.chars().count() + trimmed.chars().count() > SECONDARY_CHUNK_CHARS {
+        if !buf.is_empty() && buf.chars().count() + trimmed.chars().count() > SECONDARY_CHUNK_CHARS
+        {
             chunks.push(std::mem::take(&mut buf));
         }
         if !buf.is_empty() {
@@ -286,7 +287,11 @@ pub async fn arbitrate_adversarial(
     evidence: &str,
     attempt: usize,
 ) -> QyzsResult<(String, Verdict)> {
-    let secondary = if primary.starts_with("qwen3.6") { "dsv4" } else { "qwen3.6-27b" };
+    let secondary = if primary.starts_with("qwen3.6") {
+        "dsv4"
+    } else {
+        "qwen3.6-27b"
+    };
 
     let (r1, r2) = tokio::join!(
         arbitrate_paragraph(client, primary, paragraph, evidence, attempt),
@@ -360,7 +365,11 @@ mod tests {
         // 全部内容保留 (按段落文本抽查)
         for (i, p) in paras.iter().enumerate().step_by(7) {
             let head: String = p.chars().take(12).collect();
-            assert!(chunks.iter().any(|c| c.contains(&head)), "段落 {} 应在某证据块中", i);
+            assert!(
+                chunks.iter().any(|c| c.contains(&head)),
+                "段落 {} 应在某证据块中",
+                i
+            );
         }
     }
 

@@ -66,7 +66,9 @@ pub fn sheet_to_markdown(name: &str, rows: &[Vec<String>]) -> String {
     let header = rows[header_idx].clone();
     let body: Vec<&Vec<String>> = rows[header_idx + 1..].iter().collect();
 
-    let col_count = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0));
+    let col_count = header
+        .len()
+        .max(rows.iter().map(Vec::len).max().unwrap_or(0));
     let header_cells: Vec<String> = (0..col_count)
         .map(|i| header.get(i).cloned().unwrap_or_default())
         .collect();
@@ -132,10 +134,7 @@ fn range_to_markdown(name: &str, range: &Range<Data>, merged: &[(u32, u32, u32, 
     let rows: Vec<Vec<String>> = grid
         .iter()
         .map(|row| {
-            let last = row
-                .iter()
-                .rposition(|c| !c.is_empty())
-                .map_or(0, |p| p + 1);
+            let last = row.iter().rposition(|c| !c.is_empty()).map_or(0, |p| p + 1);
             row[..last].to_vec()
         })
         .collect();
@@ -285,8 +284,8 @@ mod tests {
     fn minimal_xlsx(sheets: &[(&str, &[&[&str]])]) -> Vec<u8> {
         use std::io::Write as _;
         let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-        let opt =
-            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let opt = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
 
         w.start_file("[Content_Types].xml", opt).unwrap();
         let mut ct = String::from(
@@ -434,13 +433,11 @@ mod tests {
     }
 
     /// minimal_xlsx 变体: 追加 mergeCells 声明
-    fn minimal_xlsx_with_merge(
-        sheets: &[(&str, &[&[&str]], &str)],
-    ) -> Vec<u8> {
+    fn minimal_xlsx_with_merge(sheets: &[(&str, &[&[&str]], &str)]) -> Vec<u8> {
         use std::io::Write as _;
         let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-        let opt =
-            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let opt = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
 
         w.start_file("[Content_Types].xml", opt).unwrap();
         let ct = r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>"#;
@@ -482,7 +479,10 @@ mod tests {
             sheet.push_str("</row>");
         }
         sheet.push_str("</sheetData>");
-        sheet.push_str(&format!(r#"<mergeCells count="1"><mergeCell ref="{}"/></mergeCells>"#, merge_ref));
+        sheet.push_str(&format!(
+            r#"<mergeCells count="1"><mergeCell ref="{}"/></mergeCells>"#,
+            merge_ref
+        ));
         sheet.push_str("</worksheet>");
         w.write_all(sheet.as_bytes()).unwrap();
 

@@ -169,8 +169,20 @@ fn matches_numbered_unit(title: &str, unit: &str) -> bool {
 fn is_cjk_numeral(c: char) -> bool {
     matches!(
         c,
-        '一' | '二' | '三' | '四' | '五' | '六' | '七' | '八' | '九' | '十' | '百' | '千'
-            | '零' | '〇' | '两'
+        '一' | '二'
+            | '三'
+            | '四'
+            | '五'
+            | '六'
+            | '七'
+            | '八'
+            | '九'
+            | '十'
+            | '百'
+            | '千'
+            | '零'
+            | '〇'
+            | '两'
     )
 }
 
@@ -232,7 +244,10 @@ fn is_arabic_paren_heading(title: &str) -> bool {
 /// 按给定判级函数重建标题层级
 ///
 /// 只调整 `#` 数量, 不增删标题、不改标题文字、不改段落顺序。
-fn rebuild_with(md: &str, level_of: impl Fn(&str, &std::collections::HashMap<Unit, usize>) -> Option<usize>) -> String {
+fn rebuild_with(
+    md: &str,
+    level_of: impl Fn(&str, &std::collections::HashMap<Unit, usize>) -> Option<usize>,
+) -> String {
     // 第一遍: 收集围栏外的标题, 用于自适应定级
     let headings: Vec<&str> = {
         let mut v = Vec::new();
@@ -308,7 +323,11 @@ pub fn normalize_headings(md: &str) -> String {
             if let Some(title) = heading_title(line) {
                 let norm = normalize_heading_text(title);
                 if norm != title {
-                    out.push_str(&format!("{} {}\n", "#".repeat(t.chars().take_while(|c| *c == '#').count()), norm));
+                    out.push_str(&format!(
+                        "{} {}\n",
+                        "#".repeat(t.chars().take_while(|c| *c == '#').count()),
+                        norm
+                    ));
                     changed += 1;
                     continue;
                 }
@@ -335,7 +354,6 @@ fn normalize_heading_text(title: &str) -> String {
     out = out.trim().to_string();
     out
 }
-
 
 /// 取 ATX 标题的标题文本
 fn heading_title(line: &str) -> Option<&str> {
@@ -369,10 +387,7 @@ const PROMOTE_RATIO: usize = 2;
 /// 补建只处理结构单元 (第X编/章/节/条); `（一）`/`1.` 这类条款内的项不升级,
 /// 它们通常是正文列举而非独立章节。
 pub fn promote_numbered_headings(md: &str) -> (String, usize) {
-    let existing = md
-        .lines()
-        .filter(|l| heading_title(l).is_some())
-        .count();
+    let existing = md.lines().filter(|l| heading_title(l).is_some()).count();
     let unit_lines = md
         .lines()
         .filter(|l| heading_title(l).is_none() && is_structural_unit(l.trim()))

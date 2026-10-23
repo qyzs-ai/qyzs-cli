@@ -7,6 +7,150 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-22
+
+发布准备完成，待打 tag（`docs/RELEASE.md` §2 发布流程第 2/3 步；发布条件 C8~C10
+仍未清零，见 §3）。
+
+> **命令名说明**：本段的 Added 条目按开发时序记述，期间文档转换命令经历
+> `markitdown` → `scan` → **`markscan`** 两次更名（更名条目见本段「Changed」）。
+> **0.2.0 发布物的命令名是 `markscan`**，本段早期条目中出现的 `scan` /
+> `markitdown` 均为开发期名称，照抄会得到「未知子命令」错误。
+
+### Fixed
+
+- **代码 / 文档 / 注释三者内容对齐**（2026-10-22 全量审计）：
+  - `qyzs models` 的 `--online-only` / `--all-models` 此前被 dispatch 直接丢弃
+    （`Commands::Models { online_only: _, all_models: _ }`），是**死参数**——而
+    help 与 README 都宣称它们有过滤语义。现真正接线：`capability_matrix.toml`
+    的 `[models.matrix].rows` 增加 `online` 字段，5 个实测禁止调度的模型
+    （qwen36 / deepseek_v3_2 / qwen2.5-72b / text-embedding-v4 /
+    mymodel-paddleocr-udhyfg）由注释迁为 `online = false` 的数据行，
+    `--all-models` 才追加展示（新增 `select_rows` 单测锁定该行为）。
+    注：`--online-only` 仍是恒为真的默认标志（仅用于与 `--all-models` 互斥，
+    显式写出与默认行为等价），实际起过滤作用的是 `online` 字段。
+  - `config get` / `config set` 此前漏掉 `model.default_asr` 与
+    `model.default_sam`——两个字段在 resolver 中被真实读取并驱动 asr / sam
+    默认模型，用户却无法用 CLI 读写，现已补齐。
+  - 参数面 help 标注与 `src/cli/validate.rs` 的实际边界对齐：`chat --max-tokens`
+    由「(≥ 1)」改为「(1~1000000)」；`rerank --top-n`、`usage --days`、
+    `pdf-split --chunk-size` 补齐区间标注；`markscan --type` help 补列
+    白名单实际接受的 `doc`。
+  - `src/cli/args.rs` 模块头注释与 README 的短语法举例引用了已删除的 `ocr`
+    子命令与 `config` 的 `-p`，改为现存的 `-d`（rerank=documents、
+    dataset=dest）与 `-p`（pdf-split=pages）。
+  - `src/pipeline/ocr_verify.rs` 的未达阈值提示文案声称「触发双模型二次复核
+    机制」，但该机制从未实现（verify 只计算相似度并给结论），文案改为
+    「建议人工复核」；模块头「红头/印章仲裁」同步收敛为「同源互验」。
+  - `src/pipeline/markscan/mod.rs` 模块头的档位后处理描述存在重复串
+    （「多通道交叉验证 + 逐段仲裁」重复两遍），已去重。
+  - **恢复 `chat` 多图自动分批（回归修复）**：`validate_chat_images` 在 cdb9f59
+    中被引入，对 >16 张图直接报用法错误（退出码 2），从而使 `inference.rs` 中
+    自初始提交 3cb3e1c 起就存在的分批逻辑**在 CLI 路径上不可达**——而 0.1.0
+    CHANGELOG、capability_matrix 原注释、QYZS-ANALYZE §3.1 与护栏实测脚本
+    `verify_guardrails.sh` [5/5] 全部记载的是「>16 图自动分批」，cdb9f59 的
+    提交说明亦未提及 chat 图片限制。现移除该校验器，恢复自动分批（每批 ≤16
+    张，20 图拆为 16+4），分批逻辑提取为 `split_image_batches` 并补单元测试
+    （总数守恒 / 每批不超上限 / 顺序保持）；`chat --image` help 与
+    capability_matrix 同步改回「超过 16 张自动分批」。
+  - `tests/docs/` 四份文档与实现对齐：交叉验证默认阈值 0.70 → 0.55（实际同源
+    段落相似度落在 0.44~0.69，旧默认切在分布之上导致 92% 段落被误判冲突）；
+    删除从未实现的 `--strip-seals`；纠正 15% 互验阈值的方向（≥ 0.15 判同源，
+    不是低于即熔断）；删除「MinerU 同步/异步自动切换」等未实现能力描述；
+    补齐 `.doc` 不被解析网关接受的说明；MinerU 表单
+    去掉客户端从不发送的 `output_dir`；压测方案的超时口径改为「单一全局默认
+    30s + markscan 300s 下限」；测试数据树按磁盘实际文件名订正。
+  - `.env.example` 补齐代码实际读取的 `QYZS_BASE_URL` / `QYZS_TIMEOUT` /
+    `QYZS_LANG` / `QYZS_MODEL_LANG`（此前只列 `QYZS_APIKEY`）。
+  - 新增 `docs/DEVENV.md`：本地开发环境搭建——rustup 组件与六个 CI 目标的
+    标准库、交叉编译工具链（musl / aarch64 / loongarch64 / mingw / clang）、
+    各目标在 Linux 上的可行性边界与命令、质量门禁与实测脚本用法；
+    README「本地开发环境」小节指向该文档。
+  - **修复自更新在 Linux/macOS 上必然损坏二进制的缺陷（发布阻塞级）**：
+    `apply_update_bytes` 此前只解 `.zip`，其余格式一律把原始字节当作可执行文件
+    写入——而 CI 对 Linux/macOS 产出的正是 `.tar.gz`，等于 `qyzs upgrade` 会把
+    gzip 字节写到执行文件位置。现按后缀分派：`.zip` → zip 解包、`.tar.gz`/`.tgz`
+    → gzip+tar 解包、无后缀 → 裸二进制透传；新增 `tar` 与 `flate2`（纯 Rust 后端
+    `miniz_oxide`，不引入 C zlib，零动态依赖承诺不变）两个依赖，并以 5 个单测
+    锁定 CI 六平台全部资产格式。**该缺陷此前从未被任何测试覆盖。**
+  - **修复 `qyzs dataset` 数据集多出一层目录的缺陷**：CI 原打包命令
+    `cd tests && zip -qr ... data` 会把 `data/` 目录**本身**打进归档，而解压是
+    「归档内容原样展开到 `--dest`」，按默认 `--dest tests/data` 实际落点是
+    `tests/data/data/...`，**比 help 承诺的目录深一层**。现改为打包 `data/*`
+    （归档根即数据集内容），并把解压契约明确为「原样展开、不剥离层级」——通用
+    解压器不该猜测哪一层是冗余的（"只有一个顶层目录"的情形下那层往往是有意义的）。
+    补 4 个单测锁定契约。该路径此前从未端到端跑过。
+  - **发布链路可本地端到端验证**：新增 `tests/scripts/verify_release_pipeline.py`
+    ——用本地模拟的 GitHub Release（按 CI 资产命名组装 `.tar.gz`/`.zip` + Release
+    API 响应 + 内核分配的空闲端口起 HTTP 服务）验证 install.sh 全链路、
+    `upgrade --check` 版本比较、`upgrade` 下载→解包→原子替换自身、
+    `upgrade --package` 本地安装包、`qyzs dataset` 解压落点、install.ps1 逻辑
+    （用 pwsh 在 Linux 上跑，Windows 专属部分仍须真机）、npm 包族装配与启动器
+    平台调度。当前 25/25 通过。CI 新增 `release-pipeline-verify` job 逐次拦截，
+    发布路径的回归不必等到 tag 推送当天才暴露。
+  - **Release 地址可覆盖**（便于镜像源与本地验证）：`install.sh`/`install.ps1`
+    新增 `QYZS_REPO`/`QYZS_GITHUB_URL`/`QYZS_RELEASE_API_URL`/`QYZS_FALLBACK_TAG`
+    四个环境变量；`qyzs upgrade` 的 Release API 地址支持 `QYZS_RELEASE_API_URL`。
+    国内网络可用镜像源接管下载，避免直连 GitHub 受限。
+  - **提交历史密钥门禁**（新增 `tests/scripts/check_no_secrets.sh` + CI
+    `secret-scan` job）：扫描**全对象库**（含可达提交与悬空/不可达对象——
+    `git add` 后又删除的凭据同样会留在 `.git/objects` 里，只有 `git gc` 才清除）
+    与已跟踪文件，检查 `sk-<16+ 位字母数字>` / AWS AKIA / GitHub / npm Token /
+    PEM 私钥块，并拦截被跟踪的 `.env`、`credentials.toml`、`*.key`、`*.pem`。
+    CI 侧需 `fetch-depth: 0`（浅克隆扫不到历史）。实测结论：`.env` 从未进入
+    提交，真实 Key 在对象库中零命中；历史中唯一的 `sk-` 形态串是
+    `tests/integration_tests.rs` 的假值夹具 `sk-abcdef1234567890wxyz`（白名单）。
+    按「泄露的旧 Key 由平台侧吊销、本项目负责历史不残留」的责任划分，
+    `docs/RELEASE.md` C7 由「阻塞级 ⬜」改为「提交历史中无 API Key 记录 ✅」，
+    C13 的依赖相应收窄为 C8~C10。
+  - **质量门禁补齐**（随本地工具链完善而做）：
+    - `cargo clippy --all-targets` 的 53 条告警全部清理（含
+      `collapsible_str_replace`、`needless_lifetimes`、`manual_contains`、
+      `map_or(true, ..)` → `is_none_or`、`chunks_exact` → `as_chunks`、
+      `repeat().take()` → `repeat_n()`、`sort_by` → `sort_by_key(Reverse(..))`、
+      `let...else` → `?`、`match` → `?` 等）。行为等价性逐条核对：
+      `as_chunks` 的三处切片长度整除性已验证（`sector_size ∈ {512,4096}` 均为
+      128/4 的倍数、`name_len` 为偶数且 ≤64），不会 panic；
+      `msgf!` 宏由 `to_string()` 改为 `format!("{}", ..)` 以避开多余克隆
+      （`usize` 等 `Display` 类型仍受支持）。
+    - 代码库经 `cargo fmt --all` 归一，**现为 rustfmt-clean**（此前 290 处
+      差异，集中在函数签名/调用略超 100 列处）。
+    - `.github/workflows/ci.yml` 新增三道门禁：`cargo fmt --all -- --check`、
+      `cargo clippy --all-targets -- --deny warnings`，以及新增
+      `cross-target-check` job——此前 PR 阶段只跑宿主目标的 `cargo check`，
+      `#[cfg(windows)]` / `#[cfg(target_os = "macos")]` 分支
+      （`src/term/i18n.rs` 的系统语言读取、`src/updater/installer.rs`）
+      **完全无编译覆盖**，只在 tag 触发的发布构建里才被编译；现由
+      windows-latest / macos-13 / macos-latest 原生 runner 分别检查
+      windows-msvc 与两个 apple-darwin 目标，另有 ubuntu-latest + musl-tools
+      检查 x86_64-unknown-linux-musl。
+  - 文档指向不存在的文件：`QYZS-MARKITDOWN.md` / `QYZS-SCAN.md` 统一改为
+    `QYZS-MARKSCAN.md`（CHANGELOG / docs/RELEASE.md / markscan 源码注释 /
+    gateway_tests.rs 头注释共 4 处）。
+  - 目标三元组与 CI 构建矩阵对齐：README / install.ps1 / updater 此前写
+    `x86_64-pc-windows-gnu`、龙芯写 `loongarch64-unknown-linux-musl`，而 CI
+    实际构建 `x86_64-pc-windows-msvc` 与 `loongarch64-unknown-linux-gnu`，
+    拼出的资产名不存在。现统一以 CI 为准。
+  - `install.sh` 的「裸二进制」下载兜底分支是死代码（CI 只发布压缩包），
+    且下载失败仍会打印「安装成功」；改为明确报错退出。
+  - `tests/integration_tests.rs` 中针对已删除的 `parse --is-ocr` 的陈旧断言
+    改为校验仍存在的 `chat --stream` / `chat --max-tokens` 契约。
+  - 子命令计数对齐：README / CHANGELOG / docs/RELEASE.md 三处对「全 18 个
+    子命令」的说法统一订正为 16（`Commands` enum 实际 16 个变体）。
+  - **发布准备对齐（版本漂移）**：`Cargo.toml` 版本此前仍是 `0.1.0`，而
+    `qyzs dataset` 的默认 URL 与 README 示例已写死 `v0.2.0`——而 v0.1.0 与
+    v0.2.0 **均从未打 tag**，该 URL 必然 404；`install.sh` / `install.ps1` 的
+    版本兜底同样指向未存在的 tag。现按 `docs/RELEASE.md` §2 发布流程第 2 步
+    执行发布准备：`Cargo.toml` 提到 `0.2.0`，`CHANGELOG` 的 `Unreleased`
+    段落固化为 `[0.2.0] - 2026-10-22` 段并更新 compare 链接，安装脚本版本
+    兜底与 `npm/build.sh` 默认版本同步为 `v0.2.0`。打 tag `v0.2.0` 后 CI
+    版本一致性守卫即可通过（已核验 tag == Cargo.toml == 0.2.0）。
+  - `docs/RELEASE.md` 同步订正：§4 的 0.2.0 条目补全 `csv`/`json`/`xml`/`zip`
+    四个已实现通道、档位由「三档 speed/balanced/rigor」改为「两档 rigor/speed
+    （旧值 balanced 映射到 rigor）」，并补记移除的 `ocr`/`parse`/`markitdown`
+    三个子命令；C6 的测试计数由「83 单元 + 9 集成」更新为实际的 284 项；
+    C11 说明与 `Cargo.toml` 版本对齐。
+
 ### Added
 
 - **`markscan` 图像通道双 OCR 引擎并行交叉**（2026-10-21 引擎基准驱动）：网关实测
@@ -108,7 +252,7 @@
   下一层变量）；Windows 无 POSIX locale 变量，新增 Win32 `GetUserDefaultUILanguage`
   FFI 读取系统 UI 语言；macOS 图形会话（launchd 直启等）同样常无 locale 变量，
   新增 CoreFoundation `CFLocaleCopyCurrent` FFI 读取系统区域标识（两者均为
-  手写系统框架声明，零新增依赖；已对 windows-gnu 与 aarch64/x86_64-apple-darwin
+  手写系统框架声明，零新增依赖；已对 Windows 与 aarch64/x86_64-apple-darwin
   目标完成类型检查）。**默认语言行为变更**：
   此前一律默认中文，现跟随系统语言。CLI 显式非法值（如 `french`）报
   USAGE_ERR 并提示合法值；环境变量/配置文件层保持 best-effort 回退英文。
@@ -143,7 +287,7 @@
   （htmd/html5ever 纯 Rust 转换，script/style 入口剥离）。
 - 阶段②转换执行（speed 档）：PDF 本地 15 页/批切片 + MinerU 逐片同步抽取聚合；
   docx 整文件解析；规则清洗行为契约（只做结构归一不改写内容，见
-  `tests/docs/QYZS-MARKITDOWN.md` §3.1）；过程数据工作区生命周期（内容指纹
+  `tests/docs/QYZS-MARKSCAN.md` §3.1）；过程数据工作区生命周期（内容指纹
   工作目录、并发锁、manifest 段×阶段状态机、段完成即流式清理切片二进制、成功
   清理/失败保留、`--resume` 幂等续跑、7 天残留时机性清扫）。
 - `docs/RELEASE.md`：版本号制度、发布流程与发布条件清单（SSOT）。
@@ -209,10 +353,11 @@
 
 - **（破坏性）删除 `ocr` 子命令，功能并入 `scan`**：两个入口都做「图像→文字」，
   但 `ocr` 只出纯文本、`scan` 出结构化 Markdown 且支持多文件/体裁识别/图片资产，
-  长期并存会让用户困惑。迁移：
-  - `qyzs ocr img.png` → `qyzs scan img.png --image-handling ocr --no-front-matter`
-  - `qyzs ocr img.png -p "自定义引导词"` → `qyzs scan img.png --image-prompt "自定义引导词"`
-  - `qyzs ocr img.png --max-dim 1600` → `qyzs scan img.png --max-dim 1600`
+  长期并存会让用户困惑。迁移（`scan` 为开发期名称，**发布版命令名为 `markscan`**，
+  见本段「`scan` 更名为 `markscan`」条目）：
+  - `qyzs ocr img.png` → `qyzs markscan img.png --image-handling ocr --no-front-matter`
+  - `qyzs ocr img.png -p "自定义引导词"` → `qyzs markscan img.png --image-prompt "自定义引导词"`
+  - `qyzs ocr img.png --max-dim 1600` → `qyzs markscan img.png --max-dim 1600`
   `scan` 相对 `ocr` 的增量：多文件批量、照片自动跳过、`--image-handling`
   （auto/ocr/describe/both/skip）、VL 图像理解、Markdown 结构化输出、`--report` 报告。
   内部 `client.ocr` 能力保留（scan 的图像通道与扫描件第二通道证据仍使用）。
@@ -224,8 +369,9 @@
   名不副实。现统一为 `scan`，参数面沿用原 `markitdown`（`-o/--mode/--type/
   --model/--report/--work-dir/--segment-chars/--resume/--no-clean/
   --no-front-matter/--dry-run`），并新增 `--assets-dir` / `--no-assets` /
-  `--no-classify`。迁移：`qyzs parse f.pdf` → `qyzs scan f.pdf -o f.md`；
-  `qyzs markitdown f.pdf` → `qyzs scan f.pdf`。内部模块 `pipeline::markitdown`
+  `--no-classify`。迁移（`scan` 为开发期名称，**发布版命令名为 `markscan`**）：
+  `qyzs parse f.pdf` → `qyzs markscan f.pdf -o f.md`；
+  `qyzs markitdown f.pdf` → `qyzs markscan f.pdf`。内部模块 `pipeline::markitdown`
   同步更名为 `pipeline::scan`（`MarkitdownPipeline` → `ScanPipeline`）。
 - **退出码对齐 sysexits.h（行为变更，脚本需注意）**：`Network`/`Server`/`Config`
   三类错误此前统一返回 `FAILURE=1`，外部脚本无法区分网络不可达、服务端故障与本地
@@ -254,7 +400,7 @@
 - `--model-lang` help 与 README 注明「仅 chat 生效」：该参数当前唯一消费点是
   chat 的 system prompt 语言注入，对其余子命令为静默 no-op（markitdown 润色
   阶段语言由流水线内部 prompt 控制，不受此参数影响）。
-- README 子命令速览覆盖全 18 个子命令（新增 `asr`/`sam`/`verify`/`dataset`/
+- README 子命令速览覆盖全 16 个子命令（新增 `asr`/`sam`/`verify`/`dataset`/
   `upgrade`/`completions` 展示），markitdown rigor 档示例同步为已接入状态。
 - 破坏性：原"超长 PDF 切片转 Markdown"独立子命令移除，能力同版本被
   `markitdown --mode speed` 吸收（迁移豁免见 docs/RELEASE.md §1）。
@@ -347,7 +493,7 @@
   - 运行时消息全部改走 i18n 目录（新增 8 个 MsgId：体裁判定/模型失败/弱命中仲裁/
     图像判定/样式校正/资产落盘/附件索引说明），此前新增能力用裸中文 `eprintln!`
     输出，违反「运行时消息全量走目录」契约，英文界面会中英混排。
-  - `tests/docs/QYZS-SCAN.md`（原 QYZS-MARKITDOWN.md）标题与内容同步：新增
+  - `tests/docs/QYZS-MARKSCAN.md`（原 QYZS-MARKITDOWN.md / QYZS-SCAN.md）标题与内容同步：新增
     §3.2「体裁识别与排版样式转换」（识别顺序、置信度分派、仲裁语义、编号层级
     自适应重建、样式来源、资产抽取与严格计数匹配、明确不做的重排），§3 档位表
     补扫描件三通道，§4 补图片先判文档/照片。
@@ -432,5 +578,6 @@
 - 六平台构建矩阵（linux x64/arm64/loong64、macOS x64/arm64、Windows x64）
   与 npm 包族 provenance 发布流水线。
 
-[Unreleased]: https://github.com/qyzs-ai/qyzs-cli/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/qyzs-ai/qyzs-cli/releases/tag/v0.1.0
+[Unreleased]: https://github.com/qyzs-ai/qyzs-cli/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/qyzs-ai/qyzs-cli/compare/3cb3e1c...v0.2.0
+[0.1.0]: https://github.com/qyzs-ai/qyzs-cli/tree/3cb3e1c

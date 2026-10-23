@@ -35,7 +35,10 @@ pub async fn status(ctx: &Ctx<'_>, json: bool, no_probe: bool) -> QyzsResult<()>
             "api_key_masked": Credentials::mask_key(&config.api_key),
             "probes": probes_json(probes.as_ref())
         });
-        println!("{}", serde_json::to_string_pretty(&status_json).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&status_json).unwrap_or_default()
+        );
     } else {
         let styler = printer.styler();
         println!(
@@ -50,13 +53,21 @@ pub async fn status(ctx: &Ctx<'_>, json: bool, no_probe: bool) -> QyzsResult<()>
         );
         println!(
             "  Install Mode:  {}",
-            if is_npm { "npm Global Package" } else { "Standalone Binary" }
+            if is_npm {
+                "npm Global Package"
+            } else {
+                "Standalone Binary"
+            }
         );
         println!("  Config File:   {} [OK]", Config::default_path().display());
         println!(
             "  Credentials:   {} [{}]",
             creds_path.display(),
-            if is_secure { "OK: 0600 secure" } else { "WARN: wide permissions" }
+            if is_secure {
+                "OK: 0600 secure"
+            } else {
+                "WARN: wide permissions"
+            }
         );
         println!(
             "  Active Key:    {} (Source: {})",
@@ -169,14 +180,11 @@ fn parse_model_params_entry(key: &str, value: &str) -> QyzsResult<(String, Strin
         .map_err(|_| {
             QyzsError::Usage(format!("超参 '{}' 必须为数值 (当前: '{}')", param, value))
         })?;
-    let normalized = model.replace('.', "_").replace('-', "_");
+    let normalized = model.replace(['.', '-'], "_");
     Ok((normalized, param.to_string(), parsed))
 }
 
-pub fn config(
-    ctx: &Ctx<'_>,
-    action: crate::cli::args::ConfigAction,
-) -> QyzsResult<()> {
+pub fn config(ctx: &Ctx<'_>, action: crate::cli::args::ConfigAction) -> QyzsResult<()> {
     match action {
         crate::cli::args::ConfigAction::Get { key } => {
             let conf = Config::load()?;
@@ -192,15 +200,14 @@ pub fn config(
                 "model.default_parse" => println!("{}", conf.model.default_parse),
                 "model.default_embed" => println!("{}", conf.model.default_embed),
                 "model.default_rerank" => println!("{}", conf.model.default_rerank),
+                "model.default_asr" => println!("{}", conf.model.default_asr),
+                "model.default_sam" => println!("{}", conf.model.default_sam),
                 _ => {
                     // 未知键 fallback: 走 stderr 提示用户键名未在已知表里,
                     // 再将整文件 TOML 输出到 stdout 供参考 (与 read 工具的副作用约定)
-                    eprintln!(
-                        "# 未识别的配置键 '{}', 输出整文件 TOML 供查阅",
-                        key
-                    );
-                    let toml_val =
-                        toml::Value::try_from(&conf).map_err(|e| QyzsError::Config(e.to_string()))?;
+                    eprintln!("# 未识别的配置键 '{}', 输出整文件 TOML 供查阅", key);
+                    let toml_val = toml::Value::try_from(&conf)
+                        .map_err(|e| QyzsError::Config(e.to_string()))?;
                     println!("{}", toml_val);
                 }
             }
@@ -212,9 +219,11 @@ pub fn config(
             let mut conf = Config::load().unwrap_or_default();
             match key.as_str() {
                 "network.base_url" => conf.network.base_url = value.clone(),
-                "network.timeout" => conf.network.timeout = value
-                    .parse()
-                    .map_err(|_| QyzsError::Usage("timeout 必须为整数".to_string()))?,
+                "network.timeout" => {
+                    conf.network.timeout = value
+                        .parse()
+                        .map_err(|_| QyzsError::Usage("timeout 必须为整数".to_string()))?
+                }
                 "ui.language" => conf.ui.language = value.clone(),
                 "ui.color" => conf.ui.color = value.clone(),
                 "ui.format" => conf.ui.format = value.clone(),
@@ -224,6 +233,8 @@ pub fn config(
                 "model.default_parse" => conf.model.default_parse = value.clone(),
                 "model.default_embed" => conf.model.default_embed = value.clone(),
                 "model.default_rerank" => conf.model.default_rerank = value.clone(),
+                "model.default_asr" => conf.model.default_asr = value.clone(),
+                "model.default_sam" => conf.model.default_sam = value.clone(),
                 key_str if key_str.starts_with("model.params.") => {
                     let (model, param, parsed) = parse_model_params_entry(key_str, &value)?;
                     conf.model
@@ -235,8 +246,12 @@ pub fn config(
                 _ => return Err(QyzsError::Usage(format!("未知配置项: '{}'", key))),
             }
             conf.save()?;
-            ctx.printer
-                .ok(&format!("{}: {} = {}", crate::msg!(ConfigSaved), key, value));
+            ctx.printer.ok(&format!(
+                "{}: {} = {}",
+                crate::msg!(ConfigSaved),
+                key,
+                value
+            ));
         }
         crate::cli::args::ConfigAction::Path => {
             println!("Config:      {}", Config::default_path().display());
@@ -244,8 +259,7 @@ pub fn config(
         }
         crate::cli::args::ConfigAction::Reset => {
             // 破坏性操作前警告 (替代交互式确认)
-            ctx.printer
-                .warn(crate::msg!(WarnConfigResetDestructive));
+            ctx.printer.warn(crate::msg!(WarnConfigResetDestructive));
             Config::reset()?;
             ctx.printer.ok(crate::msg!(ConfigReset));
         }
@@ -253,10 +267,7 @@ pub fn config(
     Ok(())
 }
 
-pub fn auth(
-    ctx: &Ctx<'_>,
-    action: crate::cli::args::AuthAction,
-) -> QyzsResult<()> {
+pub fn auth(ctx: &Ctx<'_>, action: crate::cli::args::AuthAction) -> QyzsResult<()> {
     match action {
         crate::cli::args::AuthAction::Login { key } => {
             let api_key = if let Some(k) = key {
@@ -273,7 +284,9 @@ pub fn auth(
                 return Err(QyzsError::Usage("API Key 不能为空".to_string()));
             }
 
-            let creds = Credentials { api_key: api_key.clone() };
+            let creds = Credentials {
+                api_key: api_key.clone(),
+            };
             creds.save()?;
             ctx.printer.ok(&format!(
                 "{}: {}",
@@ -299,8 +312,7 @@ pub fn auth(
         }
         crate::cli::args::AuthAction::Logout => {
             // 破坏性操作前警告 (替代交互式确认, 适配无 TTY 场景)
-            ctx.printer
-                .warn(crate::msg!(WarnAuthLogoutDestructive));
+            ctx.printer.warn(crate::msg!(WarnAuthLogoutDestructive));
             let purged = Credentials::purge()?;
             if purged {
                 ctx.printer.ok(crate::msg!(AuthLogoutSuccess));
@@ -319,9 +331,11 @@ struct MatrixRow {
     category: String,
     latency: String,
     feature: String,
+    /// 在线可用标记: `false` 表示实测禁止调度, 仅 `--all-models` 时展示
+    online: bool,
 }
 
-pub fn models(ctx: &Ctx<'_>) -> QyzsResult<()> {
+pub fn models(ctx: &Ctx<'_>, all_models: bool) -> QyzsResult<()> {
     const MATRIX_TOML: &str = include_str!("../../../capability_matrix.toml");
     let value: toml::Value = toml::from_str(MATRIX_TOML)
         .map_err(|e| QyzsError::Config(format!("capability_matrix 解析失败: {}", e)))?;
@@ -336,22 +350,29 @@ pub fn models(ctx: &Ctx<'_>) -> QyzsResult<()> {
         .unwrap_or_default();
 
     let styler = ctx.printer.styler();
+    let title = if all_models {
+        "庆阳智算中心全量模型矩阵 (含实测禁止调度项, SSOT 校准真值)"
+    } else {
+        "庆阳智算中心在线可用模型矩阵 (SSOT 校准真值)"
+    };
+    println!("{}", styler.bold(title));
     println!(
-        "{}",
-        styler.bold("庆阳智算中心全量高可靠可用模型矩阵 (SSOT 校准真值)")
-    );
-    println!(
-        "{:<20} {:<10} {:<10} {}",
-        "模型代码", "能力分类", "实测延时", "特性与场景"
+        "{:<20} {:<10} {:<10} 特性与场景",
+        "模型代码", "能力分类", "实测延时"
     );
     println!("{}", "-".repeat(75));
-    for row in &rows {
+    for row in select_rows(&rows, all_models) {
         println!(
             "{:<20} {:<10} {:<10} {}",
             row.code, row.category, row.latency, row.feature
         );
     }
     Ok(())
+}
+
+/// 按 `online` 标记筛选矩阵行: `--all-models` 返回全部, 默认仅返回在线项
+fn select_rows(rows: &[MatrixRow], all_models: bool) -> Vec<&MatrixRow> {
+    rows.iter().filter(|r| all_models || r.online).collect()
 }
 
 pub async fn upgrade(
@@ -395,7 +416,9 @@ async fn upgrade_check_only(ctx: &Ctx<'_>, repo: &str) -> QyzsResult<()> {
     use crate::updater::github::GitHubClient;
 
     if UpdateManager::is_running_under_npm() {
-        return Err(QyzsError::Usage(crate::msg!(SelfUpdateNpmWarning).to_string()));
+        return Err(QyzsError::Usage(
+            crate::msg!(SelfUpdateNpmWarning).to_string(),
+        ));
     }
 
     let release = GitHubClient::get_latest_release(repo).await?;
@@ -434,8 +457,7 @@ pub fn usage(ctx: &Ctx<'_>, args: UsageArgs) -> QyzsResult<()> {
 
     if args.clear {
         // 破坏性操作前警告 (替代交互式确认; --json 模式下静默走数据通道, 警告仍 stderr 输出)
-        ctx.printer
-            .warn(crate::msg!(WarnUsageClearDestructive));
+        ctx.printer.warn(crate::msg!(WarnUsageClearDestructive));
         let removed = usage_ledger::clear();
         if args.json {
             println!("{}", serde_json::json!({ "cleared_records": removed }));
@@ -469,7 +491,11 @@ pub fn usage(ctx: &Ctx<'_>, args: UsageArgs) -> QyzsResult<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(&usage_json(
-                &records, &summary, all.len(), &args, archived
+                &records,
+                &summary,
+                all.len(),
+                &args,
+                archived
             ))
             .unwrap_or_default()
         );
@@ -483,7 +509,12 @@ pub fn usage(ctx: &Ctx<'_>, args: UsageArgs) -> QyzsResult<()> {
     );
     println!(
         "{}",
-        crate::msgf!(UsageLedgerLine, usage_ledger::ledger_path().display(), all.len(), records.len())
+        crate::msgf!(
+            UsageLedgerLine,
+            usage_ledger::ledger_path().display(),
+            all.len(),
+            records.len()
+        )
     );
     if records.is_empty() {
         println!("  {}", crate::msg!(UsageNoData));
@@ -651,11 +682,18 @@ fn usage_json(
     // --hourly: 追加按小时桶 (仅明细行可归桶)
     if args.hourly {
         let hourly = ledger::summarize_hourly(records);
-        root["by_hour"] = hourly.by_hour.iter()
-            .map(|(b, st)| (b.clone(), serde_json::json!({
-                "requests": st.requests,
-                "total_tokens": st.total_tokens,
-            })))
+        root["by_hour"] = hourly
+            .by_hour
+            .iter()
+            .map(|(b, st)| {
+                (
+                    b.clone(),
+                    serde_json::json!({
+                        "requests": st.requests,
+                        "total_tokens": st.total_tokens,
+                    }),
+                )
+            })
             .collect();
     }
     root
@@ -734,7 +772,8 @@ mod tests {
         assert_eq!(v, toml::Value::Float(0.7));
 
         // 模型名含点号/连字符: 右侧最后一次分割 + 归一化为查找主形态
-        let (m, p, _) = parse_model_params_entry("model.params.qwen3.6-27b.temperature", "0.4").unwrap();
+        let (m, p, _) =
+            parse_model_params_entry("model.params.qwen3.6-27b.temperature", "0.4").unwrap();
         assert_eq!((m.as_str(), p.as_str()), ("qwen3_6_27b", "temperature"));
 
         // 非法形态与非数值
@@ -742,5 +781,51 @@ mod tests {
         assert!(parse_model_params_entry("model.params..temperature", "0.7").is_err());
         assert!(parse_model_params_entry("model.params.dsv4.temperature.", "0.7").is_err());
         assert!(parse_model_params_entry("model.params.dsv4.temperature", "auto").is_err());
+    }
+
+    #[test]
+    fn models_matrix_online_filtering() {
+        use super::{select_rows, MatrixRow};
+
+        // 解析编译期嵌入的矩阵 (行缺 `online` 字段会在这里直接失败)
+        const MATRIX_TOML: &str = include_str!("../../../capability_matrix.toml");
+        let value: toml::Value = toml::from_str(MATRIX_TOML).expect("capability_matrix 可解析");
+        let rows: Vec<MatrixRow> = value
+            .get("models")
+            .and_then(|m| m.get("matrix"))
+            .and_then(|mx| mx.get("rows"))
+            .cloned()
+            .map(|v| v.try_into::<Vec<MatrixRow>>())
+            .transpose()
+            .expect("models.matrix 可解析")
+            .unwrap_or_default();
+
+        // 默认 (--online-only): 只留 online = true
+        let online = select_rows(&rows, false);
+        assert!(online.iter().all(|r| r.online));
+        assert!(!online.is_empty());
+
+        // --all-models: 返回全部, 且应多于在线子集 (存在被过滤掉的已下线项)
+        let all = select_rows(&rows, true);
+        assert_eq!(all.len(), rows.len());
+        assert!(
+            all.len() > online.len(),
+            "--all-models 应比 --online-only 多出已下线项"
+        );
+
+        // 实测禁止调度的 5 个模型必须以 online = false 存在
+        for code in [
+            "qwen36",
+            "deepseek_v3_2",
+            "qwen2.5-72b",
+            "text-embedding-v4",
+            "mymodel-paddleocr-udhyfg",
+        ] {
+            let row = all
+                .iter()
+                .find(|r| r.code == code)
+                .unwrap_or_else(|| panic!("矩阵缺少 {code} 行"));
+            assert!(!row.online, "{code} 应标记为 online = false");
+        }
     }
 }

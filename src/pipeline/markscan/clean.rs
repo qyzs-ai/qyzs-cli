@@ -1,6 +1,6 @@
 //! markscan speed 档规则清洗 (行为契约: 只做结构归一，不改写内容)
 //!
-//! 两项且仅两项操作 (契约全文见 tests/docs/QYZS-MARKITDOWN.md §3.1):
+//! 两项且仅两项操作 (契约全文见 tests/docs/QYZS-MARKSCAN.md §3.1):
 //! 1. 标题层级相对深度归一: 按各标题级别在文中首次出现顺序映射为连续层级
 //!    (如 MinerU 切片聚合后通篇从 ### 起排，归一为 #/##/##)，仅改写 `#` 数量。
 //! 2. 空白规整: 3 连以上空行折叠为 1 个空行；行尾空白剥离；文件以单个换行收尾。
@@ -130,7 +130,8 @@ mod tests {
     #[test]
     fn test_heading_relative_depth_normalization() {
         // MinerU 切片聚合典型形态: 通篇从 ### 起排 → 按首现顺序归一为 #/##
-        let input = "### 第一章 总则\n### 第二章 条款\n#### 2.1 细则\n#### 2.2 附则\n### 第三章 附则\n";
+        let input =
+            "### 第一章 总则\n### 第二章 条款\n#### 2.1 细则\n#### 2.2 附则\n### 第三章 附则\n";
         let out = rule_clean(input);
         assert!(out.starts_with("# 第一章 总则\n"));
         assert!(out.contains("# 第三章 附则"));
@@ -195,7 +196,8 @@ mod tests {
     #[test]
     fn test_content_preservation() {
         // 数字与文字逐字保留
-        let input = "### 段\n金额 123,456.78 元；比例 10%/90%；编号 GB/T 12345-2020。\n\n\n\n### 段二\n";
+        let input =
+            "### 段\n金额 123,456.78 元；比例 10%/90%；编号 GB/T 12345-2020。\n\n\n\n### 段二\n";
         let out = rule_clean(input);
         assert!(out.contains("金额 123,456.78 元；比例 10%/90%；编号 GB/T 12345-2020。"));
     }

@@ -144,10 +144,7 @@ fn style_levels(styles_xml: &str) -> HashMap<String, usize> {
 /// 从样式名解析标题层级
 fn heading_level_from_name(name: &str) -> Option<usize> {
     let lower = name.to_ascii_lowercase();
-    let digits: String = name
-        .chars()
-        .filter(|c| c.is_ascii_digit())
-        .collect();
+    let digits: String = name.chars().filter(|c| c.is_ascii_digit()).collect();
     let is_heading = lower.contains("heading") || name.contains("标题");
     if !is_heading || digits.is_empty() {
         return None;
@@ -182,7 +179,7 @@ fn extract_direct_attr(block: &str, attr: &str) -> Option<String> {
 }
 
 /// 取形如 `w:pStyle w:val="Heading1"` 的属性值
-fn extract_attr<'a>(block: &'a str, attr: &str) -> Option<String> {
+fn extract_attr(block: &str, attr: &str) -> Option<String> {
     let idx = block.find(attr)?;
     let tail = &block[idx + attr.len()..];
     let val_idx = tail.find("w:val=\"")? + "w:val=\"".len();
@@ -241,8 +238,7 @@ fn unescape_xml(s: &str) -> String {
 pub fn pdf_lines(path: &str) -> QyzsResult<Vec<StyledLine>> {
     use lopdf::Document;
 
-    let doc = Document::load(path)
-        .map_err(|e| QyzsError::Pdf(format!("加载 PDF 失败: {}", e)))?;
+    let doc = Document::load(path).map_err(|e| QyzsError::Pdf(format!("加载 PDF 失败: {}", e)))?;
 
     let mut out = Vec::new();
     for (_, page_id) in doc.get_pages() {
@@ -385,9 +381,21 @@ mod tests {
     #[test]
     fn test_body_size_majority() {
         let lines = vec![
-            StyledLine { size: 9.0, bold: false, text: "正文".into() },
-            StyledLine { size: 9.0, bold: false, text: "正文".into() },
-            StyledLine { size: 26.0, bold: true, text: "标题".into() },
+            StyledLine {
+                size: 9.0,
+                bold: false,
+                text: "正文".into(),
+            },
+            StyledLine {
+                size: 9.0,
+                bold: false,
+                text: "正文".into(),
+            },
+            StyledLine {
+                size: 26.0,
+                bold: true,
+                text: "标题".into(),
+            },
         ];
         assert_eq!(body_size(&lines), 9.0);
     }
@@ -395,13 +403,25 @@ mod tests {
     #[test]
     fn test_large_heading_detection() {
         let body = 14.1;
-        let title = StyledLine { size: 27.0, bold: false, text: "个人信息出境标准合同办法".into() };
+        let title = StyledLine {
+            size: 27.0,
+            bold: false,
+            text: "个人信息出境标准合同办法".into(),
+        };
         assert!(is_large_heading(&title, body));
         // 同字号正文不算标题
-        let para = StyledLine { size: 14.1, bold: false, text: "第一条 为了规范".into() };
+        let para = StyledLine {
+            size: 14.1,
+            bold: false,
+            text: "第一条 为了规范".into(),
+        };
         assert!(!is_large_heading(&para, body));
         // 长行不算标题
-        let long = StyledLine { size: 27.0, bold: false, text: "长".repeat(80) };
+        let long = StyledLine {
+            size: 27.0,
+            bold: false,
+            text: "长".repeat(80),
+        };
         assert!(!is_large_heading(&long, body));
     }
 

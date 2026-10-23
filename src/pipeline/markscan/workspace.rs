@@ -114,10 +114,7 @@ impl Workspace {
         // 但锁可能因持锁进程被强杀 (SIGKILL/崩溃) 而残留 —— 此时锁里的 PID 已不存在,
         // 继续拒绝会让该文档**永久无法转换** (实测强杀一轮批测后留下 26 个僵死锁,
         // 后续全部报"另一进程进行")。故先检测陈旧锁: 持锁 PID 已死 → 清理并接管。
-        let lock = match Self::try_acquire_lock(&lock_path) {
-            Ok(l) => l,
-            Err(e) => return Err(e),
-        };
+        let lock = Self::try_acquire_lock(&lock_path)?;
         let mut lock = lock;
         let _ = writeln!(lock, "pid={}", std::process::id());
 
@@ -407,8 +404,7 @@ mod tests {
         drop(ws);
 
         // 不带续跑标志: 现场作废重新处理 (默认重跑即重新处理)
-        let (ws, resumed) =
-            Workspace::open_in(ws_cache, &input, "pdf", "speed", false).unwrap();
+        let (ws, resumed) = Workspace::open_in(ws_cache, &input, "pdf", "speed", false).unwrap();
         assert!(!resumed, "未显式续跑时既有现场应作废");
         assert!(!ws.stage_done("slice-01", "extract"));
         ws.finish_success(false).unwrap();
@@ -421,7 +417,9 @@ mod tests {
         let input = sample_file(work.path(), "input.bin", b"keep me");
         let ws_cache = cache.path().join("wsroot");
 
-        let ws = Workspace::open_in(ws_cache, &input, "pdf", "speed", false).unwrap().0;
+        let ws = Workspace::open_in(ws_cache, &input, "pdf", "speed", false)
+            .unwrap()
+            .0;
         let root = ws.root.clone();
         ws.finish_success(true).unwrap();
         assert!(root.exists(), "--no-clean 应保留工作目录");
@@ -435,7 +433,9 @@ mod tests {
         let input = sample_file(work.path(), "input.bin", b"v1");
         let ws_cache = cache.path().join("wsroot");
 
-        let mut ws = Workspace::open_in(ws_cache.clone(), &input, "pdf", "speed", false).unwrap().0;
+        let mut ws = Workspace::open_in(ws_cache.clone(), &input, "pdf", "speed", false)
+            .unwrap()
+            .0;
         ws.complete_stage("doc", "extract", &[]).unwrap();
         drop(ws);
 
@@ -454,7 +454,9 @@ mod tests {
         let input = sample_file(work.path(), "input.bin", b"locked");
         let ws_cache = cache.path().join("wsroot");
 
-        let ws = Workspace::open_in(ws_cache.clone(), &input, "pdf", "speed", false).unwrap().0;
+        let ws = Workspace::open_in(ws_cache.clone(), &input, "pdf", "speed", false)
+            .unwrap()
+            .0;
         let second = Workspace::open_in(ws_cache.clone(), &input, "pdf", "speed", false);
         assert!(
             matches!(second, Err(QyzsError::Usage(_))),
@@ -473,7 +475,9 @@ mod tests {
         let input = sample_file(work.path(), "input.bin", b"slices test");
         let ws_cache = cache.path().join("wsroot");
 
-        let mut ws = Workspace::open_in(ws_cache, &input, "pdf", "speed", false).unwrap().0;
+        let mut ws = Workspace::open_in(ws_cache, &input, "pdf", "speed", false)
+            .unwrap()
+            .0;
         let slice = ws.slices_dir().join("part-01.pdf");
         std::fs::write(&slice, b"fake pdf bytes").unwrap();
 
@@ -481,9 +485,12 @@ mod tests {
             .write_segment_text("part-01", "extracted markdown")
             .unwrap();
         assert!(seg_path.exists());
-        assert_eq!(ws.read_segment_text("part-01").unwrap(), "extracted markdown");
+        assert_eq!(
+            ws.read_segment_text("part-01").unwrap(),
+            "extracted markdown"
+        );
 
-        ws.complete_stage("part-01", "extract", &[slice.clone()])
+        ws.complete_stage("part-01", "extract", std::slice::from_ref(&slice))
             .unwrap();
         assert!(!slice.exists(), "段完成后切片二进制应被流式清理");
         ws.finish_success(false).unwrap();
@@ -501,15 +508,23 @@ mod tests {
 
         Workspace::sweep_stale(&ws_cache, Duration::ZERO);
 
-        assert!(!ws_cache.join("stale_target").exists(), "无锁过期目录应被清扫");
-        assert!(ws_cache.join("locked_target").exists(), "持锁目录不应被清扫");
+        assert!(
+            !ws_cache.join("stale_target").exists(),
+            "无锁过期目录应被清扫"
+        );
+        assert!(
+            ws_cache.join("locked_target").exists(),
+            "持锁目录不应被清扫"
+        );
 
         // open_in 路径走 7 天阈值: 近期创建的目录不应被误扫
         let work = tempfile::tempdir_in(cache.path()).unwrap();
         let input = sample_file(work.path(), "input.bin", b"sweep trigger");
-        let (ws, _) =
-            Workspace::open_in(ws_cache.clone(), &input, "pdf", "speed", false).unwrap();
-        assert!(ws_cache.join("locked_target").exists(), "近期目录不应被 open_in 清扫");
+        let (ws, _) = Workspace::open_in(ws_cache.clone(), &input, "pdf", "speed", false).unwrap();
+        assert!(
+            ws_cache.join("locked_target").exists(),
+            "近期目录不应被 open_in 清扫"
+        );
         ws.finish_success(false).unwrap();
     }
 
@@ -560,7 +575,10 @@ mod stale_lock_tests {
         let dir = tempfile::tempdir().expect("临时目录");
         let lock = dir.path().join("lock");
         std::fs::write(&lock, "junk\n").expect("写锁");
-        assert!(!Workspace::lock_is_stale(&lock), "无 PID 记录应保守当作活跃");
+        assert!(
+            !Workspace::lock_is_stale(&lock),
+            "无 PID 记录应保守当作活跃"
+        );
     }
 
     /// 陈旧锁应被接管 (而不是报"另一进程进行")

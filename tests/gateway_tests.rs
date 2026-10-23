@@ -6,7 +6,7 @@
 //! cargo test --test gateway_tests -- --ignored --nocapture
 //! ```
 //!
-//! 行为契约依据: tests/docs/QYZS-MARKITDOWN.md; 实测校准值见 capability_matrix.toml。
+//! 行为契约依据: tests/docs/QYZS-MARKSCAN.md; 实测校准值见 capability_matrix.toml。
 
 use qyzs::pipeline::markscan::{
     detect::FormatDetector, MarkScanOptions, MarkScanPipeline, PipelineMode,
@@ -21,7 +21,9 @@ fn fixture(rel: &str) -> String {
 }
 
 fn have_key() -> bool {
-    std::env::var("QYZS_APIKEY").map(|v| !v.is_empty()).unwrap_or(false)
+    std::env::var("QYZS_APIKEY")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
 }
 
 fn speed_opts(input: &str) -> MarkScanOptions {
@@ -87,7 +89,10 @@ async fn gateway_image_ocr_auto() {
         .await
         .expect("图像 OCR 转换应成功");
 
-    assert!(md.contains("网络安全") || md.contains("自然资源部"), "应含红头文字");
+    assert!(
+        md.contains("网络安全") || md.contains("自然资源部"),
+        "应含红头文字"
+    );
 }
 
 #[tokio::test]

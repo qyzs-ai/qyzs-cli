@@ -19,19 +19,34 @@ impl QyzsClient {
         let p1 = Path::new(image_before);
         let p2 = Path::new(image_after);
         if !p1.exists() || !p2.exists() {
-            return Err(QyzsError::Io(format!("遥感影像文件不存在: {} 或 {}", image_before, image_after)));
+            return Err(QyzsError::Io(format!(
+                "遥感影像文件不存在: {} 或 {}",
+                image_before, image_after
+            )));
         }
 
-        let b1 = std::fs::read(p1).map_err(|e| QyzsError::Io(format!("读取前时相影像失败: {}", e)))?;
-        let b2 = std::fs::read(p2).map_err(|e| QyzsError::Io(format!("读取后时相影像失败: {}", e)))?;
+        let b1 =
+            std::fs::read(p1).map_err(|e| QyzsError::Io(format!("读取前时相影像失败: {}", e)))?;
+        let b2 =
+            std::fs::read(p2).map_err(|e| QyzsError::Io(format!("读取后时相影像失败: {}", e)))?;
 
         let part1 = Part::bytes(b1)
-            .file_name(p1.file_name().and_then(|n| n.to_str()).unwrap_or("before.tif").to_string())
+            .file_name(
+                p1.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("before.tif")
+                    .to_string(),
+            )
             .mime_str("application/octet-stream")
             .map_err(|e| QyzsError::Usage(e.to_string()))?;
 
         let part2 = Part::bytes(b2)
-            .file_name(p2.file_name().and_then(|n| n.to_str()).unwrap_or("after.tif").to_string())
+            .file_name(
+                p2.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("after.tif")
+                    .to_string(),
+            )
             .mime_str("application/octet-stream")
             .map_err(|e| QyzsError::Usage(e.to_string()))?;
 
@@ -57,10 +72,16 @@ impl QyzsClient {
         let status = resp.status();
         if !status.is_success() {
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(QyzsError::Server(format!("遥感流水线网关返回 HTTP {}: {}", status, err_text)));
+            return Err(QyzsError::Server(format!(
+                "遥感流水线网关返回 HTTP {}: {}",
+                status, err_text
+            )));
         }
 
-        let res_text = resp.text().await.map_err(|e| QyzsError::Server(e.to_string()))?;
+        let res_text = resp
+            .text()
+            .await
+            .map_err(|e| QyzsError::Server(e.to_string()))?;
         Ok(res_text)
     }
 }

@@ -27,16 +27,17 @@
 ### 2.1 网关端点配置
 - **公共模型网关 Base URL**：`http://59.219.113.13:9200/api/aiCenterChat/v1`
 - **MinerU 专属网关 Base URL**：`http://59.219.113.13:9200/ai-gateway/mineru3.2.3`
-- **PaddleOCR Triton 专用接口**：`http://59.219.113.13:9200/ai-gateway/mymodel-paddleocr-udhyfg/v2/models/ocr/infer`
+- **OCR 引擎（paddleocrvl）**：走公共模型网关 `/api/aiCenterChat/v1/chat/completions`，`model=paddleocrvl`。
+  注：旧 Triton 端点 `…/ai-gateway/mymodel-paddleocr-udhyfg/v2/models/ocr/infer` 对应的模型
+  实测 **400 base_url_missing、禁止调度**（`capability_matrix.toml` 中 `online = false`），已废弃不可用；
 - **遥感双时相流水线接口**：`http://59.219.113.13:9200/api/aiCenterChat/v3/form/acid-sam3-full`
 
 ### 2.2 认证凭证与请求规范
 - **测试认证 Token**：`Authorization: Bearer $QYZS_APIKEY`（通过环境变量 `QYZS_APIKEY` 注入，已脱敏）
 - **通用超时控制**：
-  - 纯文本请求：默认超时 30 秒；
-  - 视觉大模型请求：默认超时 60 秒；
-  - MinerU 同步解析：默认超时 120 秒；
-  - 遥感变化流水线：建议超时 $\ge 900$ 秒。
+  - 客户端只有**一个全局超时**（`network.timeout`，代码基准默认 30 秒），可经 `--timeout` / `QYZS_TIMEOUT` / 配置文件覆盖；**不按请求类型分设默认值**；
+  - `markscan` 转换场景另设**下限 300 秒**（取 `max(用户超时, 300s)`，实测扫描件解析存在长尾，默认 30s 会误伤）；
+  - 遥感变化流水线为异步表单接口，耗时较长，建议显式传 `--timeout 900` 以上。
 
 ---
 
@@ -52,39 +53,37 @@ tests/data/
 │
 ├── vlm/                                 # 视觉语言与多模态空间要素理解
 │   ├── images/
-│   │   ├── sig_seal_official.jpg        # 测试样张 SAMPLE-0060：联合发文红章与签字页扫描件
+│   │   ├── sig_seal_official.png        # 测试样张 SAMPLE-0060：联合发文红章与签字页扫描件
 │   │   ├── system_arch_flowchart.png    # 测试样张 SAMPLE-0022：系统技术架构图
 │   │   └── gov_cloud_flow.png           # 测试样张 SAMPLE-0005：政务云数据共享业务流转图
-│   ├── multi_image_batch/               # 4图、8图、16图多图并发测试图片集
+│   ├── multi_image_batch/               # 多图并发测试图片集：page_scan_01~10（扫描页）、
+│   │                                    #   page_text_11~12（文本页）、asset_*（13~16 混排）
 │   └── vlm_test_cases.json              # 空间定位与要素提取提问集
 │
 ├── ocr/                                 # 【与 mineru 同源】高精 OCR 与文字坐标检测
 │   ├── images/
-│   │   ├── ref0057_p1_title.png         # [同源映射 1] 对应 mineru/text_pdf/SAMPLE-0057 发文标题页
+│   │   ├── ref0056_p1_title.png         # [同源映射 1] 对应 mineru/text_pdf/SAMPLE-0056 发文标题页
 │   │   ├── ref0101_p1_redhead_scan.png  # [同源映射 2] 对应 mineru/scanned_pdf/SAMPLE-0101 红头扫描版面
-│   │   ├── ref0101_p8_seal_scan.png     # [同源映射 3] 对应 mineru/scanned_pdf/SAMPLE-0101 落款红章与日期
-│   │   └── ref0106_table_page.png       # [同源映射 4] 对应 mineru/public_doc/SAMPLE-0106 验收审查表格页
-│   └── ocr_ground_truth.json            # 像素级文字与坐标真值标注
+│   │   └── ref0101_p8_seal_scan.png     # [同源映射 3] 对应 mineru/scanned_pdf/SAMPLE-0101 落款红章与日期
+│   └── paired_alignment_spec.json       # 像素级文字与坐标真值标注
 │
 ├── mineru/                              # 【与 ocr 同源】MinerU 复杂版面解析
 │   ├── text_pdf/
-│   │   └── SAMPLE-0057_测试规章文本.pdf     # 标准矢量 PDF 测试样本（实测 200 通过）
+│   │   └── SAMPLE-0056_测试规章文本.pdf     # 标准矢量 PDF 测试样本（实测 200 通过）
 │   ├── scanned_pdf/
 │   │   └── SAMPLE-0101_红头文件扫描件.pdf   # 红头公文样式扫描测试样本（带红章）
-│   ├── public_doc/
-│   │   ├── SAMPLE-0017_测试工作方案.doc     # 工作方案类测试样本（文号已脱敏）
-│   │   └── SAMPLE-0106_测试审查表.docx      # 符合性审查表格类测试样本（实测 200 通过）
-│   └── parse_configs.json               # 解析参数矩阵
+│   └── public_doc/
+│       ├── SAMPLE-0017_测试工作方案.doc     # 旧版 .doc 样本（解析网关实测拒绝，用作格式识别样本）
+│       └── SAMPLE-0106_测试审查表.docx      # 符合性审查表格类测试样本（实测 200 通过）
 │
 ├── rag/                                 # 语义向量嵌入与重排序测试集
-│   ├── embedding_test_cases.json        # 文本向量测试集（测试 bge-m3 和 qwen3-embadding-8b）
-│   └── rerank_query_passage_pairs.json  # 依据实测 rerank 规范设计的 Query-Document 排序对
+│   ├── chunks_sample.json               # 文本向量测试集（测试 bge-m3 和 qwen3-embadding-8b）
+│   └── queries_sample.json              # 依据实测 rerank 规范设计的 Query-Document 排序对
 │
 ├── audio/                               # 语音识别基准测试集 (Qwen3-ASR)
 │   ├── samples/
-│   │   ├── sample_speech_cmd.wav        # Python 合成 16kHz 单声道标准指令音频
-│   │   └── sample_silence_check.wav     # 静音校准音频
-│   └── asr_test_cases.json              # ASR 测试用例与音频 Base64 规约
+│   │   └── sample_speech_cmd.wav        # Python 合成 16kHz 单声道标准指令音频
+│   └── audio_prompts.json               # ASR 测试用例与音频 Base64 规约
 │
 └── rs/                                  # 遥感语义变化检测测试规约 (ACID+SAM3)
     └── sample_aoi.geojson               # 标准测试 AOI Polygon 规约
@@ -106,19 +105,19 @@ tests/data/
   3. 模型多图计数准确性、各图片内容顺序识别率。
 
 ### 4.2 压测项目 2：PDF 页数与 MinerU 吞吐极限（Document Scale）
-- **测试引擎**：`MinerU 3.2.3`（`/file_parse` 同步 vs `/tasks` 异步）
+- **测试引擎**：`MinerU 3.2.3`（`/file_parse` 同步通道）
 - **压力阶梯**：
   - 页数：单页、5页、15页、30页、50页、100页；
   - 文件体积：500KB、5MB、15MB、30MB、50MB。
-- **自动切换基准建立**：
+- **自动切换基准建立**（**尚未实现，仅为待办设计**）：
   - 测定同步接口平均每页耗时与网关超时断点；
-  - 确定 CLI 客户端从同步请求自动切换为异步轮询的阈值条件（如：页数 $> 15$ 或体积 $> 10$ MB 时自动转异步）。
+  - ~~确定 CLI 客户端从同步请求自动切换为异步轮询的阈值条件~~ —— CLI 目前**只实现同步通道**（`src/client/mineru.rs` 仅调 `/file_parse`），网关返回 `pending`/`running` 时直接报错终止，**没有 `/tasks` 端点、没有轮询循环、没有自动转异步**。要落地自动切换须先补异步通道实现。
 
 ### 4.3 压测项目 3：超长上下文与大海捞针测试（Needle in a Haystack）
 - **测试模型**：`dsv4`, `qwen3.6-27b`
-- **压力阶梯**：2,000 $\rightarrow$ 8,000 $\rightarrow$ 16,000 $\rightarrow$ 32,000 $\rightarrow$ 64,000 Tokens。
+- **压力阶梯**：2,000 $\rightarrow$ 8,000 $\rightarrow$ 16,000 $\rightarrow$ 32,000 $\rightarrow$ 64,000 Tokens；极限上探另执行 77,795（`stress_limits.py`）与 518,438（`limit_probe*.py`）两档。
 - **测试方法**：
-  - 构建以真实自然资源政策法规为背景的长文本（最高达 7 万字）；
+  - 构建以真实自然资源政策法规为背景的长文本（实测 77,795 Tokens 约合 7 万字量级）；
   - 在文本的 **10%（前部）、50%（中部）、90%（尾部）** 随机插入假想批复实体信息（针）：
     > `【密级：内部工作核查】自然资源部批准重大生态修复示范工程项目，批准文号为：自然资环函〔20XX〕XXXXXX号（示例文号），核准批复面积为：7654.32公顷。`
   - 提示词要求大模型提取出批准文号与核准面积。
@@ -146,7 +145,7 @@ tests/data/
 ## 5. 同源互验与公文排版处理验证设计
 
 ### 5.1 PaddleOCR 与 MinerU 同源互验机制
-- **输入对齐**：使用 `SAMPLE-0057` 矢量 PDF 与 `SAMPLE-0101` 扫描 PDF，分别直接输入 MinerU，并提取其首页及落款页输入 PaddleOCR Triton。
+- **输入对齐**：使用 `SAMPLE-0056` 矢量 PDF 与 `SAMPLE-0101` 扫描 PDF，分别直接输入 MinerU，并提取其首页及落款页输入 paddleocrvl（经公共模型网关 `/api/aiCenterChat/v1/chat/completions`，见 §2.1）。
 - **比对算法**：
   1. **文本覆盖率比对（Recall Check）**：计算 PaddleOCR 检出的所有文本行在 MinerU Markdown 中的覆盖度，验证表格内小字是否漏检；
   2. **版面几何与语义融合**：PaddleOCR 负责提供字符的 8 点多边形外接框坐标，MinerU 负责组织标题、段落与表格语义。
@@ -176,16 +175,22 @@ flowchart TD
 ## 7. 自动化测试脚本与断言设计
 
 - **`tests/scripts/validate_data.py`**：静态数据校验器，验证全部测试素材无损坏且同源映射正确；
+- **`tests/scripts/prepare_dataset.py`**：基准数据集准备器（从离线文档语料构建 `tests/data/` 素材）；
 - **`tests/scripts/run_benchmarks.py`**：全量功能基准测试执行器，生成各模型的延迟与返回结构；
 - **`tests/scripts/stress_limits.py`**：极限边界测试执行器，执行多图与 64k 大海捞针，生成测试图表数据；
-- **`tests/scripts/limit_probe.py`**：参数与输入边界探针，执行上下文天花板阶梯、max_tokens/temperature 边界、20/24 图并发、Embedding 长度与批量、Rerank 200 篇规模及 MinerU 页数阶梯测试；
-- **`tests/scripts/test_ocr_mineru_alignment.py`**：同源互验校对器，比对 OCR 与 MinerU 文本一致率并生成对齐报告。
+- **`tests/scripts/limit_probe.py`**：参数与输入边界探针，执行上下文天花板阶梯、max_tokens/temperature 边界、20/24 图并发、Embedding 长度与批量、Rerank 200 篇规模及 MinerU 页数阶梯测试（另有 `limit_probe_final.py` / `limit_probe_followup.py` / `limit_probe_round3.py` 三轮跟进）；
+- **`tests/scripts/test_ocr_mineru_alignment.py`**：同源互验校对器，比对 OCR 与 MinerU 文本一致率并生成对齐报告；
+- **`tests/scripts/verify_guardrails.sh`**：客户端护栏实测（5 阶段 / 7 项断言）——短文本基线、超长文本分块、短向量模型分块、300 条批量拆批、20 图自动分批（需真实网关与 `QYZS_APIKEY`）；
+- **`tests/scripts/check_no_secrets.sh`**：提交历史密钥扫描（CI `secret-scan` 门禁的入口，全对象库 + 已跟踪文件）；
+- **`tests/scripts/verify_release_pipeline.py`**：发布流水线本地验证（模拟 GitHub Release，验证 install.sh / `upgrade` / npm 包族，19 项断言）。
 
 ---
 
 ## 8. 执行结果工件清单
 
-全部原始实测数据以 JSON 形式留存于 `tests/scripts/`，报告数值均可溯源：
+全部原始实测数据以 JSON 形式留存于 `tests/scripts/`，报告数值均可溯源
+（例外：`alignment_report.json` 只记录了 OCR 一侧耗时，MinerU 耗时未留存字段，
+详见 `QYZS-ANALYZE.md` §4.1 的溯源说明）：
 
 | 工件 | 产出脚本 | 内容 |
 | :--- | :--- | :--- |

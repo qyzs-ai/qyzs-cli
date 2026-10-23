@@ -3,13 +3,13 @@
 //! 只负责: 参数解析 → 级联配置 → 处理器映射。业务逻辑在 `handlers` 按域分组。
 
 use super::args::{Cli, Commands};
+use super::handlers::{self, ChatArgs, Ctx};
 use super::validate;
 use crate::client::QyzsClient;
 use crate::config::ResolvedConfig;
 use crate::error::{QyzsError, QyzsResult};
 use crate::pipeline::markscan::{MarkScanOptions, PipelineMode};
 use crate::term::{set_language, Printer};
-use super::handlers::{self, Ctx, ChatArgs};
 use clap::Parser;
 
 pub async fn run(args: Vec<String>) -> QyzsResult<()> {
@@ -72,7 +72,6 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             validate::validate_chat_temperature(temperature)?;
             validate::validate_chat_top_p(top_p)?;
             validate::validate_chat_max_tokens(max_tokens)?;
-            validate::validate_chat_images(&image)?;
             handlers::inference::chat(
                 &ctx,
                 ChatArgs {
@@ -90,7 +89,6 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             )
             .await?
         }
-
 
         Commands::Embed { text, model } => handlers::inference::embed(&ctx, text, model).await?,
 
@@ -194,15 +192,18 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             out_dir,
         } => {
             validate::validate_pdf_split_chunk_size(chunk_size)?;
-            handlers::documents::pdf_split(&ctx, file, pages, output, chunk_size, out_dir)
-                .await?
+            handlers::documents::pdf_split(&ctx, file, pages, output, chunk_size, out_dir).await?
         }
 
-        Commands::Verify { ocr, markdown } => handlers::documents::verify(&ctx, ocr, markdown).await?,
+        Commands::Verify { ocr, markdown } => {
+            handlers::documents::verify(&ctx, ocr, markdown).await?
+        }
 
         Commands::Dataset { url, dest } => handlers::documents::dataset(&ctx, url, dest).await?,
 
-        Commands::Status { json, no_probe } => handlers::system::status(&ctx, json, no_probe).await?,
+        Commands::Status { json, no_probe } => {
+            handlers::system::status(&ctx, json, no_probe).await?
+        }
 
         Commands::Config { action } => handlers::system::config(&ctx, action)?,
 
@@ -210,8 +211,8 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
 
         Commands::Models {
             online_only: _,
-            all_models: _,
-        } => handlers::system::models(&ctx)?,
+            all_models,
+        } => handlers::system::models(&ctx, all_models)?,
 
         Commands::Usage {
             days,
@@ -238,9 +239,11 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
             )?
         }
 
-        Commands::Upgrade { repo, package, check } => {
-            handlers::system::upgrade(&ctx, repo, package, check).await?
-        }
+        Commands::Upgrade {
+            repo,
+            package,
+            check,
+        } => handlers::system::upgrade(&ctx, repo, package, check).await?,
 
         Commands::Completions { shell } => handlers::system::completions(shell),
     }

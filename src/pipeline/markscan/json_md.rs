@@ -25,15 +25,16 @@ pub fn json_to_markdown(bytes: &[u8]) -> QyzsResult<String> {
     if !encoding.is_empty() {
         out.push_str(&format!("<!-- 源文件编码: {} -->\n\n", encoding));
     }
-    out.push_str(&format!("<!-- 顶层类型: {} -->\n\n", value_kind_label(&value)));
+    out.push_str(&format!(
+        "<!-- 顶层类型: {} -->\n\n",
+        value_kind_label(&value)
+    ));
 
     // 同构数组 → Markdown 表格 + 原始 JSON
     if let Value::Array(items) = &value {
         if items.len() >= TABLE_MIN_ITEMS && items.iter().all(|v| v.is_object()) {
-            let objects: Vec<&serde_json::Map<String, Value>> = items
-                .iter()
-                .filter_map(|v| v.as_object())
-                .collect();
+            let objects: Vec<&serde_json::Map<String, Value>> =
+                items.iter().filter_map(|v| v.as_object()).collect();
             if let Some(table) = homogeneous_table(&objects) {
                 out.push_str(&table);
                 out.push_str("\n\n---\n\n## 原始 JSON\n\n");
@@ -76,11 +77,7 @@ fn homogeneous_table(objects: &[&serde_json::Map<String, Value>]) -> Option<Stri
     for obj in objects {
         let cells: Vec<String> = first_keys
             .iter()
-            .map(|k| {
-                obj.get(k)
-                    .map(value_compact)
-                    .unwrap_or_default()
-            })
+            .map(|k| obj.get(k).map(value_compact).unwrap_or_default())
             .collect();
         out.push_str(&md_row(&cells));
         out.push('\n');
@@ -94,9 +91,7 @@ fn value_compact(v: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
-        Value::Array(_) | Value::Object(_) => {
-            serde_json::to_string(v).unwrap_or_default()
-        }
+        Value::Array(_) | Value::Object(_) => serde_json::to_string(v).unwrap_or_default(),
     }
 }
 
@@ -120,7 +115,7 @@ fn md_row(cells: &[String]) -> String {
 }
 
 fn md_separator(n: usize) -> String {
-    let parts: Vec<&str> = std::iter::repeat("---").take(n).collect();
+    let parts: Vec<&str> = std::iter::repeat_n("---", n).collect();
     format!("| {} |", parts.join(" | "))
 }
 

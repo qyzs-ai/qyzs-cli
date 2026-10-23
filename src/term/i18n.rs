@@ -124,7 +124,9 @@ fn macos_system_language() -> Option<Language> {
                 K_CF_STRING_ENCODING_UTF8,
             ) {
                 let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-                result = std::str::from_utf8(&buf[..end]).ok().and_then(language_from_tag);
+                result = std::str::from_utf8(&buf[..end])
+                    .ok()
+                    .and_then(language_from_tag);
             }
             CFRelease(identifier);
         }
@@ -446,7 +448,7 @@ pub fn fill(template: &str, params: &[String]) -> String {
 #[macro_export]
 macro_rules! msgf {
     ($id:ident, $($param:expr),*) => {
-        $crate::term::i18n::fill($crate::term::i18n::MsgId::$id.get(), &[$($param.to_string()),*])
+        $crate::term::i18n::fill($crate::term::i18n::MsgId::$id.get(), &[$(format!("{}", $param)),*])
     };
 }
 

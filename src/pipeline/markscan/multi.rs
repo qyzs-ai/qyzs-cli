@@ -42,8 +42,7 @@ pub fn resolve_inputs(opts: &MarkScanOptions) -> QyzsResult<Vec<ResolvedInput>> 
         return Err(QyzsError::Usage("未提供任何输入".to_string()));
     }
 
-    let is_multi = inputs.len() > 1
-        || inputs.iter().any(|p| !is_url(p) && Path::new(p).is_dir());
+    let is_multi = inputs.len() > 1 || inputs.iter().any(|p| !is_url(p) && Path::new(p).is_dir());
 
     // 多文件场景: -o 必须是目录 (已存在或待创建)
     let output_dir: Option<PathBuf> = if is_multi {
@@ -212,7 +211,8 @@ pub async fn convert_multi(
     let mut results = Vec::with_capacity(total);
     for (idx, r) in inputs.iter().enumerate() {
         // 覆盖 opts.recursive 意义 (展开已发生, 子项按文件处理)
-        let md = match MarkScanPipeline::convert(client, opts, &r.raw, timeout_secs, on_progress).await
+        let md = match MarkScanPipeline::convert(client, opts, &r.raw, timeout_secs, on_progress)
+            .await
         {
             Ok(md) => md,
             // 判定为照片等情形: 跳过该文件但继续整批, 不写输出
@@ -291,7 +291,11 @@ pub fn render_plans_human(plans: &[super::ConversionPlan]) {
             );
         }
         println!("{}{}", crate::msg!(MdLabelMode), plan.mode);
-        println!("{}{}", crate::msg!(MdLabelChannel), plan.channel.unwrap_or("—"));
+        println!(
+            "{}{}",
+            crate::msg!(MdLabelChannel),
+            plan.channel.unwrap_or("—")
+        );
         if plan.supported {
             println!("{}{}", crate::msg!(MdLabelStages), plan.stages.join(" → "));
         } else {
@@ -400,7 +404,13 @@ mod tests {
         std::fs::write(sub.join("deep.json"), br#"{"x":1}"#).unwrap();
         let o = opts(
             vec![dir.path().to_string_lossy().into_owned()],
-            Some(tempfile::tempdir().unwrap().path().to_string_lossy().into_owned()),
+            Some(
+                tempfile::tempdir()
+                    .unwrap()
+                    .path()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             true,
         );
         let resolved = resolve_inputs(&o).unwrap();
@@ -416,7 +426,13 @@ mod tests {
         std::fs::write(sub.join("deep.json"), br#"{"x":1}"#).unwrap();
         let o = opts(
             vec![dir.path().to_string_lossy().into_owned()],
-            Some(tempfile::tempdir().unwrap().path().to_string_lossy().into_owned()),
+            Some(
+                tempfile::tempdir()
+                    .unwrap()
+                    .path()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             false,
         );
         let resolved = resolve_inputs(&o).unwrap();
@@ -435,7 +451,10 @@ mod tests {
         let existing_file = dir.path().join("not_a_dir");
         std::fs::write(&existing_file, b"x").unwrap();
         let o = opts(
-            vec![f1.to_string_lossy().into_owned(), f2.to_string_lossy().into_owned()],
+            vec![
+                f1.to_string_lossy().into_owned(),
+                f2.to_string_lossy().into_owned(),
+            ],
             Some(existing_file.to_string_lossy().into_owned()),
             false,
         );
@@ -462,7 +481,10 @@ mod tests {
     #[test]
     fn test_slugify_url() {
         // scheme 去掉, query 串去掉 (split '?'), 路径分隔符 / 变 _
-        assert_eq!(slugify_url("https://example.com/path/file.pdf"), "example.com_path_file.pdf");
+        assert_eq!(
+            slugify_url("https://example.com/path/file.pdf"),
+            "example.com_path_file.pdf"
+        );
         assert_eq!(slugify_url("http://x.com/a?b=1&c=2"), "x.com_a");
         assert_eq!(slugify_url("https://x.com/"), "x.com_");
     }

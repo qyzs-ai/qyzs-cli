@@ -36,6 +36,9 @@ pub(crate) fn validate_chat_top_p(p: Option<f64>) -> QyzsResult<()> {
 /// 校验 chat --max-tokens (Option<u32>, 范围 [1, 1_000_000])
 /// 上界 1M 取业界主流 LLM 上下文窗口上限 (Magic/Gemini-1.5 量级) 的安全外推,
 /// 防止误传 u32::MAX 等退化值 (网关返回难以解读的 HTTP 4xx)
+/// 注意: 这是**客户端护栏**上界, 不是网关能力保证——网关上限按模型不同且更低
+/// (dsv4 实测接受至 65536; qwen3-VL 文本通道上下文硬上限 131072),
+/// 超出模型能力时由网关返回 4xx
 pub(crate) fn validate_chat_max_tokens(m: Option<u32>) -> QyzsResult<()> {
     if let Some(v) = m {
         if !(1..=1_000_000).contains(&v) {
@@ -62,24 +65,8 @@ pub(crate) fn validate_pdf_split_chunk_size(c: Option<usize>) -> QyzsResult<()> 
     Ok(())
 }
 
-/// 校验 chat --image (Vec<String>, 元素数 1~16)
-/// clap 层 num_args + value_delimiter 的交互不能可靠约束逗号分隔后的总数,
-/// 故走 dispatch validate 兜底
-pub(crate) fn validate_chat_images(images: &[String]) -> QyzsResult<()> {
-    const VLM_MAX_IMAGES: usize = 16;
-    if !images.is_empty() {
-        let n = images.len();
-        if !(1..=VLM_MAX_IMAGES).contains(&n) {
-            return Err(QyzsError::Usage(format!(
-                "--image 元素数必须在 1~{} 之间，当前: {}",
-                VLM_MAX_IMAGES, n
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// 校验 ocr --max-dim (Option<u32>, 范围 [1, 8192])
+/// 校验 markscan --max-dim (Option<u32>, 范围 [1, 8192])
+/// (原 ocr 子命令已并入 markscan, 此校验器随 dispatch 调用点迁移至 markscan 分支)
 /// 8K 已是主流 VLM/OCR 网关的安全上界 (4K/8K 分辨率); 再大不仅耗时,
 /// 也容易在网关编码侧触发 4xx
 pub(crate) fn validate_ocr_max_dim(d: Option<u32>) -> QyzsResult<()> {
@@ -211,26 +198,6 @@ mod tests {
         assert!(validate_pdf_split_chunk_size(Some(15)).is_ok());
         assert!(validate_pdf_split_chunk_size(Some(usize::MAX)).is_ok());
         assert!(validate_pdf_split_chunk_size(Some(0)).is_err());
-    }
-
-    #[test]
-    fn chat_images_validates() {
-        // 空 (无 --image) 直接放行
-        assert!(validate_chat_images(&[]).is_ok());
-
-        // 边界值
-        let one: Vec<String> = std::iter::once("a.png".to_string()).collect();
-        assert!(validate_chat_images(&one).is_ok());
-
-        let sixteen: Vec<String> = (1..=16).map(|i| format!("{i}.png")).collect();
-        assert!(validate_chat_images(&sixteen).is_ok());
-
-        // 0 张时不报错 (clap num_args 兜底), dispatch 兜底拒绝 17+
-        let seventeen: Vec<String> = (1..=17).map(|i| format!("{i}.png")).collect();
-        assert!(validate_chat_images(&seventeen).is_err());
-
-        let twenty: Vec<String> = (1..=20).map(|i| format!("{i}.png")).collect();
-        assert!(validate_chat_images(&twenty).is_err());
     }
 
     #[test]

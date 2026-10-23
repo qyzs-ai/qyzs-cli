@@ -109,7 +109,7 @@ impl QyzsClient {
         let (items, _) = plan_chunks(&texts, char_limit_for(&model));
         if items.len() == texts.len() && items.len() <= MAX_BATCH_ITEMS {
             // 常规路径：无分块且批量在界内，单请求原样透传
-            let resp = self.embed_request(&model, texts, &key).await?;
+            let resp = self.embed_request(&model, texts, key).await?;
             self.record_embed_usage(&model, resp.usage.as_ref());
             return Ok(resp);
         }
@@ -120,13 +120,17 @@ impl QyzsClient {
         let mut prompt_tokens = 0u32;
         for batch in items.chunks(MAX_BATCH_ITEMS) {
             let batch_inputs: Vec<String> = batch.iter().map(|(_, t)| t.clone()).collect();
-            let resp = self.embed_request(&model, batch_inputs, &key).await?;
+            let resp = self.embed_request(&model, batch_inputs, key).await?;
             if let Some(usage) = &resp.usage {
                 total_tokens += usage.total_tokens.unwrap_or(0);
                 prompt_tokens += usage.prompt_tokens.unwrap_or(0);
             }
             for (pos, item) in resp.data.into_iter().enumerate() {
-                let slot = if item.index < batch.len() { item.index } else { pos };
+                let slot = if item.index < batch.len() {
+                    item.index
+                } else {
+                    pos
+                };
                 if let Some((idx, _)) = batch.get(slot) {
                     collected[*idx].push(item.embedding);
                 }
@@ -187,7 +191,10 @@ impl QyzsClient {
         let status = resp.status();
         if !status.is_success() {
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(QyzsError::Server(format!("向量网关返回 HTTP {}: {}", status, err_text)));
+            return Err(QyzsError::Server(format!(
+                "向量网关返回 HTTP {}: {}",
+                status, err_text
+            )));
         }
 
         let embed_resp: EmbeddingResponse = resp.json().await?;

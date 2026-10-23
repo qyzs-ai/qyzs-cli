@@ -1,10 +1,18 @@
 # 自然资源部庆阳智算中心命令行 (qyzs) PowerShell 一键安装/更新脚本 (Windows)
 # 支持架构: x86_64 (amd64)
+#
+# 可覆盖的环境变量 (便于国内镜像源 / 本地离线验证):
+#   QYZS_REPO            仓库标识 (默认 qyzs-ai/qyzs-cli)
+#   QYZS_GITHUB_URL      Release 资产下载前缀 (默认 https://github.com/<repo>)
+#   QYZS_RELEASE_API_URL 最新版本查询接口 (默认 GitHub Release API)
+#   QYZS_FALLBACK_TAG    版本查询失败时的兜底 tag
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "qyzs-ai/qyzs-cli"
-$GithubUrl = "https://github.com/$Repo"
+$Repo = if ($env:QYZS_REPO) { $env:QYZS_REPO } else { "qyzs-ai/qyzs-cli" }
+$GithubUrl = if ($env:QYZS_GITHUB_URL) { $env:QYZS_GITHUB_URL } else { "https://github.com/$Repo" }
+$ReleaseApiUrl = if ($env:QYZS_RELEASE_API_URL) { $env:QYZS_RELEASE_API_URL } else { "https://api.github.com/repos/$Repo/releases/latest" }
+$FallbackTag = if ($env:QYZS_FALLBACK_TAG) { $env:QYZS_FALLBACK_TAG } else { "v0.2.0" }
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host " 自然资源部庆阳智算中心 CLI (qyzs) Windows 安装/更新向导" -ForegroundColor Cyan
@@ -15,7 +23,9 @@ $Arch = [System.Environment]::GetEnvironmentVariable("PROCESSOR_ARCHITECTURE")
 if ($Arch -ne "AMD64") {
     Write-Warning "当前仅优先支持 64位 Windows (AMD64/x86_64)，当前架构为: $Arch"
 }
-$Target = "x86_64-pc-windows-gnu"
+# 必须与 CI 构建目标一致（.github/workflows/ci.yml matrix: x86_64-pc-windows-msvc），
+# 否则拼出的资产名不存在
+$Target = "x86_64-pc-windows-msvc"
 
 # 2. 确定安装路径与“安装即更新”检测
 $InstallDir = "$env:LOCALAPPDATA\qyzs\bin"
@@ -32,9 +42,9 @@ if ($ExistingCmd) {
 }
 
 # 3. 获取最新 Release 版本
-$LatestTag = "v0.1.0"
+$LatestTag = $FallbackTag
 try {
-    $ReleaseInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{"User-Agent"="qyzs-installer"}
+    $ReleaseInfo = Invoke-RestMethod -Uri $ReleaseApiUrl -Headers @{"User-Agent"="qyzs-installer"}
     if ($ReleaseInfo.tag_name) {
         $LatestTag = $ReleaseInfo.tag_name
     }
