@@ -54,6 +54,11 @@
     默认 `tests/data` 依旧多一层。改为 `cd tests/data && zip -qr X .`。同时把本地
     发布验证脚本的 mock API 响应也改成**压缩单行**，与真实 API 一致——正是这个
     差异让该缺陷躲过了本地验证。
+  - **修复 npm 发布的组织权限缺失**：发布 @qyzs-ai/* 这类 org scope 包时，
+    Granular Access Token 只给「所有包读写」而**不给组织权限**会报
+    `E404 Not Found`（npm 用 404 表示 token 看不见该 org 的包，而非 403）。
+    token 须额外授予 `qyzs-ai` 组织读写权限；本地可复现：
+    `npm access list packages qyzs-ai` 返回 `403 Forbidden` 即是缺该权限。
   - **恢复 `chat` 多图自动分批（回归修复）**：`validate_chat_images` 在 cdb9f59
     中被引入，对 >16 张图直接报用法错误（退出码 2），从而使 `inference.rs` 中
     自初始提交 3cb3e1c 起就存在的分批逻辑**在 CLI 路径上不可达**——而 0.1.0
