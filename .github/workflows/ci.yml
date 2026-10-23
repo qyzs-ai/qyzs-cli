@@ -283,7 +283,9 @@ jobs:
                 continue
               fi
               echo "Publish @qyzs-ai/$pkg"
-              (cd "dist/npm/$pkg" && npm publish --provenance --access public) || true
+              # 不用 || true 吞错: 发布失败必须让 job 变红, 否则 "成功" 是假象
+              # (曾因 NPM_TOKEN 缺失被吞, job 绿而 npm registry 上什么都没有)
+              (cd "dist/npm/$pkg" && npm publish --provenance --access public)
             fi
           done
 
@@ -296,5 +298,5 @@ jobs:
           if npm view "@qyzs-ai/cli@${{ steps.ver.outputs.version }}" >/dev/null 2>&1; then
             echo "Skip @qyzs-ai/cli (already published)"
           else
-            (cd dist/npm/cli && npm publish --provenance --access public) || true
+            (cd dist/npm/cli && npm publish --provenance --access public)
           fi
