@@ -91,7 +91,7 @@ jobs:
   # tag 触发的发布构建里才被编译, PR 阶段完全无覆盖 —— 本 job 补上该盲区。
   # 各目标在能原生处理它的 runner 上检查, 无需交叉工具链。
   cross-target-check:
-    name: Type check ${{ matrix.target }}
+    name: Build & type check ${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
@@ -108,6 +108,9 @@ jobs:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             setup: musl
+          - target: loongarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            setup: loongarch64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -121,8 +124,21 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
-      - name: Cargo Check
-        run: cargo check --target ${{ matrix.target }} --verbose
+      # cross 没有 loongarch64 的 Docker 镜像; 设了 CARGO_TARGET_<TRIPLE>_LINKER 后
+      # upload-rust-binary-action 会自动改用宿主 cargo (并自行 rustup target add)
+      - name: Install loongarch64 cross toolchain
+        if: matrix.setup == 'loongarch64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-loongarch64-linux-gnu
+          echo "CC_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "AR_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER=loongarch64-linux-gnu-gcc" >> $GITHUB_ENV
+      # 用 cargo build 而非 cargo check: check 不做链接, 抓不到 FFI 符号缺失这类
+      # 只在链接期暴露的错误 (macOS 的 CoreFoundation 符号问题即是被 release
+      # 流水线而非本 job 抓到的 —— 本 job 当时只做 check)
+      - name: Cargo Build
+        run: cargo build --target ${{ matrix.target }} --verbose
 
   # 先建 Release (含安装脚本与数据集), 再往里上传各平台二进制。
   # 顺序不能反: upload-rust-binary-action 要求 Release **已存在**才能追加资产,
@@ -179,6 +195,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      # cross 没有 loongarch64 的 Docker 镜像, 会回退到宿主 cargo 但宿主没有该
+      # 目标的 rust-std (报 "can't find crate for core"); 设了
+      # CARGO_TARGET_<TRIPLE>_LINKER 后 action 会自动改用宿主 cargo 并自行
+      # rustup target add, 再配合交叉链接器即可正常产出
+      - name: Install loongarch64 cross toolchain
+        if: matrix.target == 'loongarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-loongarch64-linux-gnu
+          echo "CC_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "AR_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER=loongarch64-linux-gnu-gcc" >> $GITHUB_ENV
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: qyzs

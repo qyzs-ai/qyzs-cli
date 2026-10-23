@@ -87,34 +87,38 @@ fn windows_ui_language() -> Option<Language> {
 
 #[cfg(target_os = "macos")]
 fn macos_system_language() -> Option<Language> {
-    // CoreFoundation 为 macOS 系统自带框架, 手写 FFI 零第三方依赖;
-    // allocator 传 NULL 即 kCFAllocatorDefault (CF 惯例)
+    // CoreFoundation 为 macOS 系统自带框架, 手写 FFI 零第三方依赖。
+    // 签名以 CoreFoundation.framework/Headers/CFLocale.h 为准:
+    //   CFLocaleRef CFLocaleCopyCurrent(void);            —— 不接受参数, 返回 +1 持有
+    //   CFLocaleIdentifier CFLocaleGetIdentifier(CFLocaleRef); —— 非拥有引用, 不可 CFRelease
     use std::ffi::{c_long, c_void};
 
+    type CFTypeRef = *mut c_void;
+    type CFLocaleRef = *mut c_void;
     type CFStringRef = *mut c_void;
 
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
-        fn CFLocaleCopyCurrent(allocator: *mut c_void) -> CFStringRef;
-        fn CFLocaleCopyIdentifier(locale: CFStringRef) -> CFStringRef;
+        fn CFLocaleCopyCurrent() -> CFLocaleRef;
+        fn CFLocaleGetIdentifier(locale: CFLocaleRef) -> CFStringRef;
         fn CFStringGetCString(
             string: CFStringRef,
             buffer: *mut u8,
             buffer_size: c_long,
             encoding: u32,
         ) -> bool;
-        fn CFRelease(cf: *mut c_void);
+        fn CFRelease(cf: CFTypeRef);
     }
 
     const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 
     unsafe {
-        let locale = CFLocaleCopyCurrent(std::ptr::null_mut());
+        let locale = CFLocaleCopyCurrent();
         if locale.is_null() {
             return None;
         }
         let mut result = None;
-        let identifier = CFLocaleCopyIdentifier(locale);
+        let identifier = CFLocaleGetIdentifier(locale);
         if !identifier.is_null() {
             let mut buf = [0u8; 128];
             if CFStringGetCString(
@@ -128,7 +132,7 @@ fn macos_system_language() -> Option<Language> {
                     .ok()
                     .and_then(language_from_tag);
             }
-            CFRelease(identifier);
+            // identifier 是 Get 语义的非拥有引用, 不可 CFRelease —— 只释放 locale
         }
         CFRelease(locale);
         result

@@ -87,6 +87,23 @@
     六个平台二进制**构建成功**，随后上传报 `release not found`，Release 从未
     创建）。现拆为 `release-create`（建 Release + 上传安装脚本与 tests_data.zip）
     → `release-binaries`（追加六平台二进制）→ `release-npm`（npm 包族）。
+  - **修复 macOS CoreFoundation FFI 的符号错误（发布阻塞级）**：
+    `src/term/i18n.rs` 的 macOS 分支声明并调用了 **`CFLocaleCopyIdentifier`——
+    CoreFoundation 里并不存在这个符号**（真实 API 是 `CFLocaleGetIdentifier`），
+    且 `CFLocaleCopyCurrent` 实际**不接受参数**（原声明多传了 allocator）。
+    链接期报 `Undefined symbols: _CFLocaleCopyIdentifier`，两个 macOS 平台的
+    二进制因此完全无法产出。另一处所有权错误：`CFLocaleGetIdentifier` 是
+    `Get` 语义的非拥有引用，原代码却对它调用了 `CFRelease`（过度释放），
+    已改为只释放 `CFLocaleCopyCurrent` 返回的 locale。
+    该缺陷此前不可见：`cargo check` 不做链接，而跨目标 job 当时也只做 check。
+  - **修复 loongarch64 的交叉构建**：`cross` 没有该目标的 Docker 镜像，会回退
+    到宿主 cargo，但宿主没有该目标的 rust-std（报 `can't find crate for core`）。
+    现设置 `CARGO_TARGET_<TRIPLE>_LINKER` 后，upload-rust-binary-action 会自动
+    改用宿主 cargo（并自行 `rustup target add`），再配合 `gcc-loongarch64-linux-gnu`
+    交叉链接器即可正常产出。
+  - **跨目标 job 由 `cargo check` 改为 `cargo build`**：check 不做链接，抓不到
+    只在链接期暴露的错误（macOS 的 FFI 符号问题即是被 release 流水线而非本 job
+    抓到 —— 当时本 job 只做 check）。同时把 loongarch64 纳入该矩阵。
   - **修复已退役的 `macos-13` runner 标签**：GitHub 已下线该标签（x64 macOS 现为
     `macos-15-intel`），表现为该 job 无限排队而不报错——`cross-target-check` 与
     `release-binaries` 的 x86_64-apple-darwin 都会卡死。
