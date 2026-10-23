@@ -52,7 +52,10 @@ impl QyzsClient {
         let status = resp.status();
         if !status.is_success() {
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(QyzsError::Server(format!("ASR 语音网关返回 HTTP {}: {}", status, err_text)));
+            return Err(QyzsError::Server(format!(
+                "ASR 语音网关返回 HTTP {}: {}",
+                status, err_text
+            )));
         }
 
         let res_json: serde_json::Value = resp.json().await?;

@@ -30,7 +30,11 @@ impl PdfExtractor {
         let mut title = None;
         let mut author = None;
 
-        if let Ok(info_dict) = doc.trailer.get(b"Info").and_then(|info| doc.get_object(info.as_reference()?)) {
+        if let Ok(info_dict) = doc
+            .trailer
+            .get(b"Info")
+            .and_then(|info| doc.get_object(info.as_reference()?))
+        {
             if let Ok(dict) = info_dict.as_dict() {
                 if let Ok(t) = dict.get(b"Title").and_then(|o| o.as_str()) {
                     title = Some(String::from_utf8_lossy(t).to_string());

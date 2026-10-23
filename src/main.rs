@@ -16,9 +16,7 @@ async fn main() {
 
     // 别名形式兼容路由：若程序以 qyzs-<子命令> 形式被调用 (软链接等)，内部自动重写为 qyzs <子命令>
     let sub_cmd = args.first().and_then(|exe_arg| {
-        let file_stem = Path::new(exe_arg)
-            .file_stem()
-            .and_then(|s| s.to_str())?;
+        let file_stem = Path::new(exe_arg).file_stem().and_then(|s| s.to_str())?;
         file_stem.strip_prefix("qyzs-").map(|s| s.to_string())
     });
 

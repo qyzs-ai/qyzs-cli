@@ -194,7 +194,10 @@ mod tests {
         // 中文字符属于合法 unquoted scalar (>= 0x80 在允许集)
         assert_eq!(yaml_scalar("中文路径"), "中文路径");
         // URL 含 : 与 / 也是合法的
-        assert_eq!(yaml_scalar("https://example.com/a.pdf"), "https://example.com/a.pdf");
+        assert_eq!(
+            yaml_scalar("https://example.com/a.pdf"),
+            "https://example.com/a.pdf"
+        );
     }
 
     #[test]

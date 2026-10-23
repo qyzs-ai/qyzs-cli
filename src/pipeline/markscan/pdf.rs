@@ -60,12 +60,7 @@ pub async fn extract(
                 }
                 Err(e) => {
                     // 单片失败降级: 占位符 + 警告 + 继续
-                    let warn_msg = format!(
-                        "切片 {}/{} 解析失败已跳过: {}",
-                        idx + 1,
-                        total,
-                        e
-                    );
+                    let warn_msg = format!("切片 {}/{} 解析失败已跳过: {}", idx + 1, total, e);
                     // 警告持久化 (best-effort, 持久化失败不阻塞流程)
                     let _ = ws.add_warning(warn_msg.clone());
                     // 占位符 (让 LLM 看到此处缺失而非误判为内容)

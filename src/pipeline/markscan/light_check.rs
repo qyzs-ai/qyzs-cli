@@ -43,10 +43,7 @@ pub fn check_polished(raw_segment: &str, polished: &str) -> LightCheck {
     let raw_rows = count_prefix_lines(raw_segment, '|');
     let polished_rows = count_prefix_lines(polished, '|');
     if polished_rows < raw_rows {
-        issues.push(format!(
-            "表格行数减少: {} → {}",
-            raw_rows, polished_rows
-        ));
+        issues.push(format!("表格行数减少: {} → {}", raw_rows, polished_rows));
     }
 
     LightCheck {

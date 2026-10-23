@@ -78,7 +78,11 @@ mod tests {
         assert!(md.contains("耕地"));
         assert!(md.contains("https://example.com"));
         // 标题语法
-        assert!(md.contains("# 第一章 总则") || md.contains("#第一章 总则") || md.contains("第一章 总则"));
+        assert!(
+            md.contains("# 第一章 总则")
+                || md.contains("#第一章 总则")
+                || md.contains("第一章 总则")
+        );
     }
 
     #[test]

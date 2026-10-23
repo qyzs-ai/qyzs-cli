@@ -30,7 +30,10 @@ pub async fn markscan(ctx: &Ctx<'_>, opts: MarkScanOptions) -> QyzsResult<()> {
     if opts.dry_run {
         let plan = MarkScanPipeline::plan(&opts, &single, ctx.config.timeout_seconds).await?;
         if ctx.config.output_format == OutputFormat::Json {
-            println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&plan).unwrap_or_default()
+            );
         } else {
             print_scan_plan(ctx.printer, &plan);
         }
@@ -72,7 +75,10 @@ async fn markscan_multi(ctx: &Ctx<'_>, opts: MarkScanOptions) -> QyzsResult<()> 
     if opts.dry_run {
         let plans = multi::plan_multi(&opts, ctx.config.timeout_seconds).await?;
         if ctx.config.output_format == OutputFormat::Json {
-            println!("{}", serde_json::to_string_pretty(&plans).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&plans).unwrap_or_default()
+            );
         } else {
             multi::render_plans_human(&plans);
         }
@@ -92,7 +98,8 @@ async fn markscan_multi(ctx: &Ctx<'_>, opts: MarkScanOptions) -> QyzsResult<()> 
     .await?;
     for (r, _md) in &results {
         if let Some(out_p) = &r.output {
-            ctx.printer.ok(&crate::msgf!(MdSaved, out_p.display().to_string()));
+            ctx.printer
+                .ok(&crate::msgf!(MdSaved, out_p.display().to_string()));
         }
     }
     Ok(())
@@ -116,7 +123,9 @@ pub async fn pdf_split(
         let files = PdfSplitter::chunk(&file, chunk, &target_dir)?;
         ctx.printer.ok(&format!(
             "文档 (共 {} 页) 已按每 {} 页分块拆分完成，生成 {} 个文件:",
-            meta.page_count, chunk, files.len()
+            meta.page_count,
+            chunk,
+            files.len()
         ));
         for f in files {
             ctx.printer.dim(&format!("  -> {}", f.display()));
@@ -221,13 +230,13 @@ fn print_scan_plan(printer: &crate::term::Printer, plan: &ConversionPlan) {
         );
     }
     println!("{}{}", crate::msg!(MdLabelMode), plan.mode);
-    println!("{}{}", crate::msg!(MdLabelChannel), plan.channel.unwrap_or("—"));
+    println!(
+        "{}{}",
+        crate::msg!(MdLabelChannel),
+        plan.channel.unwrap_or("—")
+    );
     if plan.supported {
-        println!(
-            "{}{}",
-            crate::msg!(MdLabelStages),
-            plan.stages.join(" → ")
-        );
+        println!("{}{}", crate::msg!(MdLabelStages), plan.stages.join(" → "));
     } else {
         printer.err(crate::msg!(MdUnsupportedStatus));
         println!(

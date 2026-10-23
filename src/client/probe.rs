@@ -29,7 +29,11 @@ impl QyzsClient {
 
         // 并发执行三个端点的探活
         let (p1, p2, p3) = tokio::join!(
-            self.probe_endpoint("公共推理网关 (Public API /v1)", "api/aiCenterChat/v1/chat/completions", key),
+            self.probe_endpoint(
+                "公共推理网关 (Public API /v1)",
+                "api/aiCenterChat/v1/chat/completions",
+                key
+            ),
             self.probe_endpoint("MinerU 结构化专线", MINERU_PROBE_PATH, key),
             self.probe_endpoint("SAM 遥感流水线专线", "api/aiCenterChat/v3/form", key)
         );
@@ -81,7 +85,11 @@ impl QyzsClient {
                     ok,
                     status_code: status,
                     latency_ms,
-                    error_msg: if ok { None } else { Some(format!("HTTP 状态码: {}", status)) },
+                    error_msg: if ok {
+                        None
+                    } else {
+                        Some(format!("HTTP 状态码: {}", status))
+                    },
                 }
             }
             Err(e) => ProbeResult {

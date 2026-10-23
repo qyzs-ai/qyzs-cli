@@ -23,7 +23,10 @@ mod tests {
 
     #[test]
     fn test_normalize() {
-        assert_eq!(normalize_title("第一章　总　则"), normalize_title("第一章 总则"));
+        assert_eq!(
+            normalize_title("第一章　总　则"),
+            normalize_title("第一章 总则")
+        );
         assert_eq!(normalize_title("（一）概述"), normalize_title("(一)概述"));
         assert_ne!(normalize_title("第一章"), normalize_title("第二章"));
     }
