@@ -77,7 +77,7 @@
   探测固化（capability_matrix.toml）、客户端护栏（embeddings 分块/256 批拆批、
   chat 16 图分批）。注：仓库 git 历史曾被并行进程重建为单初始提交，0.1.0
   **从未打 tag 发布**。
-- **0.2.0**（2026-10-22 发布准备完成，待打 tag）：markscan 全能文档转 Markdown
+- **0.2.0**（2026-10-23 发布准备完成，待打 tag）：markscan 全能文档转 Markdown
   流水线——五阶段全部落地并真实网关验证（自动识别格式 + pdf/docx/xls/xlsx/pptx/
   vsdx/csv/json/xml/zip/image/html 全通道 + **两档**流水线 rigor（默认）/speed
   （旧值 balanced 兼容接受并映射到 rigor）+ 图像/HTML 通道）；

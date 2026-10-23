@@ -7,7 +7,7 @@
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-10-22
+## [0.2.0] - 2026-10-23
 
 发布准备完成，待打 tag（`docs/RELEASE.md` §2 发布流程第 2/3 步；发布条件 C8~C10
 仍未清零，见 §3）。
@@ -19,7 +19,7 @@
 
 ### Fixed
 
-- **代码 / 文档 / 注释三者内容对齐**（2026-10-22 全量审计）：
+- **代码 / 文档 / 注释三者内容对齐**（2026-10-22~23 全量审计）：
   - `qyzs models` 的 `--online-only` / `--all-models` 此前被 dispatch 直接丢弃
     （`Commands::Models { online_only: _, all_models: _ }`），是**死参数**——而
     help 与 README 都宣称它们有过滤语义。现真正接线：`capability_matrix.toml`
@@ -142,7 +142,7 @@
     v0.2.0 **均从未打 tag**，该 URL 必然 404；`install.sh` / `install.ps1` 的
     版本兜底同样指向未存在的 tag。现按 `docs/RELEASE.md` §2 发布流程第 2 步
     执行发布准备：`Cargo.toml` 提到 `0.2.0`，`CHANGELOG` 的 `Unreleased`
-    段落固化为 `[0.2.0] - 2026-10-22` 段并更新 compare 链接，安装脚本版本
+    段落固化为 `[0.2.0] - 2026-10-23` 段并更新 compare 链接，安装脚本版本
     兜底与 `npm/build.sh` 默认版本同步为 `v0.2.0`。打 tag `v0.2.0` 后 CI
     版本一致性守卫即可通过（已核验 tag == Cargo.toml == 0.2.0）。
   - `docs/RELEASE.md` 同步订正：§4 的 0.2.0 条目补全 `csv`/`json`/`xml`/`zip`
