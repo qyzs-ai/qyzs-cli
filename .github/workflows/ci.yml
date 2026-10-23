@@ -145,7 +145,9 @@ jobs:
           # 打包 tests/data/ 的**内容** (而非 data/ 目录本身): qyzs dataset 的
           # 解压契约是「归档内容原样展开到 --dest」, 若把 data/ 目录打进去,
           # 解到默认的 tests/data 会多出一层 data/
-          cd tests && zip -qr "${{ github.workspace }}/tests_data.zip" data/*
+          # 必须 cd 进 data/ 再打包 "." : `zip -r X data/*` 存出来的条目仍是
+          # data/<类目>/<文件>, 解到默认的 tests/data 会多出一层 data/
+          cd tests/data && zip -qr "${{ github.workspace }}/tests_data.zip" .
       - name: Create Release and upload assets
         uses: softprops/action-gh-release@v2
         with:

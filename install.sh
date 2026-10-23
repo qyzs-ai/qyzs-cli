@@ -61,7 +61,18 @@ if command -v qyzs >/dev/null 2>&1; then
 fi
 
 # 4. 获取最新 Release 版本
-LATEST_TAG="$(curl -sSL "${RELEASE_API_URL}" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "${FALLBACK_TAG}")"
+# GitHub Release API 返回的是压缩成单行的 JSON, 且 release body 里同样含
+# "tag_name" 字样; 贪婪的 sed 会抓到行内最后一对引号 (release notes 末尾的
+# "**Full Changelog**: https://...")。故: 只取第一个匹配, 并校验其 tag 形态。
+LATEST_TAG=""
+while read -r candidate; do
+    if printf '%s' "${candidate}" | grep -qE '^v?[0-9]+(\.[0-9]+){1,2}([-.+][A-Za-z0-9.]*)?$'; then
+        LATEST_TAG="${candidate}"
+        break
+    fi
+done < <(curl -sSL "${RELEASE_API_URL}" \
+    | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' \
+    | sed -E 's/.*"([^"]+)"$/\1/')
 if [ -z "${LATEST_TAG}" ]; then
     LATEST_TAG="${FALLBACK_TAG}"
 fi

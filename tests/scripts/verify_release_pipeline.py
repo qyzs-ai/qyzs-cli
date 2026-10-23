@@ -104,6 +104,8 @@ def api_payload(tag: str, assets_dir: pathlib.Path) -> str:
         }
         for f in sorted(assets_dir.iterdir())
     ]
+    # 必须与真实 GitHub API 一致: 压缩成单行 (真实响应的 body 里同样含
+    # "tag_name" 字样, 换行解析会漏掉这个坑)
     return json.dumps(
         {
             "tag_name": tag,
@@ -112,7 +114,7 @@ def api_payload(tag: str, assets_dir: pathlib.Path) -> str:
             "published_at": "2026-01-01T00:00:00Z",
             "assets": assets,
         },
-        indent=2,
+        separators=(",", ":"),
     )
 
 
