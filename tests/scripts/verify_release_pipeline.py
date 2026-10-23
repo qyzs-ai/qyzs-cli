@@ -307,8 +307,8 @@ def main() -> int:
         }
         check(launcher == built == set(deps), "启动器 / npm 装配 / 版本钉 平台包三方一致", f"{sorted(launcher)}")
 
-        # 启动器实际调度 (仅 Linux/macOS 可在此验证)
-        if platform.system() != "Windows":
+        # 启动器实际调度 (仅 Linux/macOS 且有 node 时可验证)
+        if platform.system() != "Windows" and shutil.which("node") is not None:
             nm = WORK / "nm" / "node_modules" / "@qyzs-ai"
             nm.mkdir(parents=True, exist_ok=True)
             shutil.copytree(REPO / "dist/npm/cli", nm / "cli")
