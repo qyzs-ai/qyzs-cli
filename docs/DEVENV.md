@@ -152,7 +152,58 @@ bash tests/scripts/check_no_secrets.sh     # 提交历史密钥扫描（CI secre
 （含悬空对象）与已跟踪文件——`git add` 后又删除的凭据仍留在 `.git/objects` 里，
 只有 `git gc` 才清除，故扫描不能只覆盖跟踪文件。
 
-### 6.3 发布流水线本地验证（无需真实发布）
+### 6.3 npm 发布（npm 的 OTP 策略与操作手册）
+
+**npm 的现行策略（2026-10 实测）**：
+
+| 操作 | Granular Access Token 的表现 |
+|---|---|
+| 创建**新**包（含 org scope） | **强制一次性密码**：网页/passkey 认证，或 `npm publish --otp=<认证器 6 位码>` |
+| 给**已存在**的包发新版本 | 不需要 OTP |
+| 读 org 的包列表 | 需要 org 读写权限，否则 `npm access list packages <org>` 返回 403 |
+
+> 实测记录：同一个 token 在 **org scope 与 personal scope 建包时都报 EOTP**，说明这是
+> 「建新包」的通用策略；而缺 org 权限时报的是 **E404**（npm 用 404 表示 token 看不见
+> 该 org 的包，而非 403）——排查时极易误判为包名或网络问题。
+
+**为什么 CI 不能自己建包**：OTP 需要网页/passkey 或认证器，GitHub Actions 无法完成。
+npm 官方给 CI 的答案是 **Trusted Publishing (OIDC)**，但它的配置入口在「包设置页」，
+即**包必须先存在** → 首包必须人工引导一次。
+
+**操作手册**：
+
+```bash
+# ① 装配包族 (版本用 prerelease 占位, 让 CI 之后能发正式版 0.2.0 —— npm 不允许
+#    重复发布同一版本)
+#    注意: npm/build.sh 要求 dist/<bin>-<pkg> 处预先放好二进制, 缺失即失败
+bash npm/build.sh 0.2.0-0
+
+# ② 人工一次性发布首包 (用 npm 认证器 App 的 6 位码)
+cd dist/npm/linux-x64 && npm publish --tag next --access public --otp=<6位码>
+
+# ③ 为每个包配置 Trusted Publishing (OIDC):
+#    npmjs.com → 包设置页 → Trusted Publisher → GitHub Actions
+#    填 Organization/user=qyzs-ai, Repository=qyzs-cli, Workflow filename=ci.yml
+#    7 个包各配一次 (顶层 @qyzs-ai/cli + 六个平台包)
+
+# ④ 此后 CI 发版不再需要任何 secret:
+#    npm publish --provenance 走 OIDC, provenance 自动生成
+```
+
+**已知踩坑**：
+
+- `npm` 的报错与调试日志里，OTP 认证 URL 会被打码成 `***`；只有在 **TTY 环境**
+  才显示真地址（`script -qec "npm publish" /dev/null` 可拿到）。
+- GitHub 的 **Actions secret 属于 sudo-protected 操作**：更新/删除会跳转
+  "Confirm access"（passkey / 认证器 / 密码三选一），且该确认页与 secret 更新
+  **是同一个表单**（填好验证码提交即一步完成两件事）。但「新建」secret 不触发该确认，
+  可脚本化提交 —— 自动化场景的正确姿势是**首次创建用脚本**，后续轮换需人工过一次确认
+  （确认后进入数小时的 sudo 模式，期间可继续操作）。
+- secret 值在表单里是 `encrypted_value`，由 `js-encrypt-submit` 用仓库公钥在浏览器端
+  加密；直接 `form.submit()` 跳过该处理器会提交明文，服务端解密失败报 Server Error。
+  正确做法是**派发 `submit` 事件**让处理器自己加密。
+
+### 6.4 发布流水线本地验证（无需真实发布）
 
 ```bash
 python3 tests/scripts/verify_release_pipeline.py

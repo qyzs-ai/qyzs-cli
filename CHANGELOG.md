@@ -59,6 +59,13 @@
     `E404 Not Found`（npm 用 404 表示 token 看不见该 org 的包，而非 403）。
     token 须额外授予 `qyzs-ai` 组织读写权限；本地可复现：
     `npm access list packages qyzs-ai` 返回 `403 Forbidden` 即是缺该权限。
+  - **记录并定位 npm 发布的 OTP 策略（发布阻塞点，非配置问题）**：npm 对「用
+    granular token 创建新包」强制一次性密码（OTP），CI 无法完成（需网页/passkey
+    或认证器码）。实测要点：**personal scope 同样触发**，故属通用策略而非组织权限
+    问题；而缺 org 权限时报的是 **E404**（npm 用 404 表示 token 看不见该 org 的包），
+    极易误判为包名/网络问题。npm 官方给 CI 的答案是 Trusted Publishing (OIDC)，
+    但其配置入口在「包设置页」（包须先存在）→ 首包必须人工引导一次。完整策略说明
+    与操作手册见 `docs/DEVENV.md` §6.3。
   - **修复 npm 平台包发布成空壳（发布阻塞级）**：`npm/build.sh` 从
     `dist/<bin>-<pkg>` 取构建二进制，但**仓库里没有任何脚本产出这种命名的文件**，
     CI 的 release-binaries job 也只把产物传到 Release 资产、不放 `dist/` ——
