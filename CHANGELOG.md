@@ -44,6 +44,16 @@
     「建议人工复核」；模块头「红头/印章仲裁」同步收敛为「同源互验」。
   - `src/pipeline/markscan/mod.rs` 模块头的档位后处理描述存在重复串
     （「多通道交叉验证 + 逐段仲裁」重复两遍），已去重。
+  - **修复 `install.sh` 解析 GitHub Release 版本号取错值**：GitHub API 返回的是
+    **压缩成单行**的 JSON，且 release body 里同样含 `"tag_name"` 字样；脚本用
+    贪婪的 `sed 's/.*"([^"]+)".*/\1/'` 会抓到行内**最后一对引号**，即 release
+    notes 末尾的 `**Full Changelog**: https://...`，拼出无效的下载地址导致安装
+    失败。现改为 `grep -o` 只取第一个匹配，并校验其 tag 形态。
+  - **修复数据集打包仍多一层 `data/`**：CI 的 `cd tests && zip -qr X data/*`
+    存出来的条目仍是 `data/<类目>/<文件>`（glob 展开后 zip 按原路径存储），解到
+    默认 `tests/data` 依旧多一层。改为 `cd tests/data && zip -qr X .`。同时把本地
+    发布验证脚本的 mock API 响应也改成**压缩单行**，与真实 API 一致——正是这个
+    差异让该缺陷躲过了本地验证。
   - **恢复 `chat` 多图自动分批（回归修复）**：`validate_chat_images` 在 cdb9f59
     中被引入，对 >16 张图直接报用法错误（退出码 2），从而使 `inference.rs` 中
     自初始提交 3cb3e1c 起就存在的分批逻辑**在 CLI 路径上不可达**——而 0.1.0
