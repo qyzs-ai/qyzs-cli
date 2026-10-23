@@ -208,10 +208,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --target loongarch64-unknown-linux-gnu
-          echo "CARGO_HOME=/github/home" >> "$GITHUB_ENV"
-          echo "RUSTUP_HOME=/github/rustup" >> "$GITHUB_ENV"
-          echo "PATH=/github/home/.cargo/bin:$PATH" >> "$GITHUB_ENV"
+          # CARGO_HOME / RUSTUP_HOME 必须在安装 rustup **之前**就导出: 否则
+          # rustup 装到默认的 /root/.rustup, 而后续步骤指向 /github/rustup,
+          # 结果是 "rustup could not choose a version of cargo to run ...
+          # no default is configured"
+          export CARGO_HOME=/github/home
+          export RUSTUP_HOME=/github/rustup
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain stable --target loongarch64-unknown-linux-gnu
+          echo "CARGO_HOME=$CARGO_HOME" >> "$GITHUB_ENV"
+          echo "RUSTUP_HOME=$RUSTUP_HOME" >> "$GITHUB_ENV"
+          echo "PATH=$CARGO_HOME/bin:$PATH" >> "$GITHUB_ENV"
           echo "CC_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
           echo "AR_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-ar" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER=loongarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
