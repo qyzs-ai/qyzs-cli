@@ -204,7 +204,10 @@ jobs:
       - name: Install build deps
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends git curl ca-certificates build-essential gcc-loongarch64-linux-gnu
+          # libc6-dev-loong64-cross 提供目标 sysroot 的 libc 头文件, 它只是
+          # gcc 包的 Recommends (非 Depends), 会被 --no-install-recommends 跳过
+          # -> 交叉编译 ring 的 C 代码时报 "bits/libc-header-start.h: No such file"
+          apt-get install -y --no-install-recommends git curl ca-certificates build-essential gcc-loongarch64-linux-gnu libc6-dev-loong64-cross
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: |
