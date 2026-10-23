@@ -101,7 +101,7 @@
     （24.04 与 26.04 均无），`cross` 也没有该目标的镜像（回退到宿主 cargo 后
     报 `can't find crate for core`）。现把该目标拆成独立的
     `release-binary-loongarch64` job，在 **debian:trixie 容器**内构建
-    （容器自带 `gcc-loongarch64-linux-gnu`，与本地验证过的工具链一致），
+    （容器自带 `gcc-loongarch64-linux-gnu` + `libc6-dev-loong64-cross`（目标 sysroot 的 libc 头文件，后者只是 gcc 包的 *Recommends*，需显式安装），与本地验证过的工具链一致），
     产物打包后用 `softprops/action-gh-release` 追加进同一个 Release。
   - **跨目标 job 由 `cargo check` 改为 `cargo build`**：check 不做链接，抓不到
     只在链接期暴露的错误（macOS 的 FFI 符号问题即是被 release 流水线而非本 job
