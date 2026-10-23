@@ -46,9 +46,11 @@
    三个 job 全绿。
 2. 发布准备提交：`Cargo.toml` 版本号 + CHANGELOG（`Unreleased` 段落固化为版本段）
    + 需要时的 README 更新。
-3. 打 tag `vX.Y.Z` 并推送 tag → CI 自动：版本一致性校验、六平台二进制上传
-   Release、安装脚本与 tests_data.zip 数据集上传、npm 包族 provenance 发布
-   （依赖 `NPM_TOKEN` secret）。
+3. 打 tag `vX.Y.Z` 并推送 tag → CI 自动：版本一致性校验 → **先创建 Release 并上传
+   安装脚本与 `tests_data.zip`** → **六平台二进制追加进该 Release** → npm 包族
+   provenance 发布（依赖 `NPM_TOKEN` secret）。
+   顺序不可调换：`upload-rust-binary-action` 要求 Release **已存在**才能追加资产，
+   建 Release 的动作必须在前。
 4. 执行发布后验证清单（§3）。
 
 ## 3. 发布条件清单
