@@ -124,10 +124,40 @@ jobs:
       - name: Cargo Check
         run: cargo check --target ${{ matrix.target }} --verbose
 
+  # 先建 Release (含安装脚本与数据集), 再往里上传各平台二进制。
+  # 顺序不能反: upload-rust-binary-action 要求 Release **已存在**才能追加资产,
+  # 而建 Release 的动作原先放在后面的 job —— 两者互相等待, 发布必然失败
+  # (现象是二进制构建成功、随后上传报 "release not found")。
+  release-create:
+    name: Create Release (install scripts + dataset)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [rust-check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package benchmark dataset (tests_data.zip)
+        run: |
+          # 打包 tests/data/ 的**内容** (而非 data/ 目录本身): qyzs dataset 的
+          # 解压契约是「归档内容原样展开到 --dest」, 若把 data/ 目录打进去,
+          # 解到默认的 tests/data 会多出一层 data/
+          cd tests && zip -qr "${{ github.workspace }}/tests_data.zip" data/*
+      - name: Create Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            install.sh
+            install.ps1
+            install.cmd
+            tests_data.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
   release-binaries:
     name: Build & Upload Release Binaries
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [rust-check]
+    needs: [rust-check, release-create]
     strategy:
       fail-fast: false
       matrix:
@@ -156,13 +186,13 @@ jobs:
           archive: $bin-$target
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  release-npm-and-scripts:
-    name: Publish npm & Upload Install Scripts
+  release-npm:
+    name: Publish npm packages
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [release-binaries]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -178,22 +208,8 @@ jobs:
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
           echo "Release version: $TAG"
 
-      - name: Package benchmark dataset (tests_data.zip)
-        run: |
-          # 打包 tests/data/ 的**内容** (而非 data/ 目录本身): qyzs dataset 的
-          # 解压契约是「归档内容原样展开到 --dest」, 若把 data/ 目录打进去,
-          # 解到默认的 tests/data 会多出一层 data/
-          cd tests && zip -qr "${{ github.workspace }}/tests_data.zip" data/*
-
-      - name: Upload Release Assets (install scripts + dataset)
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            install.sh
-            install.ps1
-            install.cmd
-            tests_data.zip
-          generate_release_notes: true
+      - name: Pack npm packages
+        run: bash npm/build.sh ${{ steps.ver.outputs.version }}
 
       - name: Pack npm packages
         run: bash npm/build.sh ${{ steps.ver.outputs.version }}

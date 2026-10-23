@@ -80,6 +80,16 @@
     （归档根即数据集内容），并把解压契约明确为「原样展开、不剥离层级」——通用
     解压器不该猜测哪一层是冗余的（"只有一个顶层目录"的情形下那层往往是有意义的）。
     补 4 个单测锁定契约。该路径此前从未端到端跑过。
+  - **修复发布流水线的 job 依赖死锁（发布阻塞级）**：`upload-rust-binary-action`
+    要求 Release **已存在**才能追加资产，而原先创建 Release 的动作
+    (`softprops/action-gh-release`) 放在 `release-npm-and-scripts` job 里、
+    又 `needs: [release-binaries]` —— 两者互相等待，发布必然失败（实测现象：
+    六个平台二进制**构建成功**，随后上传报 `release not found`，Release 从未
+    创建）。现拆为 `release-create`（建 Release + 上传安装脚本与 tests_data.zip）
+    → `release-binaries`（追加六平台二进制）→ `release-npm`（npm 包族）。
+  - **修复已退役的 `macos-13` runner 标签**：GitHub 已下线该标签（x64 macOS 现为
+    `macos-15-intel`），表现为该 job 无限排队而不报错——`cross-target-check` 与
+    `release-binaries` 的 x86_64-apple-darwin 都会卡死。
   - **发布链路可本地端到端验证**：新增 `tests/scripts/verify_release_pipeline.py`
     ——用本地模拟的 GitHub Release（按 CI 资产命名组装 `.tar.gz`/`.zip` + Release
     API 响应 + 内核分配的空闲端口起 HTTP 服务）验证 install.sh 全链路、
