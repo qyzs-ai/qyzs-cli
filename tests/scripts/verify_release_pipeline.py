@@ -215,12 +215,25 @@ def main() -> int:
                 sums.append(f"{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}")
         (rel / "SHA256SUMS").write_text("\n".join(sums) + "\n")
 
-        # 钉版脚本: CI 发布时会把 PINNED_VERSION 替换为具体 tag
-        pinned = (REPO / "install.sh").read_text(encoding="utf-8")
-        pinned = re.sub(r'^PINNED_VERSION=.*$', 'PINNED_VERSION="v0.2.0"', pinned, flags=re.M)
-        check('PINNED_VERSION="v0.2.0"' in pinned, "install.sh 的版本钉定标记可被 CI 替换")
-        pinned_path = WORK / "install-pinned.sh"
-        pinned_path.write_text(pinned, encoding="utf-8")
+        # 钉版脚本: 与 CI 共用 tests/scripts/pin_install_scripts.sh (单一实现,
+        # 避免两侧规则漂移 —— 曾发生 CI 侧剥掉 tag 的 v 前缀, 导致 Release 下载 404)
+        pin_dir = WORK / "pinned"
+        r = run(["bash", str(REPO / "tests/scripts/pin_install_scripts.sh"), "v0.2.0", str(pin_dir)])
+        check(r.returncode == 0, "共享钉版脚本执行成功", (r.stdout + r.stderr).strip()[-160:])
+        pinned = (pin_dir / "install.sh").read_text(encoding="utf-8")
+        check(
+            'PINNED_VERSION="v0.2.0"' in pinned,
+            "install.sh 钉定的版本带 v 前缀 (与 Release 资产路径一致)",
+            [l for l in pinned.splitlines() if "PINNED_VERSION=" in l][:1],
+        )
+        check(
+            '$PinnedVersion = "v0.2.0"' in (pin_dir / "install.ps1").read_text(encoding="utf-8"),
+            "install.ps1 钉定的版本带 v 前缀",
+        )
+        # 负例: 不带 v 的 tag 必须被拒 (否则会拼出 404 的下载 URL)
+        r = run(["bash", str(REPO / "tests/scripts/pin_install_scripts.sh"), "0.2.0", str(WORK / "pinned_bad")])
+        check(r.returncode != 0, "不带 v 前缀的 tag 被拒绝 (防止拼出 404 的下载 URL)")
+        pinned_path = pin_dir / "install.sh"
 
         # 起本地 HTTP 服务模拟 Release 静态托管
         srv2, base2 = serve(WORK / "mockrel")

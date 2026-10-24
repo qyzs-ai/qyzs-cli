@@ -78,6 +78,15 @@
     ② 新增 `release-checksums` job 生成并上传 `SHA256SUMS`，两个安装脚本下载后
     自动比对，不匹配即中止安装且不留任何产物（校验和文件缺失时降级为警告）。
     另支持 `QYZS_VERSION=v0.2.0` 显式指定版本。
+  - **修复安装脚本版本钉定丢失 tag 的 v 前缀（发布阻塞级）**：CI 注入版本时用
+    `${GITHUB_REF#refs/tags/v}` 剥掉了 `v`，钉出的 `PINNED_VERSION="0.2.0"` 与
+    实际 tag `v0.2.0` 对不上——Release 资产路径是带 v 的，钉版脚本拼出的下载 URL
+    直接 404。现把替换规则抽成唯一实现 `tests/scripts/pin_install_scripts.sh`，
+    CI 与本地发布验证脚本共用（两侧规则漂移正是这次缺陷的成因），并对
+    不带 v 的 tag 直接拒绝。
+  - **修复重打 tag 时旧 SHA256SUMS 滞留导致误判「下载被篡改」**：新 Release 的
+    二进制尚未上传完时，上一轮遗留的 SHA256SUMS 仍在，期间的下载会因校验和不
+    匹配而被安装脚本拒绝。现 release-create 先删除遗留的 SHA256SUMS 再生成。
   - **修复 npm 平台包发布成空壳（发布阻塞级）**：`npm/build.sh` 从
     `dist/<bin>-<pkg>` 取构建二进制，但**仓库里没有任何脚本产出这种命名的文件**，
     CI 的 release-binaries job 也只把产物传到 Release 资产、不放 `dist/` ——
