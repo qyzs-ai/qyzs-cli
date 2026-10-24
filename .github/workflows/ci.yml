@@ -148,28 +148,6 @@ jobs:
           # 必须 cd 进 data/ 再打包 "." : `zip -r X data/*` 存出来的条目仍是
           # data/<类目>/<文件>, 解到默认的 tests/data 会多出一层 data/
           cd tests/data && zip -qr "${{ github.workspace }}/tests_data.zip" .
-      # 删除上一轮遗留的 SHA256SUMS: 重打 tag 时旧文件会滞留到新文件上传为止,
-      # 期间用户拿旧校验和校验新二进制会被误判为「下载被篡改」而安装失败
-      - name: Remove stale SHA256SUMS from previous release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF#refs/tags/}"
-          curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
-            | python3 -c "
-          import json, sys
-          d = json.load(sys.stdin)
-          for a in d.get('assets', []):
-              if a['name'] == 'SHA256SUMS':
-                  print(a['id'])
-          " | while read -r asset_id; do
-            [ -z "${asset_id}" ] && continue
-            echo "删除遗留资产 SHA256SUMS (id=${asset_id})"
-            curl -fsSL -X DELETE -H "Authorization: Bearer ${GH_TOKEN}" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
-          done
       # 发布时把安装脚本的版本钉定到本 tag (业界惯例, 参考 astral-sh/uv):
       # Release 资产里的 install.sh 装的就是该版本, 而仓库 main 分支上的脚本
       # 仍然是「装最新版」。不钉定的话, 从 v0.2.0 下载的脚本会装到更新版本,
@@ -194,6 +172,40 @@ jobs:
             tests_data.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
+      # 删除上一轮遗留的 SHA256SUMS: 重打 tag 时旧文件会滞留到新文件上传为止,
+      # 期间用户拿旧校验和校验新二进制会被误判为「下载被篡改」而安装失败。
+      # 必须放在「建 Release」之后 —— Release 尚不存在时查不到资产 (404)。
+      # 清理后到新校验和上传前, 该文件是「缺失」而非「错误」, 安装脚本会降级为
+      # 警告并继续, 不会误杀正常下载。
+      - name: Remove stale SHA256SUMS from previous release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          BODY="$(curl -sSL -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")" || BODY=""
+          if [ -z "${BODY}" ]; then
+            echo "[INFO] 未取到 Release 资产列表 (首次发布?), 跳过清理"
+            exit 0
+          fi
+          echo "${BODY}" | python3 -c "
+          import json, sys
+          try:
+              d = json.load(sys.stdin)
+          except Exception:
+              sys.exit(0)
+          for a in d.get('assets', []):
+              if a.get('name') == 'SHA256SUMS':
+                  print(a['id'])
+          " | while read -r asset_id; do
+            [ -z "${asset_id}" ] && continue
+            echo "删除遗留资产 SHA256SUMS (id=${asset_id})"
+            curl -sSL -X DELETE -H "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
+            echo
+          done
+          exit 0
 
   release-binaries:
     name: Build & Upload Release Binaries
