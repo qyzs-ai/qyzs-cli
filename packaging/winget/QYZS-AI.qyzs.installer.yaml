@@ -1,0 +1,20 @@
+PackageIdentifier: "QYZS-AI.qyzs"
+PackageVersion: "0.2.0"
+Platform:
+  - "Windows.Desktop"
+# Rust 1.78+ 的 MSVC 目标最低要求 Windows 10 (10.0.17763.0)
+MinimumOSVersion: "10.0.17763.0"
+InstallerType: "zip"
+InstallModes:
+  - "silent"
+Installers:
+  - Architecture: "x64"
+    InstallerUrl: "https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/qyzs-x86_64-pc-windows-msvc.zip"
+    InstallerSha256: "8ee4656adcf4fe3422a1b7257d3da4e7a0bd8753046cf1deca30e8b878c63481"
+    # 便携 zip: winget 解压后按 RelativeFilePath 定位可执行文件, 并建 shim
+    NestedInstallerType: "portable"
+    NestedInstallerFiles:
+      - RelativeFilePath: "qyzs.exe"
+        PortableCommandAlias: "qyzs"
+ManifestType: "installer"
+ManifestVersion: "1.12.0"

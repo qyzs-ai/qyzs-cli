@@ -87,6 +87,15 @@
   - **修复重打 tag 时旧 SHA256SUMS 滞留导致误判「下载被篡改」**：新 Release 的
     二进制尚未上传完时，上一轮遗留的 SHA256SUMS 仍在，期间的下载会因校验和不
     匹配而被安装脚本拒绝。现 release-create 先删除遗留的 SHA256SUMS 再生成。
+  - **补齐 winget / Homebrew 打包清单**：调研确认两者是各平台的**主流安装路径**，
+    缺了它们 Windows 用户只能靠 PowerShell 脚本、macOS 用户只能靠 shell 脚本,
+    都不是平台惯例。新增 `packaging/`：winget 三个清单（version / installer /
+    defaultLocale，便携 zip 用 `InstallerType: zip` + `NestedInstallerType: portable`
+    + `NestedInstallerFiles` 声明可执行文件与命令别名）、Homebrew formula，
+    以及 `generate_manifests.py` —— 从该 tag 的 `SHA256SUMS` 自动重算版本与哈希,
+    消除手抄错误。三个 winget 清单已用**官方 JSON schema**
+    (microsoft/winget-cli/schemas/JSON/manifests/latest) 校验通过；
+    CI 新增 `packaging-manifests` job 做 schema 校验 + 与线上哈希逐一比对。
   - **修复 npm 平台包发布成空壳（发布阻塞级）**：`npm/build.sh` 从
     `dist/<bin>-<pkg>` 取构建二进制，但**仓库里没有任何脚本产出这种命名的文件**，
     CI 的 release-binaries job 也只把产物传到 Release 资产、不放 `dist/` ——

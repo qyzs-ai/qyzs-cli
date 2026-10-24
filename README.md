@@ -55,7 +55,23 @@ irm https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/install.ps1 | i
 npm install -g @qyzs-ai/cli
 ```
 
-### 3. Cargo 源码构建
+### 3. 包管理器安装（各平台主流路径）
+
+```powershell
+# Windows —— winget
+winget install QYZS-AI.qyzs
+```
+
+```bash
+# macOS —— Homebrew
+brew install qyzs        # 需先添加对应 tap
+```
+
+> 打包清单源在 [`packaging/`](packaging/)（winget / Homebrew），每次发版由
+> `packaging/generate_manifests.py` 从 Release 的 `SHA256SUMS` 自动重算哈希，
+> 避免手抄出错。
+
+### 4. Cargo 源码构建
 
 ```bash
 cargo install --path .

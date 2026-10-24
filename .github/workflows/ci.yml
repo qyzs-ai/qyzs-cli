@@ -87,6 +87,51 @@ jobs:
       - name: Verify release pipeline
         run: python3 tests/scripts/verify_release_pipeline.py
 
+  # 打包清单 (winget / Homebrew) 必须与 Release 实际资产的哈希一致 —— 抄错或
+  # 漏改会让用户装到坏包。CI 用官方 schema 校验格式, 并核对清单里的哈希与
+  # 该 tag 的 SHA256SUMS 是否相符
+  packaging-manifests:
+    name: Validate packaging manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validators
+        run: pip install --quiet --break-system-packages pyyaml jsonschema
+      - name: Validate winget manifests against official schema
+        run: |
+          set -euo pipefail
+          for t in version installer defaultLocale; do
+            curl -sSL "https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/latest/manifest.${t}.latest.json" -o "/tmp/${t}.json"
+          done
+          python3 - <<'PYEOF'
+          import json, pathlib, sys
+          import yaml, jsonschema
+          W = pathlib.Path("packaging/winget")
+          pairs = [("QYZS-AI.qyzs.yaml", "version"),
+                   ("QYZS-AI.qyzs.installer.yaml", "installer"),
+                   ("QYZS-AI.qyzs.locale.en-US.yaml", "defaultLocale")]
+          bad = 0
+          for fname, stype in pairs:
+              schema = json.load(open(f"/tmp/{stype}.json"))
+              data = yaml.safe_load((W / fname).read_text(encoding="utf-8"))
+              errs = list(jsonschema.Draft7Validator(schema).iter_errors(data))
+              if errs:
+                  bad += 1
+                  print(f"[FAIL] {fname}: {errs[0].message[:160]}")
+              else:
+                  print(f"[PASS] {fname} 符合 {stype} schema")
+          sys.exit(1 if bad else 0)
+          PYEOF
+      - name: Validate manifest hashes against the release
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ "${GITHUB_REF#refs/tags/}" = "${GITHUB_REF}" ]; then
+            echo "[INFO] 非 tag 触发, 跳过哈希比对 (清单随版本发布时更新)"
+            exit 0
+          fi
+          python3 packaging/generate_manifests.py --check --version "${TAG}"
+
   # 平台相关代码 (`#[cfg(windows)]` / `#[cfg(target_os = "macos")]`) 此前只在
   # tag 触发的发布构建里才被编译, PR 阶段完全无覆盖 —— 本 job 补上该盲区。
   # 各目标在能原生处理它的 runner 上检查, 无需交叉工具链。
