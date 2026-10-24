@@ -385,6 +385,8 @@ def main() -> int:
         # npm/build.sh 要求 dist/<bin>-<pkg> 处预先放置二进制 (缺失即失败,
         # 避免发布空壳包); 这里放占位文件, 同时验证该严格校验生效
         dist = REPO / "dist"
+        # dist/ 是 gitignored 的构建产物目录, 全新检出里并不存在
+        dist.mkdir(parents=True, exist_ok=True)
         placeholders = {
             "qyzs-linux-x64": "qyzs",
             "qyzs-linux-arm64": "qyzs",
