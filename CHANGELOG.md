@@ -66,6 +66,18 @@
     极易误判为包名/网络问题。npm 官方给 CI 的答案是 Trusted Publishing (OIDC)，
     但其配置入口在「包设置页」（包须先存在）→ 首包必须人工引导一次。完整策略说明
     与操作手册见 `docs/DEVENV.md` §6.3。
+  - **发布资产对齐业界惯例（安装脚本版本钉定 + 校验和）**：调研 deno / bun /
+    rustup / gh / azure-cli / uv 六个对标项目的 Release 资产构成后确认两条惯例：
+    ① 引导脚本要么放在独立稳定地址、要么在 Release 里**钉定版本**（uv 的
+    `uv-installer.sh` 内含 `APP_VERSION`）；② Release 提供 **SHA256SUMS**
+    （bun / uv / deno / gh 均有）。本项目此前两者都不满足——Release 里的
+    `install.sh` 内容与版本无关（恒装 `releases/latest`），从 v0.2.0 下载的脚本
+    会装到更新版本，资产名与实际行为不符；且无任何校验和，用户无法验证下载完整性。
+    现：① CI 发布时把脚本的 `PINNED_VERSION` / `$PinnedVersion` 注入为该 tag，
+    Release 资产里的脚本即钉定版本（仓库 `main` 分支的仍是「装最新版」）；
+    ② 新增 `release-checksums` job 生成并上传 `SHA256SUMS`，两个安装脚本下载后
+    自动比对，不匹配即中止安装且不留任何产物（校验和文件缺失时降级为警告）。
+    另支持 `QYZS_VERSION=v0.2.0` 显式指定版本。
   - **修复 npm 平台包发布成空壳（发布阻塞级）**：`npm/build.sh` 从
     `dist/<bin>-<pkg>` 取构建二进制，但**仓库里没有任何脚本产出这种命名的文件**，
     CI 的 release-binaries job 也只把产物传到 Release 资产、不放 `dist/` ——

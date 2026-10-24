@@ -203,7 +203,27 @@ cd dist/npm/linux-x64 && npm publish --tag next --access public --otp=<6位码>
   加密；直接 `form.submit()` 跳过该处理器会提交明文，服务端解密失败报 Server Error。
   正确做法是**派发 `submit` 事件**让处理器自己加密。
 
-### 6.4 发布流水线本地验证（无需真实发布）
+### 6.4 Release 资产构成（业界惯例对照）
+
+调研 2026-10 的对标项目（deno / bun / rustup / gh / azure-cli / uv）：
+
+| 项目 | Release 含引导脚本 | 脚本规范入口 | in-release 脚本钉版本 | SHA256SUMS |
+|---|---|---|---|---|
+| deno / bun / rustup / gh | ❌ | 独立稳定地址 | — | ✅ |
+| azure-cli | ❌（含 `.msi` 真安装包） | 官方文档 | — | ✅ |
+| uv | ✅ | `astral.sh/uv/install.sh` | ✅ | ✅ |
+| **本项目** | ✅ **钉定版本** | `raw@main`（最新版）+ Release 资产（钉定版） | ✅ | ✅ |
+
+规则：**仓库里的脚本 = 装最新版；Release 资产里的脚本 = 装该 tag**。
+CI 通过替换 `install.sh` 的 `PINNED_VERSION` 与 `install.ps1` 的 `$PinnedVersion`
+实现（见 `.github/workflows/ci.yml` 的 release-create job）。新增 `release-checksums`
+job 在所有资产就位后生成 `SHA256SUMS` 并上传；两个安装脚本下载后自动比对，
+不匹配即中止安装（校验和文件缺失时降级为警告）。
+
+未做（需向外部仓库提 PR，属独立决策）：**winget manifest**（Windows 主流安装
+路径，ripgrep / sd 均在其仓库中）与 **Homebrew formula**（macOS 主流路径）。
+
+### 6.5 发布流水线本地验证（无需真实发布）
 
 ```bash
 python3 tests/scripts/verify_release_pipeline.py

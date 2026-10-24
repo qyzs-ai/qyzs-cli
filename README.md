@@ -27,14 +27,27 @@
 ### 1. 跨平台一键脚本（推荐，安装即更新）
 
 ```bash
-# Linux / macOS
+# Linux / macOS —— 装最新版
 curl -fsSL https://raw.githubusercontent.com/qyzs-ai/qyzs-cli/main/install.sh | bash
+
+# 装指定版本 (Release 里的 install.sh 已钉定到该 tag)
+curl -fsSL https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/install.sh | bash
 ```
 
 ```powershell
-# Windows PowerShell
+# Windows PowerShell —— 装最新版
 irm https://raw.githubusercontent.com/qyzs-ai/qyzs-cli/main/install.ps1 | iex
+
+# 装指定版本
+irm https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/install.ps1 | iex
 ```
+
+> **版本钉定**：仓库 `main` 分支上的脚本装「当前最新」；Release 资产里的脚本钉定到
+> 该 tag（发布时由 CI 注入版本号），不会出现「下载 v0.2.0 的脚本却装上 v0.3.0」。
+> 也可用 `QYZS_VERSION=v0.2.0` 显式指定版本。
+>
+> **完整性校验**：Release 提供 `SHA256SUMS`，安装脚本下载后自动比对，不匹配即中止
+> 安装（不留下任何产物）。手动安装可用 `sha256sum -c SHA256SUMS` 自查。
 
 ### 2. npm 全局安装
 

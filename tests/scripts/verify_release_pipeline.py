@@ -23,12 +23,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import http.server
 import io
 import json
 import os
 import pathlib
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -86,13 +88,24 @@ def zip_file(path: pathlib.Path, entry: str, data: bytes) -> None:
         zf.writestr(zi, data)
 
 
-def serve(root: pathlib.Path) -> http.server.ThreadingHTTPServer:
-    global BASE
-    handler = lambda *a, **kw: http.server.SimpleHTTPRequestHandler(*a, directory=str(root), **kw)
+class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    """抑制访问日志, 避免淹没脚本自身的检查输出"""
+
+    def log_message(self, fmt, *args):  # noqa: A003
+        pass
+
+
+def serve(root: pathlib.Path) -> tuple[http.server.ThreadingHTTPServer, str]:
+    """起一个本地静态服务, 返回 (server, base_url)。
+
+    端口由内核分配, 多个段可并存而互不干扰 —— 故不改写全局 BASE
+    (改写会让后一段的下载指向错误的服务器)。
+    """
+    handler = lambda *a, **kw: QuietHandler(*a, directory=str(root), **kw)
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), handler)
-    BASE = f"http://127.0.0.1:{srv.server_address[1]}"
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    return srv
+    return srv, base
 
 
 def api_payload(tag: str, assets_dir: pathlib.Path) -> str:
@@ -119,6 +132,9 @@ def api_payload(tag: str, assets_dir: pathlib.Path) -> str:
 
 
 def main() -> int:
+    # BASE 是模块级状态, 供 api_payload() 构造资产下载地址; main() 内对它的
+    # 赋值必须是 global, 否则只改局部变量, API 响应里的 URL 会指向空主机
+    global BASE
     target = host_target()
     ext = ".zip" if "windows" in target else ".tar.gz"
     print(f"宿主平台: {target}  (资产格式 {ext})\n")
@@ -129,7 +145,7 @@ def main() -> int:
     (WORK / "home").mkdir(parents=True)
     (WORK / "mock" / "api").mkdir(parents=True)
 
-    print("== [1/8] 构建宿主平台 release 二进制 ==")
+    print("== [1/9] 构建宿主平台 release 二进制 ==")
     env = dict(os.environ)
     if "musl" in target:
         env["PATH"] = "/usr/lib/llvm-19/bin:" + env.get("PATH", "")
@@ -141,7 +157,7 @@ def main() -> int:
     check(binary.exists(), f"产物存在: {binary.relative_to(REPO)}")
 
     # ── 1. 组装模拟 Release ────────────────────────────────────────────────
-    print("\n== [2/8] 组装模拟 Release 资产与 API ==")
+    print("\n== [2/9] 组装模拟 Release 资产与 API ==")
     tag_install, tag_update = "v9.9.1", "v9.9.2"
     for tag in (tag_install, tag_update):
         d = WORK / "mock" / "releases" / "download" / tag
@@ -161,7 +177,7 @@ def main() -> int:
 
     check(True, "资产已生成 (tag %s / %s)" % (tag_install, tag_update))
 
-    srv = serve(WORK / "mock")
+    srv, BASE = serve(WORK / "mock")
     # BASE 需在服务起��后回填, API 响应此时才能写出正确的下载地址
     (WORK / "mock" / "api" / "latest-install.json").write_text(
         api_payload(tag_install, WORK / "mock" / "releases" / "download" / tag_install)
@@ -172,8 +188,89 @@ def main() -> int:
     check(True, "API 响应已生成")
 
     try:
+        # ── 1.5 安装脚本: 版本钉定 + SHA256 完整性校验 ─────────────────────
+        print("\n== [3/9] 安装脚本: 版本钉定与完整性校验 ==")
+        # 模拟一个 Release 目录: 六个平台归档 + SHA256SUMS
+        rel = WORK / "mockrel" / "releases" / "download" / "v0.2.0"
+        rel.mkdir(parents=True, exist_ok=True)
+        payload = b"#!/bin/sh\necho MOCK-QYZS\n"
+        for tname in [
+            "x86_64-unknown-linux-musl",
+            "aarch64-unknown-linux-musl",
+            "loongarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin",
+        ]:
+            with tarfile.open(rel / f"qyzs-{tname}.tar.gz", "w:gz") as tf:
+                ti = tarfile.TarInfo("qyzs")
+                ti.size, ti.mode = len(payload), 0o755
+                tf.addfile(ti, io.BytesIO(payload))
+        with zipfile.ZipFile(rel / "qyzs-x86_64-pc-windows-msvc.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+            zi = zipfile.ZipInfo("qyzs.exe")
+            zi.external_attr = 0o755 << 16
+            zf.writestr(zi, payload)
+        sums = []
+        for f in sorted(rel.iterdir()):
+            if f.name.endswith((".tar.gz", ".zip")):
+                sums.append(f"{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}")
+        (rel / "SHA256SUMS").write_text("\n".join(sums) + "\n")
+
+        # 钉版脚本: CI 发布时会把 PINNED_VERSION 替换为具体 tag
+        pinned = (REPO / "install.sh").read_text(encoding="utf-8")
+        pinned = re.sub(r'^PINNED_VERSION=.*$', 'PINNED_VERSION="v0.2.0"', pinned, flags=re.M)
+        check('PINNED_VERSION="v0.2.0"' in pinned, "install.sh 的版本钉定标记可被 CI 替换")
+        pinned_path = WORK / "install-pinned.sh"
+        pinned_path.write_text(pinned, encoding="utf-8")
+
+        # 起本地 HTTP 服务模拟 Release 静态托管
+        srv2, base2 = serve(WORK / "mockrel")
+        try:
+            inst_home = WORK / "insthome"
+            inst_home.mkdir(parents=True, exist_ok=True)
+            env_inst = dict(os.environ)
+            env_inst.update({
+                "HOME": str(inst_home),
+                "QYZS_GITHUB_URL": base2,
+                "QYZS_FALLBACK_TAG": "v0.2.0",
+            })
+            r = run(["bash", str(pinned_path)], env=env_inst)
+            out = r.stdout + r.stderr
+            check(r.returncode == 0, "钉版 install.sh 安装成功", out.strip()[-200:])
+            check("安装指定版本: v0.2.0" in out, "钉版脚本跳过 latest 查询, 直接装指定版本")
+            check("SHA256 校验通过" in out, "SHA256 校验通过", out.strip()[-160:])
+            check((inst_home / ".local/bin/qyzs").exists(), "安装产物存在")
+
+            # 篡改归档 -> 必须被校验和拦下, 且不留产物
+            victim = rel / "qyzs-x86_64-unknown-linux-musl.tar.gz"
+            original = victim.read_bytes()
+            victim.write_bytes(b"tampered-content")
+            inst_home2 = WORK / "insthome2"
+            inst_home2.mkdir(parents=True, exist_ok=True)
+            env_inst["HOME"] = str(inst_home2)
+            r = run(["bash", str(pinned_path)], env=env_inst)
+            out = r.stdout + r.stderr
+            check(r.returncode != 0, "归档被篡改时安装失败 (退出码非 0)", out.strip()[-160:])
+            check("SHA256 校验不通过" in out, "明确报出 SHA256 校验不通过")
+            check(
+                not (inst_home2 / ".local/bin/qyzs").exists(),
+                "校验失败时不留下任何安装产物",
+            )
+            victim.write_bytes(original)
+
+            # 校验和文件缺失 -> 降级为警告, 不阻断
+            (rel / "SHA256SUMS").unlink()
+            inst_home3 = WORK / "insthome3"
+            inst_home3.mkdir(parents=True, exist_ok=True)
+            env_inst["HOME"] = str(inst_home3)
+            r = run(["bash", str(pinned_path)], env=env_inst)
+            out = r.stdout + r.stderr
+            check(r.returncode == 0, "缺少 SHA256SUMS 时降级继续 (不阻断安装)", out.strip()[-160:])
+            check("跳过完整性校验" in out, "明确提示已跳过校验")
+        finally:
+            srv2.shutdown()
+
         # ── 2. install.sh 全链路 ───────────────────────────────────────────
-        print("\n== [3/8] install.sh 全链路 ==")
+        print("\n== [4/9] install.sh 全链路 ==")
         env2 = dict(os.environ)
         env2.update(
             HOME=str(WORK / "home"),
@@ -191,7 +288,7 @@ def main() -> int:
             check(r.returncode == 0 and "qyzs" in r.stdout, "安装后可执行", r.stdout.strip())
 
         # ── 3. upgrade --check ─────────────────────────────────────────────
-        print("\n== [4/8] qyzs upgrade --check ==")
+        print("\n== [5/9] qyzs upgrade --check ==")
         env3 = dict(os.environ)
         env3["QYZS_RELEASE_API_URL"] = f"{BASE}/api/latest.json"
         r = run([str(installed), "upgrade", "--check"], env=env3)
@@ -199,7 +296,7 @@ def main() -> int:
         check("可升级" in r.stdout or "已是最新" in r.stdout, "给出可升级/已最新结论", r.stdout.strip()[:120])
 
         # ── 4. upgrade 真正替换自身 ────────────────────────────────────────
-        print("\n== [5/8] qyzs upgrade (下载→解包→原子替换) ==")
+        print("\n== [6/9] qyzs upgrade (下载→解包→原子替换) ==")
         probe = WORK / "probe" / binname
         probe.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(installed, probe)
@@ -220,7 +317,7 @@ def main() -> int:
         check(mode == 0o755, "替换后仍具可执行权限", oct(mode))
 
         # ── 5. dataset 命令 (tests_data.zip 解压落点) ──────────────────────
-        print("\n== [6/8] qyzs dataset 解压落点 ==")
+        print("\n== [7/9] qyzs dataset 解压落点 ==")
         # CI 打包形态: cd tests && zip -qr ... data/* → 归档根即 data/ 的内容
         # 解压契约: 归档内容原样展开到 --dest, 不多不少一层
         ds_zip = WORK / "mock" / "releases" / "download" / tag_install / "tests_data.zip"
@@ -243,7 +340,7 @@ def main() -> int:
 
 
         # ── 7. install.ps1 逻辑 (Windows 脚本, 用 pwsh 在 Linux 上跑逻辑) ──
-        print("\n== [7/8] install.ps1 逻辑 (pwsh) ==")
+        print("\n== [8/9] install.ps1 逻辑 (pwsh) ==")
         if shutil.which("pwsh") is None:
             print("  [SKIP] 未安装 pwsh —— 跳过 (Windows 侧仍须真机验证)")
         else:
@@ -284,7 +381,7 @@ def main() -> int:
                 check(r.returncode == 0 and "qyzs" in r.stdout, "安装后可执行", r.stdout.strip())
 
         # ── 8. npm 包族 ────────────────────────────────────────────────────
-        print("\n== [8/8] npm 包族装配与启动器调度 ==")
+        print("\n== [9/9] npm 包族装配与启动器调度 ==")
         # npm/build.sh 要求 dist/<bin>-<pkg> 处预先放置二进制 (缺失即失败,
         # 避免发布空壳包); 这里放占位文件, 同时验证该严格校验生效
         dist = REPO / "dist"
