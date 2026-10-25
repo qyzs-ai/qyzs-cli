@@ -112,6 +112,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 tests/scripts/verify_published_release.py --tag "${GITHUB_REF_NAME}"
+      # 打包清单的哈希必须与**最终**的 Release 资产一致 —— 每次发版二进制都会
+      # 重新构建 (哈希必变), 故清单须随每次发版重新生成。放在发布完成之后校验,
+      # 否则并行执行时校验的是半成品 release, 会漏掉漂移。
+      - name: Verify packaging manifests against final release
+        run: |
+          set -euo pipefail
+          python3 packaging/generate_manifests.py --check --version "${GITHUB_REF_NAME}"
 
   # 打包清单 (winget / Homebrew) 必须与 Release 实际资产的哈希一致 —— 抄错或
   # 漏改会让用户装到坏包。CI 用官方 schema 校验格式, 并核对清单里的哈希与

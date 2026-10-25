@@ -10,7 +10,7 @@ InstallModes:
 Installers:
   - Architecture: "x64"
     InstallerUrl: "https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/qyzs-x86_64-pc-windows-msvc.zip"
-    InstallerSha256: "8ee4656adcf4fe3422a1b7257d3da4e7a0bd8753046cf1deca30e8b878c63481"
+    InstallerSha256: "a7eba05e794069a581832ad137d359c5f5e5e99d876ed9e90ab5b63f7874cc0c"
     # 便携 zip: winget 解压后按 RelativeFilePath 定位可执行文件, 并建 shim
     NestedInstallerType: "portable"
     NestedInstallerFiles:

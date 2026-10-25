@@ -33,6 +33,10 @@ python3 packaging/generate_manifests.py --version v0.2.0
 
 ## 版本升级流程
 
+> **每次发版都必须重新生成清单**：Release 的二进制是每次流水线重新构建的，产物哈希
+> 必然变化 —— 沿用上一版的哈希会让用户校验失败（winget 直接拒绝安装，Homebrew
+> 报 checksum mismatch）。
+
 1. 打 tag 并等 Release 流水线完成 (资产与 `SHA256SUMS` 均已上传)；
 2. 更新 `Cargo.toml` 的 `version` 与 `CHANGELOG.md` 的版本段;
 3. 跑生成器: `python3 packaging/generate_manifests.py --version vX.Y.Z`;
