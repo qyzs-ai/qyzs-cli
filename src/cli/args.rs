@@ -266,7 +266,7 @@ pub enum Commands {
 
         #[arg(
             long,
-            help = "图像长边最大像素尺寸 (默认 800px, 防网关越界; 仅图像输入生效)"
+            help = "图像长边最大像素尺寸 (1~8192, 默认 800px, 防网关越界; 仅图像输入生效)"
         )]
         max_dim: Option<u32>,
 
@@ -359,7 +359,12 @@ pub enum Commands {
         )]
         url: String,
 
-        #[arg(short, long, default_value = "tests/data", help = "数据集解压保存目录")]
+        #[arg(
+            short,
+            long,
+            default_value = "tests/data",
+            help = "数据集解压保存目录 (默认 tests/data)"
+        )]
         dest: String,
     },
 
@@ -431,7 +436,11 @@ pub enum Commands {
 
     #[command(about = "版本自更新与在线升级 (支持安装即更新)")]
     Upgrade {
-        #[arg(long, default_value = "qyzs-ai/qyzs-cli", help = "GitHub 仓库标识")]
+        #[arg(
+            long,
+            default_value = "qyzs-ai/qyzs-cli",
+            help = "GitHub 仓库标识 (默认 qyzs-ai/qyzs-cli)"
+        )]
         repo: String,
 
         #[arg(long, help = "若本地已有安装包，可直接从本地包安装/更新")]

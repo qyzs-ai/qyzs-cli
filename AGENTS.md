@@ -128,11 +128,14 @@ cargo clippy --all-targets -- --deny warnings # lint（须 0 告警）
 cargo test                                     # 离线用例全绿
 shellcheck -S warning install.sh tests/scripts/*.sh npm/build.sh
 bash tests/scripts/check_no_secrets.sh         # 提交历史密钥扫描
+python3 tests/scripts/check_help_contract.py  # 帮助文本 ↔ 参数校验 ↔ 文档 三方一致
 python3 tests/scripts/verify_release_pipeline.py  # 发布流水线本地验证
+python3 packaging/generate_manifests.py --check  # 打包清单哈希与线上 Release 一致
 ```
 
-CI 另有 `cross-target-check`（Windows/macOS/Linux-musl 目标类型检查）与
-`secret-scan`（需 `fetch-depth: 0`）两个 job。
+CI 另有 `secret-scan`（需 `fetch-depth: 0`）、`cross-target-check`（Windows/macOS/
+Linux-musl 目标类型检查）、`help-contract`、`packaging-manifests` 与
+`release-pipeline-verify` 五个 job。
 
 ### 6.3 凭据与历史
 

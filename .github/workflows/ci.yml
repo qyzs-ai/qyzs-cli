@@ -87,6 +87,17 @@ jobs:
       - name: Verify release pipeline
         run: python3 tests/scripts/verify_release_pipeline.py
 
+  # 帮助文本 ↔ 参数校验 ↔ 文档 三方一致性: help 里漏写边界/默认值/取值白名单,
+  # 或文档提到不存在的参数, 都会在 PR 阶段被拦下
+  help-contract:
+    name: Help / params / docs contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check help contract
+        run: python3 tests/scripts/check_help_contract.py
+
   # 打包清单 (winget / Homebrew) 必须与 Release 实际资产的哈希一致 —— 抄错或
   # 漏改会让用户装到坏包。CI 用官方 schema 校验格式, 并核对清单里的哈希与
   # 该 tag 的 SHA256SUMS 是否相符

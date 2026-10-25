@@ -80,7 +80,7 @@ impl PipelineMode {
             // 旧值兼容映射: balanced 的准确率诉求由默认的 rigor 满足
             "balanced" => Ok(Self::Rigor),
             other => Err(QyzsError::Usage(format!(
-                "未知档位 '{}'，可选: speed|rigor",
+                "未知档位 '{}'，可选: speed|rigor（另兼容旧值 balanced，映射到 rigor）",
                 other
             ))),
         }
