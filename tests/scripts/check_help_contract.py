@@ -232,6 +232,55 @@ def doc_flag_problems() -> list[str]:
     return problems
 
 
+def script_list_problems() -> list[str]:
+    """文档里的脚本清单 ↔ tests/scripts/ 实际内容。
+
+    两个方向都要查:
+      - 文档提到但目录里没有 → 读者照抄会失败
+      - 目录里有但任何文档都没提 → 新脚本无人知晓, 等于没写
+    """
+    problems: list[str] = []
+    scripts_dir = ROOT / "tests" / "scripts"
+    actual = {
+        p.name
+        for p in scripts_dir.iterdir()
+        if p.is_file() and p.suffix in (".py", ".sh") and not p.name.startswith("_")
+    }
+    # 文档里出现的脚本名。只认带 tests/scripts/ 前缀的写法, 以及与实际目录
+    # 同名的反引号写法 —— 否则会把 npm/build.sh、packaging/*.py 这类别处脚本
+    # 误判成缺失。
+    mentioned: set[str] = set()
+    for pat in DOC_GLOBS:
+        for f in sorted(ROOT.glob(pat)):
+            text = f.read_text(encoding="utf-8")
+            prefixed = set(re.findall(r"tests/scripts/([\w.]+\.(?:py|sh))", text))
+            for name in prefixed:
+                mentioned.add(name)
+            # 反引号写法: 仅当它确实是 tests/scripts/ 下的脚本才算数
+            for name in re.findall(r"`([\w.]+\.(?:py|sh))`", text):
+                if name in actual:
+                    mentioned.add(name)
+    for name in sorted(mentioned - actual):
+        if name.endswith(".json") or name.startswith("_"):
+            continue  # 辅助模块与工件文件
+        problems.append(f"文档提到 {name}, 但 tests/scripts/ 下不存在")
+    for name in sorted(actual - mentioned):
+        problems.append(
+            f"tests/scripts/{name} 未被任何文档提及 (新脚本无人知晓, 等于没写)"
+        )
+    # 权威脚本清单 (tests/docs/QYZS-TESTPLAN.md §7) 必须列出全部脚本 ——
+    # "任何文档提到即可" 太宽松: 该节是清单的正式载体, 漏了它读者就看不到
+    canon = ROOT / "tests" / "docs" / "QYZS-TESTPLAN.md"
+    if canon.exists():
+        ctext = canon.read_text(encoding="utf-8")
+        for name in sorted(actual):
+            if name not in ctext:
+                problems.append(
+                    f"tests/scripts/{name} 未列入 {canon.relative_to(ROOT)} §7 的脚本清单"
+                )
+    return problems
+
+
 def main() -> int:
     args = parse_args()
     bounds = validate_bounds()
@@ -297,6 +346,8 @@ def main() -> int:
 
     doc_problems = doc_flag_problems()
     problems.extend(doc_problems)
+    script_problems = script_list_problems()
+    problems.extend(script_problems)
 
     print(f"检查参数 {len(args)} 个, 边界映射 {len(bounds)} 条, 文档 {len(DOC_GLOBS)} 类")
     for p in problems:

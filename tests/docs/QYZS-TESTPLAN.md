@@ -182,7 +182,9 @@ flowchart TD
 - **`tests/scripts/test_ocr_mineru_alignment.py`**：同源互验校对器，比对 OCR 与 MinerU 文本一致率并生成对齐报告；
 - **`tests/scripts/verify_guardrails.sh`**：客户端护栏实测（5 阶段 / 7 项断言）——短文本基线、超长文本分块、短向量模型分块、300 条批量拆批、20 图自动分批（需真实网关与 `QYZS_APIKEY`）；
 - **`tests/scripts/check_no_secrets.sh`**：提交历史密钥扫描（CI `secret-scan` 门禁的入口，全对象库 + 已跟踪文件）；
-- **`tests/scripts/verify_release_pipeline.py`**：发布流水线本地验证（模拟 GitHub Release，验证 install.sh / `upgrade` / npm 包族，19 项断言）。
+- **`tests/scripts/verify_release_pipeline.py`**：发布流水线本地验证（模拟 GitHub Release，验证 install.sh / `upgrade` / dataset / install.ps1 / npm 包族，39 项断言）；
+- **`tests/scripts/pin_install_scripts.sh`**：把安装脚本的版本钉定到指定 tag（CI 发布时调用；tag 必须带 `v` 前缀，否则 Release 下载 URL 会 404）；
+- **`tests/scripts/check_help_contract.py`**：帮助文本 ↔ 参数校验 ↔ 文档 三方一致性检查（help 是否预告校验边界/默认值/取值白名单，文档是否提到不存在的参数）。
 
 ---
 
