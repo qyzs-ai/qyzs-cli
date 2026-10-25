@@ -40,7 +40,7 @@
 
 ## 2. 发布流程
 
-1. `main` 分支 CI 全绿（11 个 job）：
+1. `main` 分支 CI 全绿（12 个 job）：
    - `rust-check`：`cargo fmt --check` + `cargo check` + `cargo clippy --deny warnings` + `cargo test`
    - `secret-scan`：提交历史密钥扫描（需 `fetch-depth: 0`）
    - `help-contract`：帮助文本 ↔ 参数校验 ↔ 文档 三方一致性
@@ -48,6 +48,7 @@
    - `release-pipeline-verify`：发布流水线本地验证（模拟 GitHub Release）
    - `cross-target-check`：Windows/macOS/Linux-musl 目标**构建**（非仅 check——
      链接期错误只有 build 才暴露）
+   - `verify-published-release`：线上 Release 产物自检（仅 tag 触发）
    - `release-create` / `release-binaries` / `release-binary-loongarch64` /
      `release-checksums` / `release-npm`：仅 tag 触发，非 tag 提交上为 skipped
 2. 发布准备提交：`Cargo.toml` 版本号 + CHANGELOG（`Unreleased` 段落固化为版本段）

@@ -184,7 +184,8 @@ flowchart TD
 - **`tests/scripts/check_no_secrets.sh`**：提交历史密钥扫描（CI `secret-scan` 门禁的入口，全对象库 + 已跟踪文件）；
 - **`tests/scripts/verify_release_pipeline.py`**：发布流水线本地验证（模拟 GitHub Release，验证 install.sh / `upgrade` / dataset / install.ps1 / npm 包族，39 项断言）；
 - **`tests/scripts/pin_install_scripts.sh`**：把安装脚本的版本钉定到指定 tag（CI 发布时调用；tag 必须带 `v` 前缀，否则 Release 下载 URL 会 404）；
-- **`tests/scripts/check_help_contract.py`**：帮助文本 ↔ 参数校验 ↔ 文档 三方一致性检查（help 是否预告校验边界/默认值/取值白名单，文档是否提到不存在的参数）。
+- **`tests/scripts/check_help_contract.py`**：帮助文本 ↔ 参数校验 ↔ 文档 三方一致性检查（help 是否预告校验边界/默认值/取值白名单，文档是否提到不存在的参数，§7 脚本清单是否完整）；
+- **`tests/scripts/verify_published_release.py`**：线上 Release 产物自检（资产集合完整、SHA256SUMS 与资产逐一相符、安装脚本已钉定到该 tag、线上二进制的 help 与仓库契约一致）。
 
 ---
 

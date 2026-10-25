@@ -131,6 +131,7 @@ bash tests/scripts/check_no_secrets.sh         # 提交历史密钥扫描
 python3 tests/scripts/check_help_contract.py  # 帮助文本 ↔ 参数校验 ↔ 文档 三方一致
 python3 tests/scripts/verify_release_pipeline.py  # 发布流水线本地验证
 python3 packaging/generate_manifests.py --check  # 打包清单哈希与线上 Release 一致
+python3 tests/scripts/verify_published_release.py  # 线上 Release 产物自检
 ```
 
 CI 另有 `secret-scan`（需 `fetch-depth: 0`）、`cross-target-check`（Windows/macOS/

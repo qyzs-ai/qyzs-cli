@@ -98,6 +98,21 @@ jobs:
       - name: Check help contract
         run: python3 tests/scripts/check_help_contract.py
 
+  # 发布产物自检: tag 发布完成后核对线上 Release —— 资产集合完整、SHA256SUMS 与
+  # 资产逐一相符、安装脚本已钉定到该 tag、线上二进制里的 help 与仓库契约一致
+  # (防止"仓库已修、发布产物还是旧的")
+  verify-published-release:
+    name: Verify published release artifacts
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [release-checksums]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify published release
+        run: |
+          set -euo pipefail
+          python3 tests/scripts/verify_published_release.py --tag "${GITHUB_REF_NAME}"
+
   # 打包清单 (winget / Homebrew) 必须与 Release 实际资产的哈希一致 —— 抄错或
   # 漏改会让用户装到坏包。CI 用官方 schema 校验格式, 并核对清单里的哈希与
   # 该 tag 的 SHA256SUMS 是否相符
