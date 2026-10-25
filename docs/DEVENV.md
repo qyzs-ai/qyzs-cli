@@ -178,8 +178,12 @@ npm 官方给 CI 的答案是 **Trusted Publishing (OIDC)**，但它的配置入
 #    注意: npm/build.sh 要求 dist/<bin>-<pkg> 处预先放好二进制, 缺失即失败
 bash npm/build.sh 0.2.0-0
 
-# ② 人工一次性发布首包 (用 npm 认证器 App 的 6 位码)
-cd dist/npm/linux-x64 && npm publish --tag next --access public --otp=<6位码>
+  # ② 人工发布首包 —— 7 个包逐个发布 (用 npm 认证器 App 的 6 位码)
+  #    一个 OTP 能否复用于同批多个包未经实测; 若报 OTP 失效就重新取码。
+  #    用 --tag next 把预发布版标为 next, 避免抢占 latest 标签。
+  for p in cli linux-x64 linux-arm64 linux-loong64 darwin-x64 darwin-arm64 win32-x64; do
+    (cd "dist/npm/$p" && npm publish --tag next --access public --otp=<6位码>)
+  done
 
 # ③ 为每个包配置 Trusted Publishing (OIDC):
 #    npmjs.com → 包设置页 → Trusted Publisher → GitHub Actions
