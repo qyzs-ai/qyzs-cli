@@ -71,6 +71,16 @@ git push origin add-qyzs-0.2.0
 > **新 publisher 的 PR 需要人工审核** (winget 的常规流程)。本项目尚未注册为
 > verified publisher, 首个 PR 会被排队人工审核, 属正常。
 
+### 当前进度
+
+- **PR 已开**: [microsoft/winget-pkgs#461901](https://github.com/microsoft/winget-pkgs/pull/461901)
+  (base=master, head=janssenkm:add-qyzs-0.2.0, 3 文件 +62 行)
+- **待办: 签署 Microsoft CLA** —— 由 `microsoft-github-policy-service` bot 要求,
+  需账号本人回复 (二选一, 属法律声明, 不可代签):
+  - 独立开发者: `@microsoft-github-policy-service agree`
+  - 受雇于公司: `@microsoft-github-policy-service agree company="<公司名>"`
+- CLA 签署后进入 winget 的 Validation Pipeline 校验与人工审核队列。
+
 ### 本地校验清单格式
 
 清单已按官方 JSON schema 校验 (schema 来自
