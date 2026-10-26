@@ -5,6 +5,7 @@ pub mod cli;
 pub mod client;
 pub mod config;
 pub mod error;
+pub mod model_capabilities;
 pub mod pdf;
 pub mod pipeline;
 pub mod term;

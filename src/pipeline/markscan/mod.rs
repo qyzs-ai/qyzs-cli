@@ -19,22 +19,29 @@
 pub mod assets;
 pub mod classify;
 pub mod clean;
+pub mod coverage;
 pub mod cross_verify;
 pub mod csv_md;
 pub mod detect;
+pub mod document;
+pub mod engine_health;
+pub mod evidence;
 pub mod front_matter;
 pub mod html_md;
 pub mod image_refs;
 pub mod json_md;
 pub mod light_check;
+pub mod model_fallback;
 pub mod multi;
 pub mod normalize;
 pub mod ocr_vl;
 pub mod ooxml;
 pub mod pdf;
 pub mod pdf_ocr;
+pub mod pdf_probe;
 pub mod polish;
 pub mod profile;
+pub mod reflow;
 pub mod report;
 pub mod sheet_tables;
 pub mod style;
@@ -135,6 +142,7 @@ impl ImageHandling {
 pub struct MarkScanOptions {
     pub input: Vec<String>,
     pub output: Option<String>,
+    pub output_format: document::DocumentOutputFormat,
     pub recursive: bool,
     pub mode: PipelineMode,
     pub type_override: Option<SourceFormat>,
@@ -143,6 +151,7 @@ pub struct MarkScanOptions {
     pub image_prompt: Option<String>,
     /// 图像长边最大像素尺寸 (防网关越界)
     pub max_dim: Option<u32>,
+    pub concurrency: usize,
     pub model: Option<String>,
     pub min_confidence: Option<f64>,
     pub report: Option<String>,
@@ -206,6 +215,7 @@ pub struct ConversionPlan {
     pub stages: Vec<String>,
     pub warnings: Vec<String>,
     pub output_target: String,
+    pub output_format: &'static str,
 }
 
 pub struct MarkScanPipeline;
@@ -328,6 +338,7 @@ impl MarkScanPipeline {
             stages,
             warnings,
             output_target: opts.output.clone().unwrap_or_else(|| "stdout".to_string()),
+            output_format: opts.output_format.key(),
         })
     }
 
@@ -545,9 +556,12 @@ impl MarkScanPipeline {
         let (result, ws) = {
             // 抽取/润色共用的宽延时客户端: 网关同步解析存在长尾 (实测扫描件
             // 在默认 30s 超时下误伤, 300s 内完成), 转换场景取 max(用户超时, 300s)
-            let mut cfg = client.config().clone();
-            cfg.timeout_seconds = cfg.timeout_seconds.max(EXTRACT_TIMEOUT_FLOOR_SECS);
-            let extract_client = QyzsClient::new(cfg)?;
+            let extract_client = client.with_timeout_seconds(
+                client
+                    .config()
+                    .timeout_seconds
+                    .max(EXTRACT_TIMEOUT_FLOOR_SECS),
+            )?;
             Self::convert_inner(
                 &extract_client,
                 opts,
@@ -573,12 +587,19 @@ impl MarkScanPipeline {
                 // 类型识别 + 特化排版 + 图片资产落盘 (markscan 区别于旧转换命令的核心)
                 let md = Self::finalize(client, opts, single_input, md, &mut metrics).await?;
 
-                // front matter prepend (默认开启, --no-front-matter 关闭)
-                let md = if opts.no_front_matter {
+                // YAML front matter 是 Markdown 表示层能力；HTML/TXT 不嵌入 Markdown
+                // 元数据语法，避免把 `---` 与键值误渲染为正文。
+                let md = if opts.no_front_matter
+                    || opts.output_format != document::DocumentOutputFormat::Markdown
+                {
                     md
                 } else {
                     Self::prepend_front_matter(opts, single_input, md)
                 };
+
+                // 最终 Markdown 先进入统一文档层，再确定性渲染为用户请求的格式。
+                // 当前不输出内部 JSON；PAGE/ALTO 等到真实 geometry 接入后再扩展。
+                let document = document::Document::from_markdown(md);
 
                 // 图片引用落盘缺口: 网关只回 Markdown 正文, 不提供图片字节。
                 // 已由 assets 通道落盘的引用会通过存在性校验, 不再误报。
@@ -592,8 +613,10 @@ impl MarkScanPipeline {
                         p
                     }
                 });
-                let image_stats =
-                    image_refs::ImageRefStats::analyze_with_base(&md, md_dir.as_deref());
+                let image_stats = image_refs::ImageRefStats::analyze_with_base(
+                    document.markdown(),
+                    md_dir.as_deref(),
+                );
                 if image_stats.unresolved > 0 {
                     eprintln!(
                         "\x1b[33m[WARN]\x1b[0m {}",
@@ -601,12 +624,15 @@ impl MarkScanPipeline {
                     );
                 }
 
+                let output = document.render(opts.output_format);
+
                 // --report: 写结构化 JSON 报告 (best-effort, 失败仅警告不影响主输出)
                 if let Some(report_path) = &opts.report {
                     let report = Self::build_report(
                         opts,
                         single_input,
-                        &md,
+                        document.markdown(),
+                        &output,
                         duration_secs,
                         warnings,
                         &metrics,
@@ -618,7 +644,7 @@ impl MarkScanPipeline {
                         );
                     }
                 }
-                Ok(md)
+                Ok(output)
             }
             Err(err) => {
                 let hint = match ws {
@@ -640,7 +666,8 @@ impl MarkScanPipeline {
     fn build_report(
         opts: &MarkScanOptions,
         single_input: &str,
-        final_md: &str,
+        source_md: &str,
+        final_output: &str,
         duration_secs: f64,
         warnings: Vec<String>,
         metrics: &PipelineMetrics,
@@ -648,7 +675,7 @@ impl MarkScanPipeline {
         let (format, detect_method, size_bytes, page_count, slice_count) =
             Self::collect_report_meta(opts, single_input);
         let model = opts.model.clone().unwrap_or_else(|| "dsv4".to_string());
-        let image_stats = image_refs::ImageRefStats::analyze(final_md);
+        let image_stats = image_refs::ImageRefStats::analyze(source_md);
         let stages = metrics
             .stages
             .iter()
@@ -663,10 +690,11 @@ impl MarkScanPipeline {
             &format,
             detect_method,
             opts.mode,
+            opts.output_format.key(),
             &model,
             page_count,
             slice_count,
-            final_md.len(),
+            final_output.len(),
             opts.output.as_deref().unwrap_or("stdout"),
             duration_secs,
             warnings,
@@ -790,11 +818,24 @@ impl MarkScanPipeline {
             );
         }
 
+        // PDF 单次加载逐页探测: 页类型分类 → is_ocr 路由 + 证据计划
+        // (此前 metadata/文本层/页图/样式/资产各自独立加载, 此处合并为一次)
+        let probe = if detection.format == SourceFormat::Pdf {
+            match pdf_probe::PdfProbe::probe(&local_path.to_string_lossy()) {
+                Ok(p) => Some(p),
+                Err(e) => return (Err(e), None),
+            }
+        } else {
+            None
+        };
+
         // 图像输入先判「文档 or 照片」: 照片按 markscan 策略跳过, 不进入抽取与润色,
         // 避免为一张风景照白跑 OCR/VL 与后续流水线。
         if !opts.no_classify {
             if let SourceFormat::Image(_) = detection.format {
-                match classify::classify_image(client, &local_path.to_string_lossy()).await {
+                match classify::classify_image(client, &local_path.to_string_lossy(), opts.max_dim)
+                    .await
+                {
                     Ok(classify::ImageContent::Photo) => {
                         return (
                             Err(QyzsError::Skipped(format!(
@@ -831,47 +872,49 @@ impl MarkScanPipeline {
         // 通道抽取 (路由已收窄至已接入通道)
         let local_path_str = local_path.to_string_lossy().to_string();
         let extract_started = std::time::Instant::now();
+        let inline = |md: String| pdf::Extracted {
+            md,
+            slices: Vec::new(),
+        };
+        let is_ocr = probe
+            .as_ref()
+            .map(|p| p.mineru_is_ocr())
+            .unwrap_or(Self::MINERU_IS_OCR);
         let extracted = match channel {
             Some("mineru-slice") => {
-                pdf::extract(
-                    client,
-                    &mut ws,
-                    &local_path_str,
-                    Self::MINERU_IS_OCR,
-                    on_progress,
-                )
-                .await
+                pdf::extract(client, &mut ws, &local_path_str, is_ocr, on_progress).await
             }
             Some("mineru-document") => {
-                pdf::extract_document(client, &mut ws, &local_path_str, Self::MINERU_IS_OCR).await
+                pdf::extract_document(client, &mut ws, &local_path_str, Self::MINERU_IS_OCR)
+                    .await
+                    .map(inline)
             }
-            Some("sheet-tables") => {
-                if detection.format == SourceFormat::Xls {
-                    sheet_tables::extract_xls(&mut ws, &local_path_str)
-                } else {
-                    sheet_tables::extract_xlsx(&mut ws, &local_path_str)
-                }
+            Some("sheet-tables") => if detection.format == SourceFormat::Xls {
+                sheet_tables::extract_xls(&mut ws, &local_path_str)
+            } else {
+                sheet_tables::extract_xlsx(&mut ws, &local_path_str)
             }
+            .map(inline),
             Some("ooxml-text") => match detection.format {
                 SourceFormat::Pptx => ooxml::extract_pptx(&mut ws, &local_path_str),
                 _ => ooxml::extract_vsdx(&mut ws, &local_path_str),
-            },
-            Some("csv-tables") => csv_md::extract_csv(&mut ws, &local_path_str),
-            Some("json-pretty") => json_md::extract_json(&mut ws, &local_path_str),
-            Some("xml-to-md") => xml_md::extract_xml(&mut ws, &local_path_str),
-            Some("zip-iterate") => zip_iter::extract_zip(&mut ws, &local_path_str),
-            Some("ocr-vl") => {
-                ocr_vl::extract_image(
-                    client,
-                    &mut ws,
-                    &local_path_str,
-                    opts.image_handling,
-                    opts.image_prompt.as_deref(),
-                    opts.max_dim,
-                )
-                .await
             }
-            Some("html-to-md") => html_md::extract_html(&mut ws, &local_path_str),
+            .map(inline),
+            Some("csv-tables") => csv_md::extract_csv(&mut ws, &local_path_str).map(inline),
+            Some("json-pretty") => json_md::extract_json(&mut ws, &local_path_str).map(inline),
+            Some("xml-to-md") => xml_md::extract_xml(&mut ws, &local_path_str).map(inline),
+            Some("zip-iterate") => zip_iter::extract_zip(&mut ws, &local_path_str).map(inline),
+            Some("ocr-vl") => ocr_vl::extract_image(
+                client,
+                &mut ws,
+                &local_path_str,
+                opts.image_handling,
+                opts.image_prompt.as_deref(),
+                opts.max_dim,
+            )
+            .await
+            .map(inline),
+            Some("html-to-md") => html_md::extract_html(&mut ws, &local_path_str).map(inline),
             _ => Err(QyzsError::Server(format!(
                 "内部路由不一致: 格式 '{}' 未匹配到已接入通道",
                 detection.format.label()
@@ -880,8 +923,8 @@ impl MarkScanPipeline {
         metrics.record("extract", extract_started.elapsed().as_secs_f64());
 
         match extracted {
-            Ok(raw) => {
-                if raw.trim().is_empty() {
+            Ok(out) => {
+                if out.md.trim().is_empty() {
                     return (
                         Err(QyzsError::Server(
                             "抽取结果为空 (可能为空白文档、无文本层扫描件或网关未识别出内容)"
@@ -890,8 +933,13 @@ impl MarkScanPipeline {
                         Some(ws),
                     );
                 }
-                // 档位后处理: speed → 规则清洗; rigor (默认) → 润色
-                //   + 双通道交叉验证 + 冲突仲裁 + 全局审查
+                // 确定性硬换行重组 (版式换行 ≠ 语义换行, 见 reflow 模块)
+                let raw = reflow::reflow(&out.md);
+                let slices = out.slices;
+
+                // 档位后处理: speed → 规则清洗; rigor (默认) → 证据级联验证
+                //   + 冲突仲裁 + 复核 + 润色 (raw-vs-raw: 同代比对, 避免润色
+                //   改写制造的相似度漂移)
                 // 阶段耗时按不重叠划分记录: 各档位内部已记 polish / cross-verify /
                 // arbitrate / global-review, speed 档此处记 rule-clean, 不再另记
                 // 粗粒度的 post-process (否则与内层阶段重复计时, 报告里阶段
@@ -921,6 +969,8 @@ impl MarkScanPipeline {
                                 &raw,
                                 &local_path_str,
                                 &detection.format,
+                                probe.as_ref(),
+                                &slices,
                                 on_progress,
                                 metrics,
                             )
@@ -1266,6 +1316,18 @@ impl MarkScanPipeline {
         let segments = polish::segment_markdown(raw, opts.segment_chars);
         let total = segments.len();
         let mut warnings: Vec<String> = Vec::new();
+        let mut polish_chain: Vec<&str> = vec![model.as_str()];
+        for candidate in model_fallback::ROLE_CHAT {
+            if !polish_chain.contains(candidate) {
+                polish_chain.push(candidate);
+            }
+        }
+        let needs_remote_polish =
+            (0..segments.len()).any(|idx| !ws.stage_done(&format!("seg-{:03}", idx + 1), "polish"));
+        if needs_remote_polish {
+            let selected = model_fallback::preflight_chat_chain(client, &polish_chain).await?;
+            eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: 润色使用 {selected}");
+        }
 
         let mut polished_doc = String::new();
         for (idx, (heading_path, body)) in segments.iter().enumerate() {
@@ -1274,12 +1336,20 @@ impl MarkScanPipeline {
             let text = if ws.stage_done(&seg_id, "polish") {
                 ws.read_segment_text(&seg_id)?
             } else {
-                let polished =
-                    polish::polish_segment(client, &model, body, heading_path, &term_table)
-                        .await
-                        .map_err(|e| {
-                            QyzsError::Server(format!("第 {}/{} 段润色失败: {}", idx + 1, total, e))
-                        })?;
+                // 润色走兜底链: 用户模型失败时按 ROLE_CHAT 依次降级, 段不因
+                // 单模型故障而中断整文档
+                let (_, polished) =
+                    model_fallback::with_fallback(&polish_chain, |m| {
+                        let m = m.to_string();
+                        let terms = term_table.clone();
+                        async move {
+                            polish::polish_segment(client, &m, body, heading_path, &terms).await
+                        }
+                    })
+                    .await
+                    .map_err(|e| {
+                        QyzsError::Server(format!("第 {}/{} 段润色失败: {}", idx + 1, total, e))
+                    })?;
 
                 // light-check: 不过则回退原文并记录告警
                 let check = light_check::check_polished(body, &polished);
@@ -1318,54 +1388,9 @@ impl MarkScanPipeline {
         Ok(clean::rule_clean(&polished_doc))
     }
 
-    /// OCR 第二通道: 提取扫描件页面内嵌整页图 → 逐页双通道转录
-    /// (paddleocrvl 文字 + qwen3-VL 图像理解), 按页合并为交叉验证证据。
-    /// 产物持久化为 "secondary-evidence" 段 (manifest 可续跑); 双通道全败
-    /// (合并文本为空) 返回 Err 由调用方降级。
-    async fn ocr_secondary(
-        client: &QyzsClient,
-        ws: &mut workspace::Workspace,
-        local_path: &str,
-        on_progress: Option<&dyn Fn(usize, usize)>,
-    ) -> QyzsResult<(String, Vec<String>)> {
-        if ws.stage_done("secondary-evidence", "extract") {
-            return Ok((ws.read_segment_text("secondary-evidence")?, Vec::new()));
-        }
-        let dir = ws.root.join("secondary-images");
-        let pages = pdf_ocr::extract_page_images(local_path, &dir)?;
-        if pages.is_empty() {
-            return Err(QyzsError::Server(
-                "未提取到任何页面内嵌图 (可能不是图像型扫描件)".to_string(),
-            ));
-        }
-        // 双通道并发执行 (各自内部 4 路并发), 单通道失败不拖垮另一通道
-        let ocr_fut = pdf_ocr::ocr_pages(client, &pages, on_progress);
-        let vl_fut = pdf_ocr::vl_pages(client, &pages, on_progress);
-        let ((ocr_texts, ocr_warns), (vl_texts, vl_warns)) = tokio::join!(ocr_fut, vl_fut);
-        let evidence: Vec<pdf_ocr::PageEvidence> = pages
-            .iter()
-            .zip(ocr_texts)
-            .zip(vl_texts)
-            .map(|((p, ocr), vl)| pdf_ocr::PageEvidence {
-                page: p.page,
-                ocr,
-                vl,
-            })
-            .collect();
-        let text = pdf_ocr::merge_page_evidence(&evidence);
-        if text.trim().is_empty() {
-            return Err(QyzsError::Server(
-                "OCR 与 VL 双通道全部页失败, 无第二通道证据".to_string(),
-            ));
-        }
-        ws.write_segment_text("secondary-evidence", &text)?;
-        ws.complete_stage("secondary-evidence", "extract", &[])?;
-        Ok((text, [ocr_warns, vl_warns].concat()))
-    }
-
-    /// rigor 档: 润色 → 第二通道交叉验证 → 冲突段仲裁 (≤2 轮) →
-    /// 不可决段标记 → 全局结构审查。第二通道不可用 (扫描件文本层为空/本地
-    /// 通道无独立第二通道) 时诚实降级并告警, 不静默伪装验证通过。
+    /// rigor 档 (2026-10-26 重构): 证据构建 → 级联交叉验证 (raw-vs-raw) →
+    /// 冲突仲裁 (双护栏) → 全局复核 + 排版验证 → 润色 (light-check 事实保真)
+    /// → 规则清洗。第二通道不可用时诚实降级为仅润色行为并告警。
     #[allow(clippy::too_many_arguments)]
     async fn rigor_document(
         client: &QyzsClient,
@@ -1374,109 +1399,90 @@ impl MarkScanPipeline {
         raw: &str,
         local_path: &str,
         format: &SourceFormat,
+        probe: Option<&pdf_probe::PdfProbe>,
+        slices: &[pdf::SliceInfo],
         on_progress: Option<&dyn Fn(usize, usize)>,
         metrics: &mut PipelineMetrics,
     ) -> QyzsResult<String> {
-        // 1. 润色 (对抗式流程的第一步, 段级状态可复用)
-        let polished = Self::polish_document(client, opts, ws, raw, on_progress, metrics).await?;
-
-        // 2. 第二通道抽取 (manifest 阶段 "secondary")
-        let secondary = if ws.stage_done("secondary", "extract") {
-            ws.read_segment_text("secondary")?
-        } else {
-            let text = match format {
-                SourceFormat::Pdf => {
-                    let pages = crate::pdf::PdfExtractor::read_metadata(local_path)?.page_count;
-                    crate::pdf::PdfExtractor::extract_text(
-                        local_path,
-                        &(1..=pages as u32).collect::<Vec<u32>>(),
-                    )?
-                }
-                SourceFormat::Docx => {
-                    let bytes = std::fs::read(local_path)?;
-                    ooxml::extract_docx_text(&bytes)?
-                }
-                _ => String::new(),
-            };
-            ws.write_segment_text("secondary", &text)?;
-            ws.complete_stage("secondary", "extract", &[])?;
-            text
-        };
-
-        // 图像输入: 主通道本身就是 paddleocrvl + qwen3-VL 双模型 (--image-handling),
-        // 无独立第二通道可言 —— 静默跳过验证段, 不发"不可用"警告 (那是给
-        // 本可以有第二通道的 PDF 的)。
+        // 1. 证据构建 (按 probe 逐页路由: 文本层 / 页图 OCR+VL / 无)
+        //    图像输入主通道本身即双模型, 无独立第二通道 —— 直接润色。
         if matches!(format, SourceFormat::Image(_)) {
-            return Ok(clean::rule_clean(&polished));
+            return Self::polish_document(client, opts, ws, raw, on_progress, metrics).await;
         }
-
-        // 3. 第二通道可用性判定: 文本层过薄 (扫描件/无线性文本的格式) 时,
-        //    PDF 先尝试 OCR 第二通道 (页面内嵌整页图 → paddleocrvl 逐页),
-        //    与主通道 MinerU 构成独立双模型; OCR 通道也不可用才诚实降级。
-        let secondary_chars = secondary.trim().chars().count();
-        let primary_chars = polished.chars().count();
-        let usable_secondary = secondary_chars >= 200 && secondary_chars * 5 >= primary_chars;
         let mut warnings: Vec<String> = Vec::new();
-        let mut secondary = secondary;
-        if !usable_secondary {
-            let ocr_secondary = if *format == SourceFormat::Pdf {
+        let evidence = match format {
+            SourceFormat::Pdf => {
+                let Some(probe) = probe else {
+                    return Self::polish_document(client, opts, ws, raw, on_progress, metrics)
+                        .await;
+                };
                 let started = std::time::Instant::now();
-                let r = Self::ocr_secondary(client, ws, local_path, on_progress).await;
+                let r =
+                    evidence::build(client, ws, probe, local_path, opts.max_dim, on_progress).await;
                 metrics.record("secondary-evidence", started.elapsed().as_secs_f64());
-                r
-            } else {
-                Err(QyzsError::Usage("仅 PDF 支持 OCR 第二通道".to_string()))
-            };
-            match ocr_secondary {
-                Ok((ocr_text, mut ocr_warnings)) => {
-                    warnings.append(&mut ocr_warnings);
-                    let ocr_chars = ocr_text.trim().chars().count();
-                    if ocr_chars >= 200 {
-                        secondary = ocr_text;
-                    } else {
+                match r {
+                    Ok(ev) => {
+                        warnings.extend(ev.warnings.clone());
+                        Some(ev)
+                    }
+                    Err(e) => {
                         let msg = format!(
-                            "第二通道文本层过薄 ({} 字符), OCR 第二通道产出亦不足 ({} 字符), 交叉验证不可用, rigor 降级为仅润色行为",
-                            secondary_chars, ocr_chars
+                            "第二通道证据构建失败 ({e}), 交叉验证不可用, rigor 降级为仅润色行为"
                         );
                         let _ = ws.add_warning(msg.clone());
                         warnings.push(msg);
-                        for w in &warnings {
-                            eprintln!("\x1b[33m[WARN]\x1b[0m {}", w);
-                        }
-                        return Ok(polished);
+                        None
                     }
-                }
-                Err(e) => {
-                    let msg = format!(
-                        "第二通道文本层过薄 ({} 字符), OCR 第二通道不可用 ({}), 交叉验证不可用, rigor 降级为仅润色行为",
-                        secondary_chars, e
-                    );
-                    let _ = ws.add_warning(msg.clone());
-                    warnings.push(msg);
-                    for w in &warnings {
-                        eprintln!("\x1b[33m[WARN]\x1b[0m {}", w);
-                    }
-                    return Ok(polished);
                 }
             }
-        }
+            SourceFormat::Docx => {
+                // docx: 本地 OOXML 文本层作第二通道 (整块, 锚定退化)
+                let text = if ws.stage_done("secondary", "extract") {
+                    ws.read_segment_text("secondary")?
+                } else {
+                    let bytes = std::fs::read(local_path)?;
+                    let text = ooxml::extract_docx_text(&bytes)?;
+                    ws.write_segment_text("secondary", &text)?;
+                    ws.complete_stage("secondary", "extract", &[])?;
+                    text
+                };
+                Some(evidence::Evidence {
+                    pages: vec![(0, text)],
+                    warnings: Vec::new(),
+                })
+            }
+            _ => None, // 其余格式无独立第二通道 → 降级仅润色
+        };
 
-        // 4. 向量交叉验证 (manifest 阶段 "verify")
-        let paragraphs = cross_verify::split_paragraphs(&polished);
-        let evidence_chunks = cross_verify::chunk_secondary(&secondary);
+        let usable = evidence.as_ref().is_some_and(|ev| {
+            ev.total_chars() >= 200 && ev.total_chars() * 5 >= raw.chars().count()
+        });
+        let Some(ev) = evidence.filter(|_| usable) else {
+            let msg = "第二通道证据不可用 (不足 200 字符或远小于主通道), rigor 降级为仅润色行为"
+                .to_string();
+            let _ = ws.add_warning(msg.clone());
+            warnings.push(msg);
+            for w in &warnings {
+                eprintln!("\x1b[33m[WARN]\x1b[0m {w}");
+            }
+            return Self::polish_document(client, opts, ws, raw, on_progress, metrics).await;
+        };
+
+        // 2. 级联交叉验证 (raw-vs-raw): L0 数字覆盖 + L1 词元包含度免模型,
+        //    未过段 bge-m3 余弦 (嵌入带兜底链); 段落锚定到来源切片页范围
+        let paragraphs = cross_verify::split_paragraphs(raw);
+        let paged = cross_verify::chunk_secondary_paged(&ev.pages);
+        let para_range: Vec<Option<(u32, u32)>> = paragraphs
+            .iter()
+            .map(|p| Self::locate_para_range(p, slices))
+            .collect();
         let verify_started = std::time::Instant::now();
         let similarity =
-            cross_verify::verify_paragraphs(client, &paragraphs, &evidence_chunks).await?;
+            cross_verify::verify_cascade(client, &paragraphs, &paged, &para_range).await?;
         metrics.record("cross-verify", verify_started.elapsed().as_secs_f64());
 
-        // 交叉验证阈值 (默认 0.55)。
-        //
-        // 2026-10-21 极限测试实测 (L005 数据安全法等 6 份法律文本): 实际被判冲突的
-        // 段落相似度全部落在 0.44~0.69 (中位 0.65) —— 旧默认 0.70 恰好切在分布
-        // **之上**, 等于把每一段正常同源段落都误判为冲突, 触发第二轮仲裁重试,
-        // 单文档耗时暴涨到 666~1132s (speed 的 100 倍) 且 92% 段落最终标记
-        // unverified。降到 0.55 后, 冲突段从 13 降到 1 量级, 真正有分歧的段落
-        // 仍会被捕获。
+        // 交叉验证阈值 (默认 0.55, 2026-10-21 极限测试校准; raw-vs-raw 同代
+        // 比对分布更紧, 阈值保持安全侧)
         let threshold = opts.min_confidence.unwrap_or(0.55);
         let conflicts: Vec<(usize, f64, usize)> = similarity
             .into_iter()
@@ -1493,10 +1499,24 @@ impl MarkScanPipeline {
             )
         );
 
-        // 5. 冲突仲裁 (≤2 轮; manifest 阶段 "arbitrate")
-        let arbitrate_model = opts.model.clone().unwrap_or_else(|| "dsv4".to_string());
+        // 3. 冲突仲裁 (≤2 轮; 对抗式双模型, 对手经兜底链挑选; 双护栏: 表格行数 + 体积)
+        let requested_arbitrate_model = opts.model.clone().unwrap_or_else(|| "dsv4".to_string());
+        let mut primary_chain: Vec<&str> = vec![requested_arbitrate_model.as_str()];
+        for candidate in model_fallback::ROLE_CHAT {
+            if !primary_chain.contains(candidate) {
+                primary_chain.push(candidate);
+            }
+        }
+        let arbitrate_model = model_fallback::preflight_chat_chain(client, &primary_chain).await?;
+        let opponent_chain: Vec<&str> = model_fallback::ROLE_ARBITRATION_OPPONENT
+            .iter()
+            .copied()
+            .filter(|candidate| *candidate != arbitrate_model)
+            .collect();
+        let review_opponent = model_fallback::preflight_chat_chain(client, &opponent_chain).await?;
+        eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: 仲裁使用 {arbitrate_model} + {review_opponent}");
         let arbitrate_started = std::time::Instant::now();
-        let mut final_md = polished.clone();
+        let mut final_md = raw.to_string();
         for (para_idx, score, chunk_idx) in &conflicts {
             let seg_id = format!("arb-{:04}", para_idx);
             if ws.stage_done(&seg_id, "arbitrate") {
@@ -1504,23 +1524,21 @@ impl MarkScanPipeline {
             }
 
             let paragraph = &paragraphs[*para_idx];
-            let evidence = &evidence_chunks[*chunk_idx];
+            let evidence_text = &paged.chunks[*chunk_idx];
             let mut resolved: Option<String> = None;
             for attempt in 1..=cross_verify::ARBITRATION_ROUNDS {
-                // 对抗式双模型仲裁: primary 与深度推理模型各自独立裁决,
-                // 双方一致才定案 (准确率优先, 令牌开销 ×2)
                 let (secondary_model, verdict) = match cross_verify::arbitrate_adversarial(
                     client,
                     &arbitrate_model,
                     paragraph,
-                    evidence,
+                    evidence_text,
                     attempt,
                 )
                 .await
                 {
                     Ok(v) => v,
                     Err(e) => {
-                        warnings.push(format!("段落仲裁请求失败 (轮 {}, 双模型): {}", attempt, e));
+                        warnings.push(format!("段落仲裁请求失败 (轮 {attempt}, 双模型): {e}"));
                         break;
                     }
                 };
@@ -1540,44 +1558,47 @@ impl MarkScanPipeline {
 
             match resolved {
                 Some(corrected) if corrected != *paragraph => {
-                    // 结构护栏: 仲裁结果不得丢失表格行数。
-                    // 第二通道是扁平文本, 模型常把表格「修正」成流水句 ——
-                    // 这不是修正, 是结构退化, 一律回退保留原文。
+                    // 结构护栏: 仲裁结果不得丢失表格行数 (第二通道是扁平文本,
+                    // 模型常把表格「修正」成流水句 —— 是结构退化不是修正)
                     let before = cross_verify::count_table_rows(paragraph);
                     let after = cross_verify::count_table_rows(&corrected);
                     if before > 0 && after < before {
                         warnings.push(format!(
-                            "段落仲裁结果丢失表格行 ({} → {}), 已保留原文",
-                            before, after
+                            "段落仲裁结果丢失表格行 ({before} → {after}), 已保留原文"
+                        ));
+                    } else if corrected.chars().count() > paragraph.chars().count() * 2 {
+                        // 体积护栏: 证据块 (800 字符聚合) 可能包含远大于冲突段的内容,
+                        // 模型按证据「重写」会把一段替换成整块 (2026-10-26 N078 实测)
+                        warnings.push(format!(
+                            "段落仲裁结果体积超限 ({} → {} 字符), 已保留原文",
+                            paragraph.chars().count(),
+                            corrected.chars().count()
                         ));
                     } else {
                         final_md = final_md.replace(paragraph.as_str(), &corrected);
-                        warnings.push(crate::msgf!(MdArbitrateCorrected, format!("{:.2}", score)));
+                        warnings.push(crate::msgf!(MdArbitrateCorrected, format!("{score:.2}")));
                     }
                 }
                 Some(_) => {
-                    warnings.push(crate::msgf!(MdArbitrateConfirmed, format!("{:.2}", score)));
+                    warnings.push(crate::msgf!(MdArbitrateConfirmed, format!("{score:.2}")));
                 }
                 None => {
-                    let marker = format!("<!-- qyzs:unverified (相似度 {:.2}) -->\n\n", score);
+                    let marker = format!("<!-- qyzs:unverified (相似度 {score:.2}) -->\n\n");
                     final_md =
-                        final_md.replace(paragraph.as_str(), &format!("{}{}", marker, paragraph));
-                    warnings.push(crate::msgf!(MdArbitrateUnverified, format!("{:.2}", score)));
+                        final_md.replace(paragraph.as_str(), &format!("{marker}{paragraph}"));
+                    warnings.push(crate::msgf!(MdArbitrateUnverified, format!("{score:.2}")));
                 }
             }
             ws.complete_stage(&seg_id, "arbitrate", &[])?;
         }
-
         metrics.record("arbitrate", arbitrate_started.elapsed().as_secs_f64());
 
-        // 6. 全局结构复核 —— 双模型独立审查, 发现合并去重 (准确率优先:
-        //    单模型审查会漏, 双模型互为盲区补位)
+        // 4. 全局结构复核 —— 双模型独立审查, 发现合并去重
         let review_started = std::time::Instant::now();
-        let review_secondary = if arbitrate_model.starts_with("qwen3.6") {
-            "dsv4"
-        } else {
-            "qwen3.6-27b"
-        };
+        let review_secondary = model_fallback::pick_opponent(
+            &arbitrate_model,
+            model_fallback::ROLE_ARBITRATION_OPPONENT,
+        );
         let (r_primary, r_secondary) = tokio::join!(
             Self::global_review(client, &arbitrate_model, &final_md),
             Self::global_review(client, review_secondary, &final_md),
@@ -1588,7 +1609,6 @@ impl MarkScanPipeline {
         for (src, r) in [("primary", r_primary), ("secondary", r_secondary)] {
             match r {
                 Ok(notes) if !notes.is_empty() => {
-                    // 思维链噪声过滤: 推理模型偶发把思考过程写进审查输出
                     if notes.contains("thinking process")
                         || notes.contains("Analyze User Input")
                         || notes.contains("Let's check")
@@ -1600,7 +1620,6 @@ impl MarkScanPipeline {
                         if t.is_empty() {
                             continue;
                         }
-                        // 去重: 两模型发现同一问题时只保留一条, 并标注双确认
                         let norm = t.trim_start_matches(['-', '*', ' ']).to_string();
                         let dup = findings.iter().any(|f| {
                             f.trim_start_matches(['-', '*', ' ']).contains(&norm)
@@ -1619,7 +1638,7 @@ impl MarkScanPipeline {
                     }
                 }
                 Ok(_) => {}
-                Err(e) => warnings.push(format!("全局审查调用失败 ({}): {}", src, e)),
+                Err(e) => warnings.push(format!("全局审查调用失败 ({src}): {e}")),
             }
         }
         if !findings.is_empty() {
@@ -1630,9 +1649,7 @@ impl MarkScanPipeline {
             ));
         }
 
-        // 7. 排版验证 —— 大纲层级模型检查, 仅允许层级修正 (不改正文)。
-        //    确定性的编号重建 (§3.2) 之后由模型再核一遍: 编号跳级/层级倒置
-        //    这类跨节问题需要通读全文才能发现, 规则覆盖不了。
+        // 5. 排版验证 —— 大纲层级模型检查, 仅允许层级修正 (不改正文)
         let lv_started = std::time::Instant::now();
         match Self::layout_verify(client, &arbitrate_model, &final_md).await {
             Ok((fixed, n)) if n > 0 => {
@@ -1640,17 +1657,56 @@ impl MarkScanPipeline {
                 warnings.push(crate::msgf!(MdLayoutVerifyFixed, n));
             }
             Ok(_) => {}
-            Err(e) => warnings.push(format!("排版验证调用失败: {}", e)),
+            Err(e) => warnings.push(format!("排版验证调用失败: {e}")),
         }
         metrics.record("layout-verify", lv_started.elapsed().as_secs_f64());
 
+        // 6. 覆盖检查: 文本层有而产物缺失的内容 (上游抽取缺口, 如实报告不自动补写)
+        {
+            let started = std::time::Instant::now();
+            let layer_text: String = ev
+                .pages
+                .iter()
+                .filter(|(p, t)| *p > 0 && t.contains("[文本层]"))
+                .map(|(_, t)| t.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            if !layer_text.trim().is_empty() {
+                let rep = coverage::check(&layer_text, &final_md);
+                if let Some(msg) = rep.render() {
+                    warnings.push(msg);
+                }
+            }
+            metrics.record("coverage-check", started.elapsed().as_secs_f64());
+        }
+
         for w in &warnings {
-            eprintln!("\x1b[33m[WARN]\x1b[0m {}", w);
-            // 持久化: 报告的 warnings 读自 manifest, 只打印会让仲裁修正与
-            // 审查结论在报告里不可见 (2026-10-20 三轮实测发现)
+            eprintln!("\x1b[33m[WARN]\x1b[0m {w}");
+            // 持久化: 报告的 warnings 读自 manifest, 只打印会让结论在报告里不可见
             let _ = ws.add_warning(w.clone());
         }
-        Ok(clean::rule_clean(&final_md))
+
+        // 7. 润色 (验证之后: 同代比对已完成, 润色正确性由 light-check 事实保真兜底)
+        Self::polish_document(client, opts, ws, &final_md, on_progress, metrics).await
+    }
+
+    /// 段落在原文中的切片页范围 (锚定验证证据; 找不到时退化为全文比对)
+    fn locate_para_range(paragraph: &str, slices: &[pdf::SliceInfo]) -> Option<(u32, u32)> {
+        let key: String = paragraph
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .take(24)
+            .collect();
+        if key.is_empty() {
+            return None;
+        }
+        slices
+            .iter()
+            .find(|s| {
+                let clean: String = s.md.chars().filter(|c| !c.is_whitespace()).collect();
+                clean.contains(&key)
+            })
+            .map(|s| (s.first_page, s.last_page))
     }
 
     /// 排版验证: 把标题大纲交模型核查编号跳级/层级倒置, 仅应用层级修正
@@ -1685,21 +1741,41 @@ impl MarkScanPipeline {
 不要输出思考过程, 不要输出解释。";
         let prompt = format!("[标题大纲]\n{}", outline);
 
-        let resp = client
-            .chat(
-                &prompt,
-                Some(system),
-                crate::client::ChatOptions {
-                    model: Some(model.to_string()),
-                    temperature: Some(0.0),
-                    max_tokens: Some(4096),
-                    top_p: None,
-                    stream: false,
-                    show_reasoning: false,
-                    images: Vec::new(),
-                },
-            )
-            .await?;
+        let chain: Vec<&str> = {
+            let mut c = vec![model];
+            for m in model_fallback::ROLE_CHAT {
+                if !c.contains(m) {
+                    c.push(m);
+                }
+            }
+            c
+        };
+        let prompt_owned = prompt.clone();
+        let system_owned = system.to_string();
+        let (_, resp) = model_fallback::with_fallback(&chain, |m| {
+            let p = prompt_owned.clone();
+            let sys = system_owned.clone();
+            let m = m.to_string();
+            async move {
+                client
+                    .chat(
+                        &p,
+                        Some(&sys),
+                        crate::client::ChatOptions {
+                            model: Some(m.clone()),
+                            temperature: Some(0.0),
+                            max_tokens: Some(4096),
+                            top_p: None,
+                            stream: false,
+                            show_reasoning: false,
+                            images: Vec::new(),
+                            image_max_dim: None,
+                        },
+                    )
+                    .await
+            }
+        })
+        .await?;
 
         // 解析: 归一化标题 → 建议级数
         let mut fixes: std::collections::HashMap<String, usize> = Default::default();
@@ -1789,6 +1865,7 @@ impl MarkScanPipeline {
                     stream: false,
                     show_reasoning: false,
                     images: Vec::new(),
+                    image_max_dim: None,
                 },
             )
             .await?;
@@ -1907,12 +1984,14 @@ mod tests {
         let opts = MarkScanOptions {
             input: vec![input.clone()],
             output: None,
+            output_format: document::DocumentOutputFormat::Markdown,
             recursive: false,
             mode: PipelineMode::Rigor,
             type_override: None,
             image_handling: ImageHandling::Auto,
             image_prompt: None,
             max_dim: None,
+            concurrency: 4,
             model: None,
             min_confidence: None,
             report: None,
@@ -1943,12 +2022,14 @@ mod tests {
         let opts = MarkScanOptions {
             input: vec![input.clone()],
             output: None,
+            output_format: document::DocumentOutputFormat::Markdown,
             recursive: false,
             mode: PipelineMode::Speed,
             type_override: None,
             image_handling: ImageHandling::Auto,
             image_prompt: None,
             max_dim: None,
+            concurrency: 4,
             model: None,
             min_confidence: None,
             report: None,

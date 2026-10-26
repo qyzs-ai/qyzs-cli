@@ -4,7 +4,7 @@
 //! 交叉验证从未真正运行, 只能诚实降级为仅润色行为。本模块把第二通道改为
 //! 「提取页面内嵌整页图 → 逐页双模型转录」, 与主通道 (MinerU, 内部 OCR) 构成
 //! 独立多模型证据:
-//! - paddleocrvl: 文字逐行转录 (公文 OCR 专线, 800px 客户端自动缩放)
+//! - paddleocrvl: 文字逐行转录 (公文 OCR 专线, 按能力矩阵选择安全尺寸)
 //! - qwen3-VL-30B-A3B: 图像理解 —— 逐字转录 + 表格结构 + 印章/图示/版面要素
 //!   (带图请求由客户端自动选路, 见 client/chat.rs 模型决策)
 //!
@@ -16,7 +16,8 @@
 //! - FlateDecode + 8bit 灰度/RGB → image crate 重编码 PNG
 //! - 其他滤镜 (JPX/CCITT/CMYK 等) → 跳过该页
 
-use crate::client::{ChatOptions, QyzsClient};
+use super::model_fallback;
+use crate::client::QyzsClient;
 use crate::error::{QyzsError, QyzsResult};
 use futures_util::StreamExt;
 use lopdf::Document;
@@ -169,12 +170,18 @@ where
     out
 }
 
-/// 逐页 paddleocrvl 文字转录 (有界并发), 失败页为 None
+/// 逐页文字转录 (角色兜底链: paddleocrvl → qwen36 → qwen3-VL, 有界并发 4 路)
+///
+/// 专用 OCR 不可用时按链切换多模态 chat 模型, 而非丢弃该证据通道;
+/// 链头熔断时直接跳到下一候选 (下线模型不再被反复调用)。
 pub async fn ocr_pages(
     client: &QyzsClient,
     pages: &[PageImage],
+    max_dim: Option<u32>,
     on_progress: Option<&dyn Fn(usize, usize)>,
 ) -> (Vec<Option<String>>, Vec<String>) {
+    const CHAT_OCR_PROMPT: &str =
+        "逐字转录这张图片中的全部文字内容, 保留段落与标题层级。只输出转录文本, 不要解释。";
     let items: Vec<_> = pages
         .iter()
         .enumerate()
@@ -183,18 +190,42 @@ pub async fn ocr_pages(
     let results = run_bounded(
         items,
         CHANNEL_CONCURRENCY,
-        |page: PageImage| async move {
-            client
-                .ocr(page.path.to_string_lossy().as_ref(), None, None)
-                .await
-                .map(|r| r.text.trim().to_string())
-                .and_then(|t| {
-                    if t.is_empty() {
-                        Err(QyzsError::Server("OCR 返回空内容".to_string()))
-                    } else {
-                        Ok(t)
+        |page: PageImage| {
+            let path = page.path.to_string_lossy().to_string();
+            async move {
+                let (_, text) = model_fallback::with_fallback(model_fallback::ROLE_OCR, |m| {
+                    let m = m.to_string();
+                    let path = path.clone();
+                    async move {
+                        match m.as_str() {
+                            "paddleocrvl" => client
+                                .ocr_with_model(&path, None, max_dim, &m)
+                                .await
+                                .map(|r| r.text.trim().to_string())
+                                .and_then(|t| {
+                                    if t.is_empty() {
+                                        Err(QyzsError::Server("OCR 返回空内容".to_string()))
+                                    } else {
+                                        Ok(t)
+                                    }
+                                }),
+                            _ => {
+                                model_fallback::transcribe_via_chat(
+                                    client,
+                                    &m,
+                                    &path,
+                                    CHAT_OCR_PROMPT,
+                                    VL_PAGE_MAX_TOKENS,
+                                    max_dim,
+                                )
+                                .await
+                            }
+                        }
                     }
                 })
+                .await?;
+                Ok(text)
+            }
         },
         on_progress,
     )
@@ -204,12 +235,11 @@ pub async fn ocr_pages(
     (results, warnings)
 }
 
-/// 逐页 qwen3-VL 图像理解: 逐字转录 + 表格结构 + 印章/图示/版面要素 (有界并发)
-///
-/// model 传 None: 客户端按「有图」自动选路 qwen3-VL-30B-A3B。
+/// 逐页版面视觉理解 (角色兜底链: qwen3-VL → qwen36, 有界并发 4 路)
 pub async fn vl_pages(
     client: &QyzsClient,
     pages: &[PageImage],
+    max_dim: Option<u32>,
     on_progress: Option<&dyn Fn(usize, usize)>,
 ) -> (Vec<Option<String>>, Vec<String>) {
     let items: Vec<_> = pages
@@ -220,27 +250,27 @@ pub async fn vl_pages(
     let results = run_bounded(
         items,
         CHANNEL_CONCURRENCY,
-        |page: PageImage| async move {
-            let resp = client
-                .chat(
-                    VL_PAGE_PROMPT,
-                    None,
-                    ChatOptions {
-                        model: None,
-                        temperature: Some(0.1),
-                        max_tokens: Some(VL_PAGE_MAX_TOKENS),
-                        top_p: None,
-                        stream: false,
-                        show_reasoning: false,
-                        images: vec![page.path.to_string_lossy().to_string()],
-                    },
-                )
+        |page: PageImage| {
+            let path = page.path.to_string_lossy().to_string();
+            async move {
+                let (_, text) = model_fallback::with_fallback(model_fallback::ROLE_VL, |m| {
+                    let m = m.to_string();
+                    let path = path.clone();
+                    async move {
+                        model_fallback::transcribe_via_chat(
+                            client,
+                            &m,
+                            &path,
+                            VL_PAGE_PROMPT,
+                            VL_PAGE_MAX_TOKENS,
+                            max_dim,
+                        )
+                        .await
+                    }
+                })
                 .await?;
-            let t = resp.primary_text().trim().to_string();
-            if t.is_empty() {
-                return Err(QyzsError::Server("VL 转录返回空内容".to_string()));
+                Ok(text)
             }
-            Ok(t)
         },
         on_progress,
     )
@@ -371,7 +401,7 @@ mod tests {
     #[tokio::test]
     async fn test_ocr_pages_empty_input() {
         let client = crate::client::QyzsClient::new(test_config()).expect("客户端构造");
-        let (results, warnings) = ocr_pages(&client, &[], None).await;
+        let (results, warnings) = ocr_pages(&client, &[], None, None).await;
         assert!(results.is_empty());
         assert!(warnings.is_empty());
     }

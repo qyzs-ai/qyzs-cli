@@ -14,8 +14,6 @@ impl QyzsClient {
         aoi_geojson: Option<&str>,
         threshold: Option<f64>,
     ) -> QyzsResult<String> {
-        let key = self.config.ensure_auth()?;
-
         let p1 = Path::new(image_before);
         let p2 = Path::new(image_after);
         if !p1.exists() || !p2.exists() {
@@ -62,9 +60,11 @@ impl QyzsClient {
             form = form.text("threshold", th.to_string());
         }
 
+        let key = self.next_api_key()?;
+        let _permit = self.acquire_request_permit().await?;
         let resp = self
             .http
-            .post("api/aiCenterChat/v3/form/acid-sam3-full", Some(key))
+            .post("api/aiCenterChat/v3/form/acid-sam3-full", Some(&key))
             .multipart(form)
             .send()
             .await?;

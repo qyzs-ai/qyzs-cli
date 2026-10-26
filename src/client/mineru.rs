@@ -36,7 +36,6 @@ struct MineruTaskResult {
 impl QyzsClient {
     /// 上传文档文件到 MinerU 专线进行结构化解析并提取 Markdown
     pub async fn parse_document(&self, file_path: &str, is_ocr: bool) -> QyzsResult<String> {
-        let key = self.config.ensure_auth()?;
         let path = Path::new(file_path);
         if !path.exists() {
             return Err(QyzsError::Io(format!("待解析文件不存在: {}", file_path)));
@@ -65,9 +64,11 @@ impl QyzsClient {
         let model = self.config.get_default_model("markscan");
         let endpoint = format!("ai-gateway/{}/file_parse", model);
 
+        let key = self.next_api_key()?;
+        let _permit = self.acquire_request_permit().await?;
         let resp = self
             .http
-            .post(&endpoint, Some(key))
+            .post(&endpoint, Some(&key))
             .multipart(form)
             .send()
             .await?;

@@ -101,7 +101,6 @@ impl QyzsClient {
         texts: Vec<String>,
         model_override: Option<&str>,
     ) -> QyzsResult<EmbeddingResponse> {
-        let key = self.config.ensure_auth()?;
         let model = model_override
             .unwrap_or_else(|| self.config.get_default_model("embed"))
             .to_string();
@@ -109,8 +108,7 @@ impl QyzsClient {
         let (items, _) = plan_chunks(&texts, char_limit_for(&model));
         if items.len() == texts.len() && items.len() <= MAX_BATCH_ITEMS {
             // 常规路径：无分块且批量在界内，单请求原样透传
-            let resp = self.embed_request(&model, texts, key).await?;
-            self.record_embed_usage(&model, resp.usage.as_ref());
+            let resp = self.embed_request(&model, texts).await?;
             return Ok(resp);
         }
 
@@ -120,7 +118,7 @@ impl QyzsClient {
         let mut prompt_tokens = 0u32;
         for batch in items.chunks(MAX_BATCH_ITEMS) {
             let batch_inputs: Vec<String> = batch.iter().map(|(_, t)| t.clone()).collect();
-            let resp = self.embed_request(&model, batch_inputs, key).await?;
+            let resp = self.embed_request(&model, batch_inputs).await?;
             if let Some(usage) = &resp.usage {
                 total_tokens += usage.total_tokens.unwrap_or(0);
                 prompt_tokens += usage.prompt_tokens.unwrap_or(0);
@@ -150,8 +148,6 @@ impl QyzsClient {
             prompt_tokens: (prompt_tokens > 0).then_some(prompt_tokens),
             total_tokens: (total_tokens > 0).then_some(total_tokens),
         };
-        self.record_embed_usage(&model, Some(&aggregate));
-
         Ok(EmbeddingResponse {
             model: Some(model),
             data,
@@ -160,10 +156,11 @@ impl QyzsClient {
     }
 
     /// 用量台账记录 (best-effort; 向量接口无 completion 概念, 恒记 None)
-    fn record_embed_usage(&self, model: &str, usage: Option<&EmbeddingUsage>) {
+    fn record_embed_usage(&self, model: &str, api_key: &str, usage: Option<&EmbeddingUsage>) {
         self.record_usage(
             "embed",
             model,
+            api_key,
             usage.and_then(|u| u.prompt_tokens.map(|v| v as u64)),
             None,
             usage.and_then(|u| u.total_tokens.map(|v| v as u64)),
@@ -174,8 +171,9 @@ impl QyzsClient {
         &self,
         model: &str,
         input: Vec<String>,
-        key: &str,
     ) -> QyzsResult<EmbeddingResponse> {
+        let key = self.next_api_key()?;
+        let _permit = self.acquire_request_permit().await?;
         let req = EmbeddingRequest {
             model: model.to_string(),
             input,
@@ -183,7 +181,7 @@ impl QyzsClient {
 
         let resp = self
             .http
-            .post("api/aiCenterChat/v1/embeddings", Some(key))
+            .post("api/aiCenterChat/v1/embeddings", Some(&key))
             .json(&req)
             .send()
             .await?;
@@ -198,6 +196,7 @@ impl QyzsClient {
         }
 
         let embed_resp: EmbeddingResponse = resp.json().await?;
+        self.record_embed_usage(model, &key, embed_resp.usage.as_ref());
         Ok(embed_resp)
     }
 }

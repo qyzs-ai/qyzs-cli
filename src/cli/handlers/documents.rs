@@ -9,6 +9,7 @@ use crate::term::OutputFormat;
 use std::path::Path;
 
 pub async fn markscan(ctx: &Ctx<'_>, opts: MarkScanOptions) -> QyzsResult<()> {
+    let limited_client = ctx.client.with_max_concurrency(opts.concurrency);
     // 多文件/目录输入: 走 multi 编排; 单文件输入: 走单文件路径
     let is_multi = opts.input.len() > 1
         || opts
@@ -17,7 +18,7 @@ pub async fn markscan(ctx: &Ctx<'_>, opts: MarkScanOptions) -> QyzsResult<()> {
             .any(|p| !is_url_input(p) && Path::new(p).is_dir());
 
     if is_multi {
-        return markscan_multi(ctx, opts).await;
+        return markscan_multi(ctx, &limited_client, opts).await;
     }
 
     // 单文件路径 (兼容历史契约)
@@ -38,8 +39,8 @@ pub async fn markscan(ctx: &Ctx<'_>, opts: MarkScanOptions) -> QyzsResult<()> {
             print_scan_plan(ctx.printer, &plan);
         }
     } else {
-        let md = match MarkScanPipeline::convert(
-            ctx.client,
+        let output = match MarkScanPipeline::convert(
+            &limited_client,
             &opts,
             &single,
             ctx.config.timeout_seconds,
@@ -61,17 +62,24 @@ pub async fn markscan(ctx: &Ctx<'_>, opts: MarkScanOptions) -> QyzsResult<()> {
             Err(e) => return Err(e),
         };
         if let Some(out_p) = run_output {
-            std::fs::write(&out_p, &md)?;
+            std::fs::write(&out_p, &output)?;
             ctx.printer.ok(&crate::msgf!(MdSaved, out_p));
         } else {
-            println!("{}", md);
+            print!("{}", output);
+            if !output.ends_with('\n') {
+                println!();
+            }
         }
     }
     Ok(())
 }
 
-/// 多文件/目录输入编排: 展开后逐个转换, 每文件写到自己 .md (输出目录)
-async fn markscan_multi(ctx: &Ctx<'_>, opts: MarkScanOptions) -> QyzsResult<()> {
+/// 多文件/目录输入编排: 展开后逐个转换，按请求格式写入输出目录。
+async fn markscan_multi(
+    ctx: &Ctx<'_>,
+    client: &crate::client::QyzsClient,
+    opts: MarkScanOptions,
+) -> QyzsResult<()> {
     if opts.dry_run {
         let plans = multi::plan_multi(&opts, ctx.config.timeout_seconds).await?;
         if ctx.config.output_format == OutputFormat::Json {
@@ -87,7 +95,7 @@ async fn markscan_multi(ctx: &Ctx<'_>, opts: MarkScanOptions) -> QyzsResult<()> 
 
     let total = multi::resolve_inputs(&opts)?.len();
     let results = multi::convert_multi(
-        ctx.client,
+        client,
         &opts,
         ctx.config.timeout_seconds,
         Some(&|done: usize, _total: usize| {
@@ -248,7 +256,12 @@ fn print_scan_plan(printer: &crate::term::Printer, plan: &ConversionPlan) {
     if plan.mode != "speed" {
         println!("{}{}", crate::msg!(MdPolishModel), plan.polish_model);
     }
-    println!("{}{}", crate::msg!(MdOutputTarget), plan.output_target);
+    println!(
+        "{}{} ({})",
+        crate::msg!(MdOutputTarget),
+        plan.output_target,
+        plan.output_format
+    );
     for w in &plan.warnings {
         printer.warn(&format!("  ⚠ {}", w));
     }

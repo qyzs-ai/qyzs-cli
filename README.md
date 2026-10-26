@@ -18,7 +18,7 @@
 - **命令行双形式兼容**：原生支持标准子命令 `qyzs <command>`，且内置 `argv[0]` 自动重写，无缝兼容 `qyzs-<command>`（如软链接调用）。
 - **实测评分最优默认模型**：未指定 `--model` 时，自动装载经基准压测评定最高分的模型（对话默认 `dsv4` 1.0s、实测 51.8 万 Tokens 上下文 100% 召回；多图默认 `qwen3-VL` 16图并发；公文OCR默认 `paddleocrvl` 带800px防崩溃缩放；文档结构化默认 `mineru3.2.3`）。
 - **双语环境自适应 (i18n)**：运行时状态/进度提示自动适配中英文（默认跟随系统语言：POSIX locale 变量优先，Windows 读取系统 UI 语言 API、macOS 读取 CoreFoundation 系统区域，均无法识别回退英文；`--lang zh|en` 显式切换，`QYZS_LANG` 环境变量同效），上游模型返回内容原样透传；帮助文本与错误详情以中文为主。
-- **四层级联配置优先级**：`CLI 参数` > `环境变量 (QYZS_APIKEY / QYZS_BASE_URL / QYZS_TIMEOUT / QYZS_LANG / QYZS_MODEL_LANG)` > `配置文件 (~/.config/qyzs/)` > `代码基准真值`；敏感 API Key 严格采用 XDG 0600 安全隔离。注：`--color` 与 `--format` 仅有 CLI 参数与配置文件两层，无环境变量层。
+- **四层级联配置优先级**：`CLI 参数` > `环境变量 (QYZS_APIKEYS / QYZS_APIKEY / QYZS_BASE_URL / QYZS_TIMEOUT / QYZS_LANG / QYZS_MODEL_LANG)` > `配置文件 (~/.config/qyzs/)` > `代码基准真值`；敏感 API Key 严格采用 XDG 0600 安全隔离。注：`--color` 与 `--format` 仅有 CLI 参数与配置文件两层，无环境变量层。
 
 ---
 
@@ -184,11 +184,20 @@ qyzs usage --clear
 ### 3. 凭据与配置管理
 
 ```bash
-# 方式一：环境变量（推荐，优先级：CLI 参数 > QYZS_APIKEY > 已保存凭据）
+# 方式一：环境变量（优先级：CLI 参数 > QYZS_APIKEYS > QYZS_APIKEY > 已保存凭据）
 export QYZS_APIKEY=<your-api-key>
+# 多 Key 并发分流（可选，优先于 QYZS_APIKEY）
+export QYZS_APIKEYS=<key-a>,<key-b>,<key-c>
 
-# 方式二：安全登录并保存 API Key (自动应用 0600 权限)
+# 方式二：登录并保存 API Key（凭据文件自动设为 0600；--key 值会出现在进程参数中）
 qyzs auth login --key "$QYZS_APIKEY"
+# 或重复 --key 保存多个 Key
+qyzs auth login --key <key-a> --key <key-b>
+
+# 部署环境也可从样本创建原生凭据文件；填值后必须限制权限
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/qyzs"
+cp credentials.toml.example "${XDG_CONFIG_HOME:-$HOME/.config}/qyzs/credentials.toml"
+chmod 600 "${XDG_CONFIG_HOME:-$HOME/.config}/qyzs/credentials.toml"
 
 # 查看当前生效 Key 掩码与安全性
 qyzs auth status

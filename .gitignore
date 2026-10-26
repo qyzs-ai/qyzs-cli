@@ -31,6 +31,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+/tests/artifacts/
 
 # 编辑器与系统
 .vscode/

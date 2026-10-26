@@ -117,12 +117,14 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
         Commands::MarkScan {
             input,
             output,
+            output_format,
             recursive,
             mode,
             r#type,
             image_handling,
             image_prompt,
             max_dim,
+            concurrency,
             model,
             min_confidence,
             report,
@@ -139,11 +141,15 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
         } => {
             // 图像长边上限校验 (原 ocr 子命令的同名能力, 现由 markscan 承担)
             validate::validate_ocr_max_dim(max_dim)?;
+            validate::validate_markscan_concurrency(concurrency)?;
             // 段长上界校验 (markscan 的软警告从 mod.rs 提升为 dispatch 硬拒)
             validate::validate_scan_segment_chars(segment_chars)?;
             let opts = MarkScanOptions {
                 input,
                 output,
+                output_format: crate::pipeline::markscan::document::DocumentOutputFormat::parse(
+                    &output_format,
+                )?,
                 recursive,
                 mode: match mode.as_deref() {
                     Some(s) => PipelineMode::parse(s)?,
@@ -159,6 +165,7 @@ pub async fn run(args: Vec<String>) -> QyzsResult<()> {
                 },
                 image_prompt,
                 max_dim,
+                concurrency,
                 model,
                 min_confidence: match min_confidence {
                     Some(c) if !(0.0..=1.0).contains(&c) => {

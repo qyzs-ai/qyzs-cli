@@ -2,14 +2,15 @@
 //!
 //! CI 离线环境自动跳过; 本地验证需注入凭证后手动放行:
 //! ```bash
-//! export $(grep -v '^#' .env | grep QYZS_APIKEY)   # 或已有环境变量
+//! set -a; source .env; set +a   # 或已有环境变量
 //! cargo test --test gateway_tests -- --ignored --nocapture
 //! ```
 //!
 //! 行为契约依据: tests/docs/QYZS-MARKSCAN.md; 实测校准值见 capability_matrix.toml。
 
 use qyzs::pipeline::markscan::{
-    detect::FormatDetector, MarkScanOptions, MarkScanPipeline, PipelineMode,
+    detect::FormatDetector, document::DocumentOutputFormat, MarkScanOptions, MarkScanPipeline,
+    PipelineMode,
 };
 use std::path::Path;
 
@@ -21,21 +22,31 @@ fn fixture(rel: &str) -> String {
 }
 
 fn have_key() -> bool {
-    std::env::var("QYZS_APIKEY")
-        .map(|v| !v.is_empty())
-        .unwrap_or(false)
+    let from_env = ["QYZS_APIKEYS", "QYZS_APIKEY"].iter().any(|name| {
+        std::env::var(name)
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+    });
+    from_env
+        || qyzs::config::Credentials::load()
+            .ok()
+            .flatten()
+            .map(|credentials| !credentials.all_keys().is_empty())
+            .unwrap_or(false)
 }
 
 fn speed_opts(input: &str) -> MarkScanOptions {
     MarkScanOptions {
         input: vec![input.to_string()],
         output: None,
+        output_format: qyzs::pipeline::markscan::document::DocumentOutputFormat::Markdown,
         recursive: false,
         mode: PipelineMode::Speed,
         type_override: None,
         image_handling: crate_default_image_handling(),
         image_prompt: None,
         max_dim: None,
+        concurrency: 4,
         model: None,
         min_confidence: None,
         report: None,
@@ -52,6 +63,19 @@ fn speed_opts(input: &str) -> MarkScanOptions {
     }
 }
 
+fn assert_contains_at_least(text: &str, expected: &[&str], minimum: usize, context: &str) {
+    let matched: Vec<_> = expected
+        .iter()
+        .copied()
+        .filter(|token| text.contains(token))
+        .collect();
+    assert!(
+        matched.len() >= minimum,
+        "{context}: 至少应命中 {minimum} 个关键字符串，实际命中 {matched:?}，输出前 500 字: {}",
+        text.chars().take(500).collect::<String>()
+    );
+}
+
 // MarkScanOptions.image_handling 类型未在 lib 层暴露 Default;
 // 显式构造保持测试自洽
 fn crate_default_image_handling() -> qyzs::pipeline::markscan::ImageHandling {
@@ -59,10 +83,10 @@ fn crate_default_image_handling() -> qyzs::pipeline::markscan::ImageHandling {
 }
 
 #[tokio::test]
-#[ignore = "需要真实网关凭证 (QYZS_APIKEY): cargo test -- --ignored"]
+#[ignore = "需要真实网关凭证 (QYZS_APIKEYS/QYZS_APIKEY): cargo test -- --ignored"]
 async fn gateway_text_pdf_speed() {
     if !have_key() {
-        panic!("未检测到 QYZS_APIKEY; 请注入凭证后运行");
+        panic!("未检测到 QYZS_APIKEYS/QYZS_APIKEY; 请注入凭证后运行");
     }
     let config = test_config();
     let client = qyzs::QyzsClient::new(config).unwrap();
@@ -77,10 +101,10 @@ async fn gateway_text_pdf_speed() {
 }
 
 #[tokio::test]
-#[ignore = "需要真实网关凭证 (QYZS_APIKEY): cargo test -- --ignored"]
+#[ignore = "需要真实网关凭证 (QYZS_APIKEYS/QYZS_APIKEY): cargo test -- --ignored"]
 async fn gateway_image_ocr_auto() {
     if !have_key() {
-        panic!("未检测到 QYZS_APIKEY; 请注入凭证后运行");
+        panic!("未检测到 QYZS_APIKEYS/QYZS_APIKEY; 请注入凭证后运行");
     }
     let config = test_config();
     let client = qyzs::QyzsClient::new(config).unwrap();
@@ -96,7 +120,168 @@ async fn gateway_image_ocr_auto() {
 }
 
 #[tokio::test]
-#[ignore = "需要真实网关凭证 (QYZS_APIKEY): cargo test -- --ignored"]
+#[ignore = "需要真实网关凭证 (QYZS_APIKEYS/QYZS_APIKEY): cargo test -- --ignored"]
+async fn gateway_paddleocrvl_real_redhead_sample() {
+    if !have_key() {
+        panic!("未检测到 QYZS_APIKEYS/QYZS_APIKEY; 请注入凭证后运行");
+    }
+    let client = qyzs::QyzsClient::new(test_config()).unwrap();
+    let input = fixture("tests/data/ocr/images/ref0101_p1_redhead_scan.png");
+    let result = client
+        .ocr_with_model(
+            &input,
+            Some(
+                "逐字转录图片中的全部文字，保留标题、段落、表格、文号、日期和印章内容。只输出转录结果，不要解释。",
+            ),
+            Some(1280),
+            "paddleocrvl",
+        )
+        .await;
+    let capability = qyzs::model_capabilities::ocr_model("paddleocrvl").unwrap();
+    if !capability.online_at_test {
+        let error = result.expect_err("能力矩阵标记离线时，实时探针不应成功");
+        let message = error.to_string();
+        assert!(
+            message.contains("base_url_missing") || message.contains("timed out"),
+            "离线错误应与能力矩阵证据一致，实际: {message}"
+        );
+        return;
+    }
+    let response = result.expect("能力矩阵标记在线时，真实红头样本应识别成功");
+    assert_eq!(response.model, "paddleocrvl");
+    assert_contains_at_least(
+        &response.text,
+        &[
+            "自然资源部网络安全和信息化领导小组办公室文件",
+            "自然资网信办发〔2024〕5号",
+            "关于进一步加强自然资源部网络安全等级保护工作的指导意见",
+        ],
+        2,
+        "paddleocrvl 红头样本",
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要真实网关凭证 (QYZS_APIKEYS/QYZS_APIKEY): cargo test -- --ignored"]
+async fn gateway_qwen3vl_real_seal_sample() {
+    if !have_key() {
+        panic!("未检测到 QYZS_APIKEYS/QYZS_APIKEY; 请注入凭证后运行");
+    }
+    let client = qyzs::QyzsClient::new(test_config()).unwrap();
+    let input = fixture("tests/data/ocr/images/ref0101_p8_seal_scan.png");
+    let response = client
+        .chat(
+            "逐字转录图片中的正文、日期和印章文字，只输出转录结果。",
+            None,
+            qyzs::client::ChatOptions {
+                model: Some("qwen3-VL-30B-A3B".to_string()),
+                temperature: Some(0.0),
+                max_tokens: Some(4096),
+                top_p: None,
+                stream: false,
+                show_reasoning: false,
+                images: vec![input],
+                image_max_dim: Some(2048),
+            },
+        )
+        .await
+        .expect("qwen3-VL 真实印章样本应识别成功");
+    assert_contains_at_least(
+        &response.primary_text(),
+        &["自然资源部网络安全和信息化领导小组办公室", "印发", "抄送"],
+        1,
+        "qwen3-VL 印章样本",
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要真实网关凭证 (QYZS_APIKEYS/QYZS_APIKEY): cargo test -- --ignored"]
+async fn gateway_qwen36_real_redhead_sample() {
+    if !have_key() {
+        panic!("未检测到 QYZS_APIKEYS/QYZS_APIKEY; 请注入凭证后运行");
+    }
+    let client = qyzs::QyzsClient::new(test_config()).unwrap();
+    let input = fixture("tests/data/ocr/images/ref0101_p1_redhead_scan.png");
+    let response = client
+        .chat(
+            "逐字转录图片中的标题、文号和正文，只输出转录结果。",
+            None,
+            qyzs::client::ChatOptions {
+                model: Some("qwen36".to_string()),
+                temperature: Some(0.0),
+                max_tokens: Some(4096),
+                top_p: None,
+                stream: false,
+                show_reasoning: false,
+                images: vec![input],
+                image_max_dim: Some(2048),
+            },
+        )
+        .await
+        .expect("qwen36 真实红头样本应识别成功");
+    assert_contains_at_least(
+        &response.primary_text(),
+        &[
+            "自然资源部网络安全和信息化领导小组办公室文件",
+            "自然资网信办发〔2024〕5号",
+            "关于进一步加强自然资源部网络安全等级保护工作的指导意见",
+        ],
+        2,
+        "qwen36 红头样本",
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要真实网关凭证 (QYZS_APIKEYS/QYZS_APIKEY): cargo test -- --ignored"]
+async fn gateway_text_pdf_html_and_txt_outputs() {
+    if !have_key() {
+        panic!("未检测到 QYZS_APIKEYS/QYZS_APIKEY; 请注入凭证后运行");
+    }
+    let client = qyzs::QyzsClient::new(test_config()).unwrap();
+    let input = fixture("tests/data/mineru/text_pdf/REF-0056_政府采购评审专家管理办法.pdf");
+
+    let mut html_opts = speed_opts(&input);
+    html_opts.output_format = DocumentOutputFormat::Html;
+    let html = MarkScanPipeline::convert(&client, &html_opts, &input, 300, None)
+        .await
+        .expect("真实文本 PDF HTML 输出应成功");
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("政府采购评审专家管理办法"));
+
+    let mut txt_opts = speed_opts(&input);
+    txt_opts.output_format = DocumentOutputFormat::Text;
+    let text = MarkScanPipeline::convert(&client, &txt_opts, &input, 300, None)
+        .await
+        .expect("真实文本 PDF TXT 输出应成功");
+    assert!(text.contains("政府采购评审专家管理办法"));
+    assert!(!text.contains("# 政府采购评审专家管理办法"));
+}
+
+#[tokio::test]
+#[ignore = "真实扫描 PDF rigor 全流程，需网关凭证且耗时较长"]
+async fn gateway_scanned_pdf_rigor_full_pipeline() {
+    if !have_key() {
+        panic!("未检测到 QYZS_APIKEYS/QYZS_APIKEY; 请注入凭证后运行");
+    }
+    let client = qyzs::QyzsClient::new(test_config()).unwrap();
+    let input = fixture("tests/data/mineru/scanned_pdf/REF-0101_网络安全等级保护指导意见_scan.pdf");
+    let mut opts = speed_opts(&input);
+    opts.mode = PipelineMode::Rigor;
+    opts.segment_chars = 12_000;
+    let markdown = MarkScanPipeline::convert(&client, &opts, &input, 900, None)
+        .await
+        .expect("真实扫描 PDF rigor 全流程应成功");
+    assert_contains_at_least(
+        &markdown,
+        &["自然资源部", "网络安全", "等级保护", "指导意见"],
+        3,
+        "扫描 PDF rigor 产物",
+    );
+    assert!(markdown.len() > 2_000, "10 页扫描 PDF 产物不应异常短");
+}
+
+#[tokio::test]
+#[ignore = "需要真实网关凭证 (QYZS_APIKEYS/QYZS_APIKEY): cargo test -- --ignored"]
 async fn gateway_html_url() {
     let config = test_config();
     let client = qyzs::QyzsClient::new(config).unwrap();
@@ -118,14 +303,6 @@ fn gateway_offline_route_guard() {
 }
 
 fn test_config() -> qyzs::config::ResolvedConfig {
-    qyzs::config::ResolvedConfig::resolve(
-        std::env::var("QYZS_APIKEY").ok().as_deref(),
-        None,
-        Some(300),
-        None,
-        None,
-        Some("never"),
-        None,
-    )
-    .expect("测试配置解析失败")
+    qyzs::config::ResolvedConfig::resolve(None, None, Some(300), None, None, Some("never"), None)
+        .expect("测试配置解析失败")
 }

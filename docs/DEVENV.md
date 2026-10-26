@@ -135,10 +135,15 @@ bash tests/scripts/verify_guardrails.sh   # 客户端护栏实测（5 阶段 / 7
 python3 tests/scripts/run_benchmarks.py    # 模型基准
 python3 tests/scripts/stress_limits.py    # 上下文极限压测
 python3 tests/scripts/limit_probe.py       # 参数与输入边界探针
+python3 tests/scripts/probe_ocr_models.py  # OCR/VLM 探针计划（默认不联网）
+python3 tests/scripts/probe_ocr_models.py --live --max-requests 20  # 有界在线实测
 ```
 
 依赖：`requests`（多数脚本）、`Pillow`（`run_benchmarks` / `verify_guardrails`）、
 `pypdf`（`limit_probe`）——均已验证可用。脚本自身不落盘任何 Key。
+`probe_ocr_models.py` 的在线产物写入已忽略的 `tests/artifacts/ocr-capabilities/`，包含
+公开基准输入、脱敏请求元数据与原始模型响应；必须显式 `--live` 才联网，并受
+`--max-requests` 硬上限保护。Authorization 从不写入产物。
 
 ### 6.2 纯离线（不读凭证、不连网关）
 

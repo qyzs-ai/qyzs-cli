@@ -182,7 +182,7 @@ fn extract_pdf_figures(
 }
 
 /// 页面 MediaBox 面积 (pt²)
-fn page_media_box_area(doc: &lopdf::Document, page_id: lopdf::ObjectId) -> Option<f64> {
+pub(crate) fn page_media_box_area(doc: &lopdf::Document, page_id: lopdf::ObjectId) -> Option<f64> {
     let dict = doc.get_dictionary(page_id).ok()?;
     let arr = dict.get(b"MediaBox").ok()?.as_array().ok()?;
     if arr.len() != 4 {
@@ -208,7 +208,7 @@ fn page_media_box_area(doc: &lopdf::Document, page_id: lopdf::ObjectId) -> Optio
 /// 图像像素尺寸无法直接换算成 pt (PDF 允许任意缩放), 这里用经验判据:
 /// 像素短边与页面短边 (pt) 的比值过大 → 典型的扫描页 (300dpi 扫描的 A4
 /// 约 2450×3500 像素, 页面 595×842pt, 比值约 4.1)。
-fn looks_full_page(width: i64, height: i64, page_area: f64) -> bool {
+pub(crate) fn looks_full_page(width: i64, height: i64, page_area: f64) -> bool {
     let short_px = width.min(height) as f64;
     let short_pt = page_area.sqrt().min(842.0);
     if short_pt <= 0.0 {

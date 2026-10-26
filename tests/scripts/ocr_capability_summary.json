@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "tested_at": "2026-10-26",
+  "metric_note": "key_token_recall 仅检查预先登记的关键字符串，不等同于 CER/WER 或完整排版准确率",
+  "dataset": {
+    "spec": "tests/data/ocr/paired_alignment_spec.json",
+    "cases": 3,
+    "content": [
+      "文本 PDF 标题裁片",
+      "扫描红头首页",
+      "扫描印章落款页"
+    ]
+  },
+  "request": {
+    "transport": "chat-completions",
+    "image_mime": "image/png",
+    "temperature": 0.0,
+    "max_tokens": 4096,
+    "raw_artifacts": "tests/artifacts/ocr-capabilities/<UTC时间>/（被 git 忽略，不含 Authorization）"
+  },
+  "models": [
+    {
+      "id": "paddleocrvl",
+      "sizes": [
+        {"long_edge": 800, "accepted": 3, "requests": 3, "avg_latency_sec": 3.212, "avg_key_token_recall": 0.4722},
+        {"long_edge": 1024, "accepted": 3, "requests": 3, "avg_latency_sec": 1.728, "avg_key_token_recall": 0.5833},
+        {"long_edge": 1152, "accepted": 3, "requests": 3, "avg_latency_sec": 1.769, "avg_key_token_recall": 0.5833},
+        {"long_edge": 1280, "accepted": 3, "requests": 3, "avg_latency_sec": 1.762, "avg_key_token_recall": 0.5833},
+        {"long_edge": 1408, "accepted": 3, "requests": 3, "avg_latency_sec": 1.830, "avg_key_token_recall": 0.5833},
+        {"long_edge": 1536, "accepted": 0, "requests": 3, "avg_latency_sec": 2.716, "failure": "FastDeploy max_model_len=2048"},
+        {"long_edge": 2048, "accepted": 0, "requests": 3, "avg_latency_sec": 3.399, "failure": "FastDeploy max_model_len=2048"},
+        {"long_edge": 3072, "accepted": 0, "requests": 3, "avg_latency_sec": 4.144, "failure": "FastDeploy max_model_len=2048"},
+        {"long_edge": 4096, "accepted": 0, "requests": 3, "avg_latency_sec": 4.942, "failure": "FastDeploy max_model_len=2048"}
+      ],
+      "scheduler_decision": "默认推荐 1280px；显式请求最高钳制至跨样本已接受的 1408px",
+      "caveat": "边界会受宽高比和视觉 token 影响，不是与内容无关的普适像素硬限"
+    },
+    {
+      "id": "qwen3-VL-30B-A3B",
+      "sizes": [
+        {"long_edge": 800, "accepted": 3, "requests": 3, "avg_latency_sec": 1.784, "avg_key_token_recall": 0.6944},
+        {"long_edge": 1024, "accepted": 3, "requests": 3, "avg_latency_sec": 1.873, "avg_key_token_recall": 0.6944},
+        {"long_edge": 2048, "accepted": 3, "requests": 3, "avg_latency_sec": 2.526, "avg_key_token_recall": 0.6944},
+        {"long_edge": 4096, "accepted": 3, "requests": 3, "avg_latency_sec": 5.927, "avg_key_token_recall": 0.6944}
+      ],
+      "scheduler_decision": "未测到拒绝边界，不自动钳制；4096px 只是已测通过点"
+    },
+    {
+      "id": "qwen36",
+      "sizes": [
+        {"long_edge": 800, "accepted": 3, "requests": 3, "avg_latency_sec": 10.128, "avg_key_token_recall": 0.6944},
+        {"long_edge": 1024, "accepted": 3, "requests": 3, "avg_latency_sec": 11.399, "avg_key_token_recall": 0.6944},
+        {"long_edge": 2048, "accepted": 3, "requests": 3, "avg_latency_sec": 7.295, "avg_key_token_recall": 0.6944},
+        {"long_edge": 4096, "accepted": 3, "requests": 3, "avg_latency_sec": 13.188, "avg_key_token_recall": 0.6944}
+      ],
+      "scheduler_decision": "未测到拒绝边界，不自动钳制；4096px 只是已测通过点"
+    },
+    {
+      "id": "mymodel-paddleocr-udhyfg",
+      "sizes": [
+        {"long_edge": 800, "accepted": 0, "requests": 3, "avg_latency_sec": 0.530},
+        {"long_edge": 1024, "accepted": 0, "requests": 3, "avg_latency_sec": 0.614}
+      ],
+      "scheduler_decision": "禁止调度；6 次请求均 HTTP 500"
+    }
+  ]
+}

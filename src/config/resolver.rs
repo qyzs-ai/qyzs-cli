@@ -8,6 +8,7 @@ use crate::term::{ColorChoice, Language, OutputFormat};
 #[derive(Debug, Clone)]
 pub struct ResolvedConfig {
     pub api_key: String,
+    pub api_keys: Vec<String>,
     pub api_key_source: String,
     pub base_url: String,
     pub timeout_seconds: u64,
@@ -78,21 +79,30 @@ impl ResolvedConfig {
         let creds = Credentials::load().unwrap_or_default();
 
         // 1. 解析 API Key
-        let (api_key, api_key_source) = if let Some(k) = cli_key.filter(|s| !s.is_empty()) {
-            (k.to_string(), "CLI Argument".to_string())
+        let (api_keys, api_key_source) = if let Some(k) = cli_key.filter(|s| !s.is_empty()) {
+            (vec![k.to_string()], "CLI Argument".to_string())
+        } else if let Some(keys) = normalize_env_value(std::env::var("QYZS_APIKEYS").ok())
+            .map(|value| split_api_keys(&value))
+            .filter(|keys| !keys.is_empty())
+        {
+            (keys, "Environment Variable (QYZS_APIKEYS)".to_string())
         } else if let Some(k) = normalize_env_value(std::env::var(API_KEY_ENV_VAR).ok()) {
-            (k, format!("Environment Variable ({})", API_KEY_ENV_VAR))
-        } else if let Some(c) = creds.filter(|c| !c.api_key.is_empty()) {
             (
-                c.api_key,
+                vec![k],
+                format!("Environment Variable ({})", API_KEY_ENV_VAR),
+            )
+        } else if let Some(c) = creds.filter(|c| !c.all_keys().is_empty()) {
+            (
+                c.all_keys(),
                 format!(
                     "Credentials File ({})",
                     Credentials::default_path().display()
                 ),
             )
         } else {
-            (String::new(), "None".to_string())
+            (Vec::new(), "None".to_string())
         };
+        let api_key = api_keys.first().cloned().unwrap_or_default();
 
         // 2. 解析 Base URL (CLI 显式值校验协议前缀; 环境变量/配置文件沿用历史行为)
         let base_url = if let Some(url) = cli_base_url.map(str::trim).filter(|s| !s.is_empty()) {
@@ -171,6 +181,7 @@ impl ResolvedConfig {
 
         Ok(Self {
             api_key,
+            api_keys,
             api_key_source,
             base_url,
             timeout_seconds,
@@ -242,9 +253,18 @@ impl ResolvedConfig {
     }
 }
 
+fn split_api_keys(value: &str) -> Vec<String> {
+    value
+        .split([',', ';', '\n'])
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::normalize_env_value;
+    use super::{normalize_env_value, split_api_keys};
 
     #[test]
     fn env_value_is_trimmed() {
@@ -259,5 +279,14 @@ mod tests {
         assert_eq!(normalize_env_value(Some("   ".to_string())), None);
         assert_eq!(normalize_env_value(Some(String::new())), None);
         assert_eq!(normalize_env_value(None), None);
+    }
+
+    #[test]
+    fn api_key_list_accepts_common_separators() {
+        assert_eq!(
+            split_api_keys(" key-a, key-b;key-c\nkey-d "),
+            vec!["key-a", "key-b", "key-c", "key-d"]
+        );
+        assert!(split_api_keys(" , ; \n ").is_empty());
     }
 }

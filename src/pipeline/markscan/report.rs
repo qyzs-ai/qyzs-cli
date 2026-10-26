@@ -24,13 +24,15 @@ pub struct ConversionReport {
     pub detect_method: String,
     /// 流水线档位
     pub mode: String,
+    /// 最终产物格式 (md/html/txt)
+    pub output_format: String,
     /// 润色/理解模型
     pub model: String,
     /// PDF 页数 (其他格式为 null)
     pub page_count: Option<usize>,
     /// MinerU 切片批数 (PDF 大文档 >15 页时)
     pub slice_count: Option<usize>,
-    /// 输出 Markdown 字节数
+    /// 最终产物字节数
     pub output_bytes: usize,
     /// 输出路径 (stdout 时为 "stdout")
     pub output_target: String,
@@ -83,6 +85,7 @@ impl ConversionReport {
             format,
             detect_method,
             mode,
+            "md",
             model,
             page_count,
             slice_count,
@@ -105,6 +108,7 @@ impl ConversionReport {
         format: &SourceFormat,
         detect_method: DetectMethod,
         mode: PipelineMode,
+        output_format: &str,
         model: &str,
         page_count: Option<usize>,
         slice_count: Option<usize>,
@@ -137,6 +141,7 @@ impl ConversionReport {
             format_label: format.label(),
             detect_method: detect_method_str.to_string(),
             mode: mode.key().to_string(),
+            output_format: output_format.to_string(),
             model: model.to_string(),
             page_count,
             slice_count,
@@ -194,6 +199,7 @@ mod tests {
         let json = report.to_json();
         assert!(json.contains("\"input\": \"doc.pdf\""));
         assert!(json.contains("\"format\": \"pdf\""));
+        assert!(json.contains("\"output_format\": \"md\""));
         assert!(json.contains("\"page_count\": 42"));
         assert!(json.contains("\"slice_count\": 3"));
         assert!(json.contains("\"warnings\""));

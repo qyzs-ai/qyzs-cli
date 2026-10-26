@@ -4,8 +4,11 @@
 //! (复用客户端 12k 分块 + 256 条拆批护栏) → 低于阈值的段落交 dsv4 仲裁
 //! (≤2 轮) → 不可决段插入 unverified 标记。
 
+use super::engine_health;
+use super::model_fallback;
 use crate::client::QyzsClient;
-use crate::error::QyzsResult;
+use crate::error::{QyzsError, QyzsResult};
+use std::collections::BTreeSet;
 
 /// 参与验证的最小段落长度 (过短段落语义区分度不足)
 const MIN_PARA_CHARS: usize = 20;
@@ -178,6 +181,187 @@ pub async fn verify_paragraphs(
     Ok(results)
 }
 
+/// 免模型层的词元包含度通过线: 段落 bigram 在证据中的覆盖比例达到即免嵌入
+pub const LEXICAL_PASS_CONTAINMENT: f64 = 0.85;
+
+/// bigram 集合 (空白剥离)
+fn bigrams(s: &str) -> std::collections::HashSet<(char, char)> {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    clean
+        .chars()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .map(|w| (w[0], w[1]))
+        .collect()
+}
+
+/// 词元包含度: |段落 bigram ∩ 证据 bigram| / |段落 bigram|
+///
+/// 与 Dice 不同, 包含度对「小段落 vs 大证据块」无尺寸偏置 —— 段落内容
+/// (几乎) 全部出现在证据中即通过, 证据块多出的邻文不影响判定。
+pub fn bigram_containment(para: &str, evidence: &str) -> f64 {
+    let a = bigrams(para);
+    if a.is_empty() {
+        return 0.0;
+    }
+    let b = bigrams(evidence);
+    a.intersection(&b).count() as f64 / a.len() as f64
+}
+
+/// 数字串多重集
+fn digit_multiset(s: &str) -> std::collections::BTreeMap<String, usize> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut cur = String::new();
+    for c in s.chars().chain(std::iter::once(' ')) {
+        if c.is_ascii_digit() {
+            cur.push(c);
+        } else if !cur.is_empty() {
+            *out.entry(std::mem::take(&mut cur)).or_insert(0) += 1;
+        }
+    }
+    out
+}
+
+/// 段内全部数字串是否被证据多重集覆盖 (数字是 OCR 最易损坏且最不可错的内容)
+pub fn digits_covered(para: &str, evidence: &str) -> bool {
+    let need = digit_multiset(para);
+    let have = digit_multiset(evidence);
+    need.iter()
+        .all(|(k, v)| have.get(k).copied().unwrap_or(0) >= *v)
+}
+
+/// 按页构建的证据块 (块 → 覆盖页集合), 支撑段落级页锚定
+pub struct PagedChunks {
+    pub chunks: Vec<String>,
+    pub pages: Vec<BTreeSet<u32>>,
+}
+
+/// 逐页切块 (页内按 800 字符目标聚合), 保留块→页映射
+pub fn chunk_secondary_paged(pages: &[(u32, String)]) -> PagedChunks {
+    let mut chunks = Vec::new();
+    let mut cps = Vec::new();
+    for (pno, text) in pages {
+        for piece in chunk_secondary(text) {
+            chunks.push(piece);
+            cps.push(BTreeSet::from([*pno]));
+        }
+    }
+    PagedChunks { chunks, pages: cps }
+}
+
+/// 级联验证 (数据最小化):
+/// L0+L1 免模型层 —— 数字覆盖 + 词元包含度 ≥ 0.85 → 直接判过 (score 1.0);
+/// L2 嵌入层 —— 仅未过段批量 bge-m3 余弦 (嵌入模型带兜底链, 双侧同模型)。
+/// 段落锚定到来源切片页范围 (±1 页容差), 只与其证据块比对。
+pub async fn verify_cascade(
+    client: &QyzsClient,
+    paragraphs: &[String],
+    paged: &PagedChunks,
+    para_range: &[Option<(u32, u32)>],
+) -> QyzsResult<Vec<(usize, f64, usize)>> {
+    if paragraphs.is_empty() || paged.chunks.is_empty() {
+        return Ok(Vec::new());
+    }
+    let all: Vec<usize> = (0..paged.chunks.len()).collect();
+    let cand_idxs = |idx: usize| -> Vec<usize> {
+        match para_range.get(idx).copied().flatten() {
+            Some((lo, hi)) => {
+                let c: Vec<usize> = paged
+                    .pages
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, ps)| ps.iter().any(|p| *p + 1 >= lo && *p <= hi + 1))
+                    .map(|(i, _)| i)
+                    .collect();
+                if c.is_empty() {
+                    all.clone()
+                } else {
+                    c
+                }
+            }
+            None => all.clone(),
+        }
+    };
+
+    let mut results: Vec<Option<(usize, f64, usize)>> = paragraphs.iter().map(|_| None).collect();
+    let mut need_embed: Vec<usize> = Vec::new();
+    for (i, para) in paragraphs.iter().enumerate() {
+        let cands = cand_idxs(i);
+        let mut best = (0.0f64, 0usize);
+        for &ci in &cands {
+            let s = bigram_containment(para, &paged.chunks[ci]);
+            if s > best.0 {
+                best = (s, ci);
+            }
+        }
+        let lex_ok =
+            best.0 >= LEXICAL_PASS_CONTAINMENT && digits_covered(para, &paged.chunks[best.1]);
+        if lex_ok {
+            results[i] = Some((i, 1.0, best.1));
+        } else {
+            need_embed.push(i);
+        }
+    }
+
+    if !need_embed.is_empty() {
+        let paras: Vec<String> = need_embed.iter().map(|&i| paragraphs[i].clone()).collect();
+        let cset: BTreeSet<usize> = need_embed.iter().flat_map(|&i| cand_idxs(i)).collect();
+        let chunks: Vec<String> = cset.iter().map(|&i| paged.chunks[i].clone()).collect();
+        let (pv, cv) = embed_pair(client, &paras, &chunks).await?;
+        for (k, &i) in need_embed.iter().enumerate() {
+            let mut best = (f64::MIN, 0usize);
+            for (jc, &ci) in cset.iter().enumerate() {
+                let s = cosine(&pv[k], &cv[jc]);
+                if s > best.0 {
+                    best = (s, ci);
+                }
+            }
+            results[i] = Some((i, best.0, best.1));
+        }
+    }
+    Ok(results
+        .into_iter()
+        .map(|r| r.unwrap_or((0, 0.0, 0)))
+        .collect())
+}
+
+/// 嵌入双侧同模型 + 兜底链 (维度不同的嵌入模型不可跨侧混用, 任一侧失败
+/// 即整对换下一模型重嵌)
+async fn embed_pair(
+    client: &QyzsClient,
+    a: &[String],
+    b: &[String],
+) -> QyzsResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
+    const CHAIN: &[&str] = &["bge-m3", "qwen3-embadding-8b"];
+    let selected = super::model_fallback::preflight_embed_chain(client, CHAIN).await?;
+    eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: 嵌入使用 {selected}");
+    let mut last = QyzsError::Server("嵌入兜底链为空".to_string());
+    for m in CHAIN {
+        if !engine_health::engine_available(m) {
+            continue;
+        }
+        match client.embed(a.to_vec(), Some(m)).await {
+            Ok(ra) => match client.embed(b.to_vec(), Some(m)).await {
+                Ok(rb) => {
+                    engine_health::record_success(m);
+                    let va = ra.data.iter().map(|d| d.embedding.clone()).collect();
+                    let vb = rb.data.iter().map(|d| d.embedding.clone()).collect();
+                    return Ok((va, vb));
+                }
+                Err(e) => {
+                    engine_health::record_failure(m);
+                    last = e;
+                }
+            },
+            Err(e) => {
+                engine_health::record_failure(m);
+                last = e;
+            }
+        }
+    }
+    Err(last)
+}
+
 /// dsv4 仲裁单轮: 返回 Some(修正后的段落) 或 None (不可决)
 pub async fn arbitrate_paragraph(
     client: &QyzsClient,
@@ -215,6 +399,7 @@ pub async fn arbitrate_paragraph(
                 stream: false,
                 show_reasoning: false,
                 images: Vec::new(),
+                image_max_dim: None,
             },
         )
         .await?;
@@ -287,11 +472,8 @@ pub async fn arbitrate_adversarial(
     evidence: &str,
     attempt: usize,
 ) -> QyzsResult<(String, Verdict)> {
-    let secondary = if primary.starts_with("qwen3.6") {
-        "dsv4"
-    } else {
-        "qwen3.6-27b"
-    };
+    let secondary =
+        model_fallback::pick_opponent(primary, model_fallback::ROLE_ARBITRATION_OPPONENT);
 
     let (r1, r2) = tokio::join!(
         arbitrate_paragraph(client, primary, paragraph, evidence, attempt),
@@ -371,6 +553,33 @@ mod tests {
                 i
             );
         }
+    }
+
+    #[test]
+    fn test_bigram_containment() {
+        let ev = "第一条 为了规范招标投标活动, 制定本法。第二条 在中华人民共和国境内进行招标投标活动, 适用本法。";
+        let hit = "为了规范招标投标活动";
+        let miss = "评估机构应当按照公平公正的原则";
+        assert!(bigram_containment(hit, ev) >= 0.95, "同源段应高包含度");
+        assert!(bigram_containment(miss, ev) < 0.85, "无关段不应通过");
+    }
+
+    #[test]
+    fn test_digits_covered() {
+        let ev = "第65次会议于2025年12月17日15时召开, 共计30个单位65名代表。";
+        assert!(digits_covered("第65次会议, 30个单位", ev));
+        assert!(!digits_covered("第66次会议", ev), "数字缺失必须暴露");
+        assert!(digits_covered("无数字段落", ev));
+    }
+
+    #[test]
+    fn test_chunk_secondary_paged_mapping() {
+        let pages = vec![(1u32, "一".repeat(900)), (2u32, "二".repeat(2000))];
+        let paged = chunk_secondary_paged(&pages);
+        assert!(!paged.chunks.is_empty());
+        assert!(paged.pages.iter().all(|ps| !ps.is_empty()));
+        assert!(paged.pages.iter().any(|ps| ps.contains(&1)));
+        assert!(paged.pages.iter().any(|ps| ps.contains(&2)));
     }
 
     #[test]

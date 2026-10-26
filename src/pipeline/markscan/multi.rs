@@ -7,7 +7,7 @@
 //!
 //! 输出策略:
 //! - 单文件输入: -o 是文件 (默认 stdout, 与历史契约一致)
-//! - 多文件输入: -o 必须是目录 (自动创建), 每输入一个 .md, 文件名 = 输入 basename + .md
+//! - 多文件输入: -o 必须是目录 (自动创建), 文件扩展名由 --output-format 决定
 //!
 //! 失败处理: 当前默认 abort (任一文件失败终止整批); 不在此处引入
 //! --continue-on-error 之类的开关 (未在 CLI 定义, 避免前瞻性设计)。
@@ -84,7 +84,10 @@ pub fn resolve_inputs(opts: &MarkScanOptions) -> QyzsResult<Vec<ResolvedInput>> 
         if is_url(raw) {
             // URL 单文件
             let out = match &output_dir {
-                Some(dir) => Some(dir.join(slugify_url(raw) + ".md")),
+                Some(dir) => Some(
+                    dir.join(slugify_url(raw))
+                        .with_extension(opts.output_format.extension()),
+                ),
                 None => opts.output.as_ref().map(PathBuf::from),
             };
             resolved.push(ResolvedInput {
@@ -101,7 +104,9 @@ pub fn resolve_inputs(opts: &MarkScanOptions) -> QyzsResult<Vec<ResolvedInput>> 
 
         if path.is_file() {
             let out = match &output_dir {
-                Some(dir) => Some(dir.join(stem_with_ext_md(&path))),
+                Some(dir) => {
+                    Some(dir.join(stem_with_output_ext(&path, opts.output_format.extension())))
+                }
                 None => opts.output.as_ref().map(PathBuf::from),
             };
             resolved.push(ResolvedInput {
@@ -117,7 +122,7 @@ pub fn resolve_inputs(opts: &MarkScanOptions) -> QyzsResult<Vec<ResolvedInput>> 
                     Some(dir) => {
                         // 保留子目录结构: dir/relpath/of/input/file.md
                         let rel = f.strip_prefix(&path).unwrap_or(&f);
-                        Some(dir.join(rel).with_extension("md"))
+                        Some(dir.join(rel).with_extension(opts.output_format.extension()))
                     }
                     None => None,
                 };
@@ -158,9 +163,9 @@ fn collect_files(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) -> QyzsRes
 }
 
 /// 路径 → "stem.md" (basename 去原扩展名, 加 .md)
-fn stem_with_ext_md(p: &Path) -> PathBuf {
+fn stem_with_output_ext(p: &Path, extension: &str) -> PathBuf {
     let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
-    PathBuf::from(format!("{}.md", stem))
+    PathBuf::from(format!("{stem}.{extension}"))
 }
 
 /// URL → 文件名 slug (去掉 scheme 与查询串, 非法字符替换)
@@ -308,7 +313,12 @@ pub fn render_plans_human(plans: &[super::ConversionPlan]) {
         if plan.mode != "speed" {
             println!("{}{}", crate::msg!(MdPolishModel), plan.polish_model);
         }
-        println!("{}{}", crate::msg!(MdOutputTarget), plan.output_target);
+        println!(
+            "{}{} ({})",
+            crate::msg!(MdOutputTarget),
+            plan.output_target,
+            plan.output_format
+        );
         for w in &plan.warnings {
             println!("  ⚠ {}", w);
         }
@@ -333,12 +343,14 @@ mod tests {
         MarkScanOptions {
             input: inputs,
             output,
+            output_format: crate::pipeline::markscan::document::DocumentOutputFormat::Markdown,
             recursive,
             mode: PipelineMode::Rigor,
             type_override: None,
             image_handling: super::super::ImageHandling::Auto,
             image_prompt: None,
             max_dim: None,
+            concurrency: 4,
             model: None,
             min_confidence: None,
             report: None,
@@ -393,6 +405,29 @@ mod tests {
         assert!(names.contains(&"b.md".to_string()));
         // 清理默认目录
         let _ = std::fs::remove_dir_all("scan_out");
+    }
+
+    #[test]
+    fn test_directory_output_extension_follows_format() {
+        let input = tempfile::tempdir().unwrap();
+        let output = tempfile::tempdir().unwrap();
+        std::fs::write(input.path().join("a.csv"), b"k,v\n1,2\n").unwrap();
+        let mut options = opts(
+            vec![input.path().to_string_lossy().into_owned()],
+            Some(output.path().to_string_lossy().into_owned()),
+            false,
+        );
+        options.output_format = crate::pipeline::markscan::document::DocumentOutputFormat::Html;
+        let resolved = resolve_inputs(&options).unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved[0]
+                .output
+                .as_ref()
+                .and_then(|path| path.extension())
+                .and_then(|ext| ext.to_str()),
+            Some("html")
+        );
     }
 
     #[test]
@@ -490,10 +525,11 @@ mod tests {
     }
 
     #[test]
-    fn test_stem_with_ext_md() {
+    fn test_stem_with_output_ext() {
         let p = PathBuf::from("/tmp/foo.csv");
-        assert_eq!(stem_with_ext_md(&p), PathBuf::from("foo.md"));
+        assert_eq!(stem_with_output_ext(&p, "md"), PathBuf::from("foo.md"));
+        assert_eq!(stem_with_output_ext(&p, "html"), PathBuf::from("foo.html"));
         let p = PathBuf::from("/tmp/no_ext");
-        assert_eq!(stem_with_ext_md(&p), PathBuf::from("no_ext.md"));
+        assert_eq!(stem_with_output_ext(&p, "txt"), PathBuf::from("no_ext.txt"));
     }
 }

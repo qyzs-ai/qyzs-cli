@@ -179,6 +179,9 @@ flowchart TD
 - **`tests/scripts/run_benchmarks.py`**：全量功能基准测试执行器，生成各模型的延迟与返回结构；
 - **`tests/scripts/stress_limits.py`**：极限边界测试执行器，执行多图与 64k 大海捞针，生成测试图表数据；
 - **`tests/scripts/limit_probe.py`**：参数与输入边界探针，执行上下文天花板阶梯、max_tokens/temperature 边界、20/24 图并发、Embedding 长度与批量、Rerank 200 篇规模及 MinerU 页数阶梯测试（另有 `limit_probe_final.py` / `limit_probe_followup.py` / `limit_probe_round3.py` 三轮跟进）；
+- **`tests/scripts/probe_ocr_models.py`**：OCR/VLM 专项能力探针；默认 dry-run，显式
+  `--live` 后按请求上限测试图像尺寸、输入输出、延时与关键词召回，产物写入已忽略的
+  `tests/artifacts/ocr-capabilities/<UTC时间>/`，不保存 Authorization；
 - **`tests/scripts/test_ocr_mineru_alignment.py`**：同源互验校对器，比对 OCR 与 MinerU 文本一致率并生成对齐报告；
 - **`tests/scripts/verify_guardrails.sh`**：客户端护栏实测（5 阶段 / 7 项断言）——短文本基线、超长文本分块、短向量模型分块、300 条批量拆批、20 图自动分批（需真实网关与 `QYZS_APIKEY`）；
 - **`tests/scripts/check_no_secrets.sh`**：提交历史密钥扫描（CI `secret-scan` 门禁的入口，全对象库 + 已跟踪文件）；
@@ -205,6 +208,7 @@ flowchart TD
 | `limit_summary_final.json` | `limit_probe_final.py` | dsv4 70 万/105 万字符封顶、qwen3-VL 131,072 硬限确认 |
 | `limit_summary_qwen36_ceiling.json` | 探针内联脚本 | qwen3.6-27b 26 万/28.5 万字符接受性与召回边界 |
 | `alignment_report.json` | `test_ocr_mineru_alignment.py` | OCR 与 MinerU 同源互验 Jaccard 与关键实体召回 |
+| `ocr_capability_summary.json` | `probe_ocr_models.py` | 4 个 OCR/VLM 的图像尺寸、接受率、延时与关键字符串召回；原始请求/响应留在忽略目录 |
 
 > [!NOTE]
 > 所有测试/压测脚本统一经 `tests/scripts/_qyzs_env.py` 读取测试凭证：优先环境变量 `QYZS_APIKEY`，其次仓库根目录 `.env` 文件（模板见 `.env.example`，已被 `.gitignore` 排除），仓库内不落盘明文 Key。

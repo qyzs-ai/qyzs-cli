@@ -1,15 +1,17 @@
 //! markscan 图像理解通道 (paddleocrvl OCR + qwen3-VL 描述, `--image-handling` 策略)
 //!
 //! 策略语义 (SSOT §2):
-//! - `ocr`:      仅 OCR 文字转录 (paddleocrvl, 800px 防崩溃缩放);
+//! - `ocr`:      仅 OCR 文字转录 (paddleocrvl, 按能力矩阵选择安全尺寸);
 //! - `describe`: 仅 VL 理解描述 (qwen3-VL);
 //! - `both`:     OCR 文字 + VL 描述双节输出;
 //! - `auto`:     先 OCR; 文字产出量低于阈值 (版面稀疏/纯图像) 时自动补 VL 描述;
 //! - `skip`:     不提取图像内容 (输出占位说明)。
 //!
-//! 预处理约束 (capability_matrix): paddleocrvl 图像最长边 ≤800px; VL 16 图/请求
+//! 预处理约束 (capability_matrix): paddleocrvl 当前推荐 1280px、样本安全上沿
+//! 1408px；VL 可靠工作点 16 图/请求
 //! 上限对单文件输入不构成约束。
 
+use super::model_fallback;
 use super::workspace::Workspace;
 use crate::client::{ChatOptions, QyzsClient};
 use crate::error::{QyzsError, QyzsResult};
@@ -73,42 +75,67 @@ async fn run_ocr_dual(
     image_prompt: Option<&str>,
     max_dim: Option<u32>,
 ) -> QyzsResult<(String, bool)> {
+    // 双引擎各走角色兜底链: OCR 链 (paddleocrvl → qwen36 → qwen3-VL) 与
+    // VL 链 (qwen3-VL → qwen36)。链头熔断即切换下一候选, 不再反复调用下线模型。
+    let paddle_prompt = image_prompt.unwrap_or(VL_TRANSCRIBE_PROMPT).to_string();
     let paddle_fut = async {
-        client
-            .ocr(image_path, image_prompt, max_dim)
-            .await
-            .map(|r| r.text.trim().to_string())
-            .and_then(|t| {
-                if t.is_empty() {
-                    Err(QyzsError::Server("paddleocrvl 返回空内容".to_string()))
-                } else {
-                    Ok(t)
+        let path = image_path.to_string();
+        let (_, text) = model_fallback::with_fallback(model_fallback::ROLE_OCR, |m| {
+            let m = m.to_string();
+            let path = path.clone();
+            let prompt = paddle_prompt.clone();
+            async move {
+                match m.as_str() {
+                    "paddleocrvl" => client
+                        .ocr_with_model(&path, Some(&prompt), max_dim, &m)
+                        .await
+                        .map(|r| r.text.trim().to_string())
+                        .and_then(|t| {
+                            if t.is_empty() {
+                                Err(QyzsError::Server("paddleocrvl 返回空内容".to_string()))
+                            } else {
+                                Ok(t)
+                            }
+                        }),
+                    _ => {
+                        model_fallback::transcribe_via_chat(
+                            client, &m, &path, &prompt, 8192, max_dim,
+                        )
+                        .await
+                    }
                 }
-            })
+            }
+        })
+        .await?;
+        Ok::<String, QyzsError>(text)
     };
     let vl_fut = async {
-        let resp = client
-            .chat(
-                image_prompt.unwrap_or(VL_TRANSCRIBE_PROMPT),
-                None,
-                ChatOptions {
-                    model: None, // 无显式模型 → 客户端按有图自动选路 qwen3-VL
-                    temperature: Some(0.0),
-                    max_tokens: Some(8192),
-                    top_p: None,
-                    stream: false,
-                    show_reasoning: false,
-                    images: vec![image_path.to_string()],
-                },
-            )
-            .await?;
-        let t = resp.primary_text().trim().to_string();
-        if t.is_empty() {
-            return Err(QyzsError::Server("qwen3-VL 转录返回空内容".to_string()));
-        }
-        Ok(t)
+        let path = image_path.to_string();
+        let prompt = image_prompt.unwrap_or(VL_TRANSCRIBE_PROMPT).to_string();
+        let (_, text) = model_fallback::with_fallback(model_fallback::ROLE_VL, |m| {
+            let m = m.to_string();
+            let path = path.clone();
+            let prompt = prompt.clone();
+            async move {
+                model_fallback::transcribe_via_chat(client, &m, &path, &prompt, 8192, max_dim).await
+            }
+        })
+        .await?;
+        Ok::<String, QyzsError>(text)
     };
     let (p, v) = tokio::join!(paddle_fut, vl_fut);
+    if p.is_err() && v.is_ok() {
+        eprintln!(
+            "\x1b[33m[WARN]\x1b[0m {}",
+            crate::msgf!(MdOcrEngineTripped, "OCR")
+        );
+    }
+    if v.is_err() && p.is_ok() {
+        eprintln!(
+            "\x1b[33m[WARN]\x1b[0m {}",
+            crate::msgf!(MdOcrEngineTripped, "VL")
+        );
+    }
     let (text, used_vl) = select_ocr(p.ok(), v.ok());
     let Some(text) = text else {
         return Err(QyzsError::Server("双 OCR 引擎均返回空内容".to_string()));
@@ -131,6 +158,53 @@ pub async fn extract_image(
         return ws.read_segment_text("document");
     }
 
+    if handling != super::ImageHandling::Skip {
+        let need_ocr = matches!(
+            handling,
+            super::ImageHandling::Ocr | super::ImageHandling::Both | super::ImageHandling::Auto
+        );
+        if need_ocr {
+            let (ocr, vl) = tokio::join!(
+                model_fallback::preflight_vision_chain(
+                    client,
+                    model_fallback::ROLE_OCR,
+                    image_path,
+                    max_dim,
+                ),
+                model_fallback::preflight_vision_chain(
+                    client,
+                    model_fallback::ROLE_VL,
+                    image_path,
+                    max_dim,
+                ),
+            );
+            for (role, result) in [("OCR", ocr), ("VL", vl)] {
+                match result {
+                    Ok(model) => eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: {role} 使用 {model}"),
+                    Err(error) => {
+                        eprintln!("\x1b[33m[WARN]\x1b[0m {role} 模型预检全链失败: {error}")
+                    }
+                }
+            }
+        } else {
+            match model_fallback::preflight_vision_chain(
+                client,
+                model_fallback::ROLE_VL,
+                image_path,
+                max_dim,
+            )
+            .await
+            {
+                Ok(model) => {
+                    eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: VL 使用 {model}")
+                }
+                Err(error) => {
+                    eprintln!("\x1b[33m[WARN]\x1b[0m VL 模型预检全链失败: {error}")
+                }
+            }
+        }
+    }
+
     let output = match handling {
         super::ImageHandling::Skip => {
             "_(图像内容提取已被 --image-handling skip 跳过)_\n".to_string()
@@ -143,7 +217,7 @@ pub async fn extract_image(
             format!("# OCR 文字\n\n{}\n", text)
         }
         super::ImageHandling::Describe => {
-            let desc = run_describe(client, image_path).await?;
+            let desc = run_describe(client, image_path, max_dim).await?;
             format!("# 图像描述\n\n{}\n", desc)
         }
         super::ImageHandling::Both => {
@@ -151,7 +225,7 @@ pub async fn extract_image(
             if used_vl {
                 eprintln!("\x1b[36m[INFO]\x1b[0m 双 OCR 引擎分歧, 采纳 qwen3-VL 转录");
             }
-            let desc = run_describe(client, image_path).await?;
+            let desc = run_describe(client, image_path, max_dim).await?;
             format!("# OCR 文字\n\n{}\n\n# 图像描述\n\n{}\n", text, desc)
         }
         super::ImageHandling::Auto => {
@@ -162,7 +236,7 @@ pub async fn extract_image(
             let text_chars = text.trim().chars().count();
             if text_chars < AUTO_SPARSE_TEXT_CHARS {
                 // 版面稀疏 (照片/图纸): OCR 文字少, 自动补 VL 描述
-                let desc = run_describe(client, image_path).await?;
+                let desc = run_describe(client, image_path, max_dim).await?;
                 if desc.trim().is_empty() {
                     format!("# OCR 文字\n\n{}\n", text)
                 } else {
@@ -179,7 +253,11 @@ pub async fn extract_image(
     Ok(output)
 }
 
-async fn run_describe(client: &QyzsClient, image_path: &str) -> QyzsResult<String> {
+async fn run_describe(
+    client: &QyzsClient,
+    image_path: &str,
+    max_dim: Option<u32>,
+) -> QyzsResult<String> {
     let resp = client
         .chat(
             DESCRIBE_PROMPT,
@@ -193,6 +271,7 @@ async fn run_describe(client: &QyzsClient, image_path: &str) -> QyzsResult<Strin
                 stream: false,
                 show_reasoning: false,
                 images: vec![image_path.to_string()],
+                image_max_dim: max_dim,
             },
         )
         .await?;

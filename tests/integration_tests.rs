@@ -1,9 +1,11 @@
 //! QYZS 核心集成测试套件
 
+use base64::Engine as _;
 use clap::Parser as _;
 use qyzs::config::{Credentials, ResolvedConfig};
 use qyzs::error::{exit_code, QyzsError};
 use qyzs::pdf::{PdfExtractor, PdfSplitter};
+use qyzs::pipeline::markscan::document::{Document, DocumentOutputFormat};
 use qyzs::pipeline::{DatasetManager, OcrVerifier};
 use qyzs::term::{detect_environment_language, set_language, Language};
 use std::io::Write;
@@ -82,12 +84,26 @@ fn test_config_precedence() {
     .unwrap();
 
     assert_eq!(resolved.api_key, "cli-key-123");
+    assert_eq!(resolved.api_keys, vec!["cli-key-123"]);
     assert_eq!(resolved.api_key_source, "CLI Argument");
     assert_eq!(resolved.base_url, "http://custom-host:8000");
     assert_eq!(resolved.timeout_seconds, 60);
     assert_eq!(resolved.ui_language, Language::Zh);
     assert_eq!(resolved.model_language, "cn");
     assert_eq!(resolved.output_format, qyzs::term::OutputFormat::Json);
+}
+
+#[test]
+fn test_auth_login_accepts_multiple_keys() {
+    let cli =
+        qyzs::Cli::try_parse_from(["qyzs", "auth", "login", "--key", "key-a", "--key", "key-b"])
+            .expect("auth login 应接受重复 --key");
+    match cli.command {
+        qyzs::Commands::Auth {
+            action: qyzs::cli::args::AuthAction::Login { key },
+        } => assert_eq!(key, vec!["key-a", "key-b"]),
+        _ => panic!("应解析为 auth login"),
+    }
 }
 
 #[test]
@@ -120,6 +136,107 @@ fn test_pdf_operations() {
     let text =
         PdfExtractor::extract_text(split_out.to_str().unwrap(), &[1]).expect("提取第一页文字失败");
     assert!(!text.is_empty(), "第一页提取文字不应为空");
+}
+
+#[test]
+fn test_real_text_pdf_roundtrips_to_all_output_formats() {
+    let pdf_path = "tests/data/mineru/text_pdf/REF-0056_政府采购评审专家管理办法.pdf";
+    let extracted = PdfExtractor::extract_text(pdf_path, &[1]).expect("真实 PDF 首页提取失败");
+    assert!(
+        extracted.contains("政府采购评审专家管理办法"),
+        "真实样本首页应包含标题"
+    );
+
+    let markdown = format!("# 政府采购评审专家管理办法\n\n{extracted}\n");
+    let document = Document::from_markdown(markdown.clone());
+
+    let md = document.render(DocumentOutputFormat::Markdown);
+    let html = document.render(DocumentOutputFormat::Html);
+    let text = document.render(DocumentOutputFormat::Text);
+    assert_eq!(md, markdown, "Markdown 视图必须逐字保真");
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("<h1>政府采购评审专家管理办法</h1>"));
+    assert!(text.contains("政府采购评审专家管理办法"));
+    assert!(!text.contains("# 政府采购"), "TXT 不应残留标题标记");
+}
+
+#[test]
+fn test_real_ocr_image_preprocessing_respects_requested_edge() {
+    let image_path = "tests/data/ocr/images/ref0101_p1_redhead_scan.png";
+    let data_url = qyzs::client::ocr::preprocess_and_encode_image(image_path, 1280)
+        .expect("真实 OCR 图片预处理失败");
+    let encoded = data_url
+        .strip_prefix("data:image/png;base64,")
+        .expect("缩放后应统一编码为 PNG data URL");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .expect("Base64 应可解码");
+    let image = image::load_from_memory(&bytes).expect("缩放产物应为合法图片");
+    assert_eq!(image.width().max(image.height()), 1280);
+    assert_eq!((image.width(), image.height()), (899, 1280));
+}
+
+#[test]
+fn test_ocr_capability_matrix_matches_recorded_real_probe_summary() {
+    let matrix: toml::Value =
+        toml::from_str(include_str!("../capability_matrix.toml")).expect("能力矩阵必须可解析");
+    let summary: serde_json::Value =
+        serde_json::from_str(include_str!("scripts/ocr_capability_summary.json"))
+            .expect("OCR 实测摘要必须可解析");
+
+    let models = matrix["ocr_capabilities"]["models"]
+        .as_array()
+        .expect("能力矩阵应包含 OCR 模型数组");
+    let paddle = models
+        .iter()
+        .find(|model| model["id"].as_str() == Some("paddleocrvl"))
+        .expect("能力矩阵应包含 paddleocrvl");
+    assert_eq!(paddle["recommended_long_edge"].as_integer(), Some(1280));
+    assert_eq!(
+        paddle["max_tested_accepted_long_edge"].as_integer(),
+        Some(1408)
+    );
+    assert_eq!(
+        paddle["min_tested_rejected_long_edge"].as_integer(),
+        Some(1536)
+    );
+
+    let summary_models = summary["models"]
+        .as_array()
+        .expect("实测摘要应包含模型数组");
+    let paddle_summary = summary_models
+        .iter()
+        .find(|model| model["id"].as_str() == Some("paddleocrvl"))
+        .expect("实测摘要应包含 paddleocrvl");
+    let sizes = paddle_summary["sizes"]
+        .as_array()
+        .expect("paddleocrvl 应包含尺寸阶梯");
+    let accepted_1408 = sizes
+        .iter()
+        .find(|size| size["long_edge"].as_u64() == Some(1408))
+        .expect("应记录 1408px 实测");
+    let rejected_1536 = sizes
+        .iter()
+        .find(|size| size["long_edge"].as_u64() == Some(1536))
+        .expect("应记录 1536px 实测");
+    assert_eq!(accepted_1408["accepted"].as_u64(), Some(3));
+    assert_eq!(rejected_1536["accepted"].as_u64(), Some(0));
+
+    for model in ["qwen3-VL-30B-A3B", "qwen36"] {
+        let record = summary_models
+            .iter()
+            .find(|item| item["id"].as_str() == Some(model))
+            .unwrap_or_else(|| panic!("实测摘要应包含 {model}"));
+        let at_4096 = record["sizes"]
+            .as_array()
+            .and_then(|sizes| {
+                sizes
+                    .iter()
+                    .find(|size| size["long_edge"].as_u64() == Some(4096))
+            })
+            .unwrap_or_else(|| panic!("{model} 应记录 4096px 实测"));
+        assert_eq!(at_4096["accepted"].as_u64(), Some(3));
+    }
 }
 
 #[test]
@@ -179,6 +296,10 @@ fn test_scan_cli_arg_surface() {
         "--no-clean",
         "-o",
         "out.md",
+        "--output-format",
+        "html",
+        "--concurrency",
+        "8",
         "--report",
         "report.json",
         "--model",
@@ -197,6 +318,8 @@ fn test_scan_cli_arg_surface() {
         resume,
         no_clean,
         output,
+        output_format,
+        concurrency,
         report,
         model,
         ..
@@ -212,6 +335,8 @@ fn test_scan_cli_arg_surface() {
         assert!(resume);
         assert!(no_clean);
         assert_eq!(output.as_deref(), Some("out.md"));
+        assert_eq!(output_format, "html");
+        assert_eq!(concurrency, 8);
         assert_eq!(report.as_deref(), Some("report.json"));
         assert_eq!(model.as_deref(), Some("dsv4"));
     } else {
@@ -229,6 +354,8 @@ fn test_scan_cli_defaults() {
         dry_run,
         mode,
         segment_chars,
+        output_format,
+        concurrency,
         resume,
         no_clean,
         ..
@@ -237,6 +364,8 @@ fn test_scan_cli_defaults() {
         assert!(dry_run);
         assert!(mode.is_none());
         assert_eq!(segment_chars, 24_000);
+        assert_eq!(output_format, "md");
+        assert_eq!(concurrency, 4);
         assert!(!resume);
         assert!(!no_clean);
     } else {

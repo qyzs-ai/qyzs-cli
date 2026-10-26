@@ -226,7 +226,7 @@ pub enum Commands {
         markdown: String,
     },
 
-    #[command(about = "智能文档转 Markdown (类型识别 + 多模型抽取 + 交叉验证 + 图片资产落盘)")]
+    #[command(about = "智能文档识别与结构化输出 (多模型抽取 + 交叉验证 + 排版重建)")]
     #[command(name = "markscan")]
     MarkScan {
         #[arg(
@@ -238,9 +238,17 @@ pub enum Commands {
         #[arg(
             short,
             long,
-            help = "输出路径: 多文件/目录输入时为输出目录 (自动创建, 每个输入一个 .md); 单文件输入为输出文件 (默认 stdout)"
+            help = "输出路径: 多文件/目录输入时为输出目录 (自动创建, 扩展名由 --output-format 决定); 单文件输入为输出文件 (默认 stdout)"
         )]
         output: Option<String>,
+
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new(["md", "html", "txt"]),
+            default_value = "md",
+            help = "识别结果输出格式: md | html | txt (默认 md；PAGE/ALTO 仅在后续具备真实坐标后开放)"
+        )]
+        output_format: String,
 
         #[arg(
             long,
@@ -266,9 +274,16 @@ pub enum Commands {
 
         #[arg(
             long,
-            help = "图像长边最大像素尺寸 (1~8192, 默认 800px, 防网关越界; 仅图像输入生效)"
+            help = "OCR 图像/扫描页长边请求值 (1~8192; 实际值受模型能力矩阵的实测安全边界约束，未指定且未知边界时保留原图)"
         )]
         max_dim: Option<u32>,
+
+        #[arg(
+            long,
+            default_value_t = 4,
+            help = "整次 markscan 的远程请求并行度上限 (1~64，默认 4；OCR/VL/复核共享此上限)"
+        )]
+        concurrency: usize,
 
         #[arg(short = 'm', long, help = "理解/润色阶段 LLM 覆盖 (默认: dsv4)")]
         model: Option<String>,
@@ -484,9 +499,10 @@ pub enum AuthAction {
         #[arg(
             short,
             long,
-            help = "API Key (未提供时依次读取环境变量 QYZS_APIKEY 与已保存凭据; 经 -k/--key 传入的值会出现在进程命令行列表中, 敏感场景推荐省略此参数改为交互输入或 stdin)"
+            help = "API Key，可重复传入以保存多个 Key (未提供时交互输入；经 -k/--key 传入的值会出现在进程命令行列表中)"
         )]
-        key: Option<String>,
+        #[arg(action = clap::ArgAction::Append)]
+        key: Vec<String>,
     },
     #[command(about = "查看当前生效 API Key 掩码与凭据文件权限安全性")]
     Status,

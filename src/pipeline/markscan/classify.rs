@@ -450,6 +450,7 @@ pub async fn classify_genre_model(
                 stream: false,
                 show_reasoning: false,
                 images: Vec::new(),
+                image_max_dim: None,
             },
         )
         .await?;
@@ -486,7 +487,11 @@ const IMAGE_KIND_PROMPT: &str = "判断这张图片属于哪一类, 只回答一
 只回答 DOCUMENT 或 PHOTO, 不要解释。";
 
 /// 用视觉模型判定图片是否为文档 (照片按需求跳过)
-pub async fn classify_image(client: &QyzsClient, path: &str) -> QyzsResult<ImageContent> {
+pub async fn classify_image(
+    client: &QyzsClient,
+    path: &str,
+    max_dim: Option<u32>,
+) -> QyzsResult<ImageContent> {
     let resp = client
         .chat(
             IMAGE_KIND_PROMPT,
@@ -499,6 +504,7 @@ pub async fn classify_image(client: &QyzsClient, path: &str) -> QyzsResult<Image
                 stream: false,
                 show_reasoning: false,
                 images: vec![path.to_string()],
+                image_max_dim: max_dim,
             },
         )
         .await?;

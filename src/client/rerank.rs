@@ -41,7 +41,8 @@ impl QyzsClient {
         model_override: Option<&str>,
         top_n: Option<usize>,
     ) -> QyzsResult<RerankResponse> {
-        let key = self.config.ensure_auth()?;
+        let key = self.next_api_key()?;
+        let _permit = self.acquire_request_permit().await?;
         let model = model_override.unwrap_or_else(|| self.config.get_default_model("rerank"));
         let top = top_n
             .or_else(|| {
@@ -60,7 +61,7 @@ impl QyzsClient {
 
         let resp = self
             .http
-            .post("api/aiCenterChat/v1/rerank", Some(key))
+            .post("api/aiCenterChat/v1/rerank", Some(&key))
             .json(&req)
             .send()
             .await?;
@@ -78,6 +79,7 @@ impl QyzsClient {
         self.record_usage(
             "rerank",
             model,
+            &key,
             None,
             None,
             rerank_resp

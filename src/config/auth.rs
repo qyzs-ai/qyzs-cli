@@ -6,10 +6,20 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Credentials {
+    #[serde(default)]
     pub api_key: String,
+    #[serde(default)]
+    pub api_keys: Vec<String>,
 }
 
 impl Credentials {
+    pub fn all_keys(&self) -> Vec<String> {
+        std::iter::once(self.api_key.trim())
+            .chain(self.api_keys.iter().map(|key| key.trim()))
+            .filter(|key| !key.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
     pub fn default_path() -> PathBuf {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
@@ -83,5 +93,28 @@ impl Credentials {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Credentials;
+
+    #[test]
+    fn credentials_roundtrip_multiple_keys_and_load_legacy_shape() {
+        let credentials = Credentials {
+            api_key: "key-a".to_string(),
+            api_keys: vec!["key-b".to_string(), "key-c".to_string()],
+        };
+        let encoded = toml::to_string(&credentials).unwrap();
+        let decoded: Credentials = toml::from_str(&encoded).unwrap();
+        assert_eq!(decoded.all_keys(), vec!["key-a", "key-b", "key-c"]);
+
+        let legacy: Credentials = toml::from_str("api_key = \"legacy-key\"\n").unwrap();
+        assert_eq!(legacy.all_keys(), vec!["legacy-key"]);
+
+        let sample: Credentials =
+            toml::from_str(include_str!("../../credentials.toml.example")).unwrap();
+        assert_eq!(sample.all_keys().len(), 3);
     }
 }

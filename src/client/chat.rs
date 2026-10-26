@@ -120,6 +120,8 @@ pub struct ChatOptions {
     pub stream: bool,
     pub show_reasoning: bool,
     pub images: Vec<String>,
+    /// 多模态图片长边请求值；模型有实测失败边界时会进一步钳制。
+    pub image_max_dim: Option<u32>,
 }
 
 impl QyzsClient {
@@ -131,11 +133,12 @@ impl QyzsClient {
         opts: ChatOptions,
     ) -> QyzsResult<ChatResponse> {
         let req = self.build_chat_request(prompt, system_prompt, &opts)?;
-        let key = self.config.ensure_auth()?;
+        let key = self.next_api_key()?;
+        let _permit = self.acquire_request_permit().await?;
 
         let resp = self
             .http
-            .post("api/aiCenterChat/v1/chat/completions", Some(key))
+            .post("api/aiCenterChat/v1/chat/completions", Some(&key))
             .json(&req)
             .send()
             .await?;
@@ -150,7 +153,7 @@ impl QyzsClient {
         }
 
         let chat_resp: ChatResponse = resp.json().await?;
-        self.record_chat_usage("chat", &req.model, chat_resp.usage.as_ref());
+        self.record_chat_usage("chat", &req.model, &key, chat_resp.usage.as_ref());
         Ok(chat_resp)
     }
 
@@ -167,11 +170,12 @@ impl QyzsClient {
         req.stream_options = Some(StreamOptions {
             include_usage: true,
         });
-        let key = self.config.ensure_auth()?;
+        let key = self.next_api_key()?;
+        let _permit = self.acquire_request_permit().await?;
 
         let resp = self
             .http
-            .post("api/aiCenterChat/v1/chat/completions", Some(key))
+            .post("api/aiCenterChat/v1/chat/completions", Some(&key))
             .json(&req)
             .send()
             .await?;
@@ -236,7 +240,7 @@ impl QyzsClient {
             }
         }
 
-        self.record_chat_usage("chat", &req.model, last_usage.as_ref());
+        self.record_chat_usage("chat", &req.model, &key, last_usage.as_ref());
         Ok(full_content)
     }
 
@@ -319,7 +323,12 @@ impl QyzsClient {
             }];
 
             for img_path in &opts.images {
-                let data_url = encode_image_to_data_url(img_path)?;
+                let requested =
+                    crate::model_capabilities::effective_long_edge(&model, opts.image_max_dim);
+                let data_url = match requested {
+                    Some(max_dim) => super::ocr::preprocess_and_encode_image(img_path, max_dim)?,
+                    None => encode_image_to_data_url(img_path)?,
+                };
                 parts.push(ContentPart::ImageUrl {
                     image_url: ImageUrlDetail { url: data_url },
                 });

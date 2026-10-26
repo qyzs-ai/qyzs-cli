@@ -19,26 +19,40 @@ pub struct OcrResponse {
 }
 
 impl QyzsClient {
-    /// 执行 OCR 识别 (内置 800px 自动等比缩放预处理)
+    /// 执行 OCR 识别（按模型能力矩阵选择原图或等比缩放）
     pub async fn ocr(
         &self,
         image_path: &str,
         prompt_override: Option<&str>,
         max_dim: Option<u32>,
     ) -> QyzsResult<OcrResponse> {
-        let key = self.config.ensure_auth()?;
-        let model = self.config.get_default_model("ocr");
+        let model = self.config.get_default_model("ocr").to_string();
+        self.ocr_with_model(image_path, prompt_override, max_dim, &model)
+            .await
+    }
 
-        // 1. 智能预处理：执行长边等比缩放至 <= 800px (规避 FastDeploy 2048 崩溃)
-        let max_dimension = max_dim
-            .or_else(|| {
-                self.config
-                    .get_model_param_i64(model, "max_dim")
-                    .map(|v| v as u32)
-            })
-            .unwrap_or(800);
+    /// 使用指定 OCR 模型执行识别，供角色路由与发布前专项探针使用。
+    pub async fn ocr_with_model(
+        &self,
+        image_path: &str,
+        prompt_override: Option<&str>,
+        max_dim: Option<u32>,
+        model: &str,
+    ) -> QyzsResult<OcrResponse> {
+        // 1. 模型级预处理：用户/配置请求先合并，再由能力矩阵硬上限收敛。
+        // 未实测出尺寸限制的模型保留原图，不再套用全局 800px 假设。
+        let requested_dimension = max_dim.or_else(|| {
+            self.config
+                .get_model_param_i64(model, "max_dim")
+                .map(|v| v as u32)
+        });
+        let max_dimension =
+            crate::model_capabilities::effective_long_edge(model, requested_dimension);
 
-        let data_url = preprocess_and_encode_image(image_path, max_dimension)?;
+        let data_url = match max_dimension {
+            Some(limit) => preprocess_and_encode_image(image_path, limit)?,
+            None => encode_image_to_data_url(image_path)?,
+        };
 
         // 2. 组装 OCR 提示词
         let prompt_text =
@@ -67,9 +81,11 @@ impl QyzsClient {
             stream_options: None,
         };
 
+        let key = self.next_api_key()?;
+        let _permit = self.acquire_request_permit().await?;
         let resp = self
             .http
-            .post("api/aiCenterChat/v1/chat/completions", Some(key))
+            .post("api/aiCenterChat/v1/chat/completions", Some(&key))
             .json(&req)
             .send()
             .await?;
@@ -84,7 +100,7 @@ impl QyzsClient {
         }
 
         let chat_resp: ChatResponse = resp.json().await?;
-        self.record_chat_usage("ocr", model, chat_resp.usage.as_ref());
+        self.record_chat_usage("ocr", model, &key, chat_resp.usage.as_ref());
         let text = chat_resp
             .choices
             .first()

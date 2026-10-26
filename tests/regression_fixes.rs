@@ -251,6 +251,7 @@ fn test_report_promises_fields() {
         &SourceFormat::Pdf,
         DetectMethod::ContentSniff,
         PipelineMode::Rigor,
+        "md",
         "dsv4",
         Some(10),
         Some(1),

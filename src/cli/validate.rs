@@ -81,6 +81,16 @@ pub(crate) fn validate_ocr_max_dim(d: Option<u32>) -> QyzsResult<()> {
     Ok(())
 }
 
+pub(crate) fn validate_markscan_concurrency(value: usize) -> QyzsResult<()> {
+    if (1..=64).contains(&value) {
+        Ok(())
+    } else {
+        Err(QyzsError::Usage(format!(
+            "--concurrency 取值必须在 1~64 之间，当前: {value}"
+        )))
+    }
+}
+
 /// 校验 rerank --top-n (Option<usize>, 范围 [1, 1000])
 /// 1000 已覆盖实际召回场景; 更大值对网络/排序无实际意义, 应让网关拒绝
 pub(crate) fn validate_rerank_top_n(n: Option<usize>) -> QyzsResult<()> {
@@ -209,6 +219,15 @@ mod tests {
         assert!(validate_ocr_max_dim(Some(8193)).is_err());
         assert!(validate_ocr_max_dim(Some(0)).is_err());
         assert!(validate_ocr_max_dim(Some(u32::MAX)).is_err());
+    }
+
+    #[test]
+    fn markscan_concurrency_validates() {
+        assert!(validate_markscan_concurrency(1).is_ok());
+        assert!(validate_markscan_concurrency(4).is_ok());
+        assert!(validate_markscan_concurrency(64).is_ok());
+        assert!(validate_markscan_concurrency(0).is_err());
+        assert!(validate_markscan_concurrency(65).is_err());
     }
 
     #[test]

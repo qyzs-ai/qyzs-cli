@@ -13,7 +13,6 @@ impl QyzsClient {
         audio_path: &str,
         model_override: Option<&str>,
     ) -> QyzsResult<String> {
-        let key = self.config.ensure_auth()?;
         let model = model_override.unwrap_or_else(|| self.config.get_default_model("asr"));
 
         let path = Path::new(audio_path);
@@ -42,9 +41,11 @@ impl QyzsClient {
             "stream": false
         });
 
+        let key = self.next_api_key()?;
+        let _permit = self.acquire_request_permit().await?;
         let resp = self
             .http
-            .post("api/aiCenterChat/v1/chat/completions", Some(key))
+            .post("api/aiCenterChat/v1/chat/completions", Some(&key))
             .json(&req_body)
             .send()
             .await?;
@@ -69,6 +70,7 @@ impl QyzsClient {
         self.record_usage(
             "asr",
             model,
+            &key,
             tok("prompt_tokens"),
             tok("completion_tokens"),
             tok("total_tokens"),

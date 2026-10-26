@@ -38,6 +38,7 @@ pub async fn status(ctx: &Ctx<'_>, json: bool, no_probe: bool) -> QyzsResult<()>
             "credentials_secure": is_secure,
             "api_key_source": config.api_key_source,
             "api_key_masked": Credentials::mask_key(&config.api_key),
+            "api_key_count": config.api_keys.len(),
             "probes": probes_json(probes.as_ref())
         });
         println!(
@@ -284,37 +285,40 @@ pub fn config(ctx: &Ctx<'_>, action: crate::cli::args::ConfigAction) -> QyzsResu
 pub fn auth(ctx: &Ctx<'_>, action: crate::cli::args::AuthAction) -> QyzsResult<()> {
     match action {
         crate::cli::args::AuthAction::Login { key } => {
-            let api_key = if let Some(k) = key {
-                k
+            let api_keys = if !key.is_empty() {
+                key.into_iter().map(|key| key.trim().to_string()).collect()
             } else {
                 print!("请输入庆阳智算中心 API Key (sk-...): ");
                 std::io::stdout().flush().ok();
                 let mut input = String::new();
                 std::io::stdin().read_line(&mut input)?;
-                input.trim().to_string()
+                vec![input.trim().to_string()]
             };
 
-            if api_key.is_empty() {
+            if api_keys.iter().any(|key| key.trim().is_empty()) {
                 return Err(QyzsError::Usage("API Key 不能为空".to_string()));
             }
 
             let creds = Credentials {
-                api_key: api_key.clone(),
+                api_key: api_keys[0].clone(),
+                api_keys: api_keys.iter().skip(1).cloned().collect(),
             };
             creds.save()?;
             ctx.printer.ok(&format!(
-                "{}: {}",
+                "{}: {}（共 {} 个）",
                 crate::msg!(AuthLoginSuccess),
-                Credentials::mask_key(&api_key)
+                Credentials::mask_key(&api_keys[0]),
+                api_keys.len()
             ));
         }
         crate::cli::args::AuthAction::Status => {
             let creds_path = Credentials::default_path();
             let secure = Credentials::is_permission_secure(&creds_path);
             ctx.printer.info(&format!(
-                "生效 API Key: {} (来源: {})",
+                "生效 API Key: {} (来源: {}，共 {} 个)",
                 Credentials::mask_key(&ctx.config.api_key),
-                ctx.config.api_key_source
+                ctx.config.api_key_source,
+                ctx.config.api_keys.len()
             ));
             ctx.printer
                 .dim(&format!("凭据文件路径: {}", creds_path.display()));
@@ -827,13 +831,16 @@ mod tests {
             "--all-models 应比 --online-only 多出已下线项"
         );
 
-        // 实测禁止调度的 5 个模型必须以 online = false 存在
+        // 实测禁止调度的模型必须以 online = false 存在
+        // (2026-10-26 复核后: qwen36 / paddleocrvl 在线，qwen3 新增且不可调度;
+        //  状态翻转须与 capability_matrix.toml 同步)
         for code in [
-            "qwen36",
+            "paddleocrvl",
             "deepseek_v3_2",
             "qwen2.5-72b",
             "text-embedding-v4",
             "mymodel-paddleocr-udhyfg",
+            "qwen3",
         ] {
             let row = all
                 .iter()

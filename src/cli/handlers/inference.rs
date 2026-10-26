@@ -73,6 +73,7 @@ pub async fn chat(ctx: &Ctx<'_>, args: ChatArgs) -> QyzsResult<()> {
             stream: use_stream && batch_count == 1,
             show_reasoning: reasoning,
             images,
+            image_max_dim: None,
         };
 
         if use_stream && batch_count == 1 && ctx.config.output_format != OutputFormat::Json {

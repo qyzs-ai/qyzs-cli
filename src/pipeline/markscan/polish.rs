@@ -177,6 +177,7 @@ pub async fn polish_segment(
                 stream: false,
                 show_reasoning: false,
                 images: Vec::new(),
+                image_max_dim: None,
             },
         )
         .await?;

@@ -2,7 +2,8 @@
 # 庆阳智算中心模型能力调度矩阵（SSOT 校准真值）
 #
 # 数据来源：tests/scripts/run_benchmarks.py + stress_limits.py + limit_probe*.py
-# 实测日期：2026-10-17；明细见 tests/docs/QYZS-ANALYZE.md 与 tests/scripts/*_summary.json
+#           + probe_ocr_models.py
+# 最近复核：2026-10-26；明细见 tests/docs/QYZS-ANALYZE.md 与 tests/scripts/*_summary.json
 #
 # [model.params.*] 段与 qyzs CLI 的 ~/.config/qyzs/config.toml 模式兼容，
 # 可整段复制进用户配置使 CLI 按 Bearer 网关实测边界自动调度。
@@ -10,7 +11,7 @@
 [model]
 default_chat = "dsv4"
 # 图像转录模型: 原 ocr 子命令已并入 markscan, 该项现供 markscan 图像通道使用
-default_ocr = "paddleocrvl"
+default_ocr = "qwen36"
 # 文档解析模型 (MinerU 专线): 原 parse 子命令已并入 markscan, 现由 markscan 读取
 default_parse = "mineru3.2.3"
 default_embed = "bge-m3"
@@ -42,11 +43,84 @@ max_tokens = 4096
 temperature = 0.1
 max_tokens = 2048
 
-# paddleocrvl：FastDeploy max_model_len=2048 硬限，图像最长边 ≤800px（约 1,200 视觉 Token），
-#   超限报 EngineError: input_ids_len + 1 >= 2048。
+# paddleocrvl：FastDeploy max_model_len=2048 硬限；2026-10-26 三份公开样本实测
+#   800/1024/1152/1280/1408px 全部接受，1536px 起全部因 input_ids_len=2047 拒绝。
+#   当前部署推荐 1280px，样本安全上沿 1408px；边界受宽高比/视觉 Token 共同影响，
+#   不是与内容无关的普适长边硬限。
 [model.params.paddleocrvl]
 temperature = 0.0
 max_tokens = 2048
+#   2026-10-26 专项尺寸探针曾恢复；同日最终发布前两次复测均再次返回
+#   Request timed out / base_url_missing，当前禁止调度，保留历史尺寸能力证据。
+
+# ── OCR / 文档视觉能力（机器可读；调度器只使用已实测字段）──────────────
+# `null` 不属于 TOML，未知上限直接省略，严禁把未测值写成猜测值。
+[ocr_capabilities]
+schema_version = 1
+
+[[ocr_capabilities.models]]
+id = "paddleocrvl"
+aliases = ["paddleocr-vl"]
+transport = "chat-completions"
+roles = ["text-ocr", "document-transcription"]
+input_mime = ["image/png", "image/jpeg"]
+online_at_test = false
+tested_at = "2026-10-26"
+max_tested_accepted_long_edge = 1408
+min_tested_rejected_long_edge = 1536
+recommended_long_edge = 1280
+max_output_tokens = 2048
+supports_bbox = false
+supports_native_confidence = false
+supports_reading_order = false
+supports_table_structure = false
+evidence = "历史尺寸探针：3 样本×9 尺寸，≤1408px 全接受，≥1536px 因 max_model_len=2048 拒绝；2026-10-26 最终复测连续两次约 21 秒后 Request timed out / base_url_missing，当前不可调度"
+
+[[ocr_capabilities.models]]
+id = "qwen3-VL-30B-A3B"
+aliases = ["qwen3-vl"]
+transport = "chat-completions"
+roles = ["vision-ocr", "layout-understanding", "image-description"]
+input_mime = ["image/png", "image/jpeg", "image/webp"]
+online_at_test = true
+tested_at = "2026-10-26"
+max_tested_accepted_long_edge = 4096
+max_images = 16
+max_output_tokens = 2048
+supports_bbox = false
+supports_native_confidence = false
+supports_reading_order = "prompt-derived"
+supports_table_structure = "markdown-derived"
+evidence = "3 样本在 800/1024/2048/4096px 共 12 次全接受；4096px 仅为已测通过点，不代表硬上限；16 图可靠工作点"
+
+[[ocr_capabilities.models]]
+id = "qwen36"
+aliases = ["Qwen3.6-35B-A3B"]
+transport = "chat-completions"
+roles = ["vision-ocr", "layout-understanding", "arbitration"]
+input_mime = ["image/png", "image/jpeg"]
+online_at_test = true
+tested_at = "2026-10-26"
+max_tested_accepted_long_edge = 4096
+supports_bbox = false
+supports_native_confidence = false
+supports_reading_order = "prompt-derived"
+supports_table_structure = "markdown-derived"
+evidence = "3 样本在 800/1024/2048/4096px 共 12 次全接受；4096px 仅为已测通过点，不代表硬上限；多图与输出极限待专项探测"
+
+[[ocr_capabilities.models]]
+id = "mymodel-paddleocr-udhyfg"
+aliases = ["paddleocr"]
+transport = "chat-completions"
+roles = ["text-ocr"]
+input_mime = ["image/png", "image/jpeg"]
+online_at_test = false
+tested_at = "2026-10-26"
+supports_bbox = false
+supports_native_confidence = false
+supports_reading_order = false
+supports_table_structure = false
+evidence = "网关 base_url_missing；输入与输出极限尚不可测"
 
 # ── 向量表征（批量 ≥256 条/请求；越界一律 HTTP 500）────────────────────────
 # bge-m3：1024 维；单条输入 ≤13,000 字符（16,000 拒绝）→ 长文本按 ≤12,000 字符分块。
@@ -75,6 +149,8 @@ max_tokens = 2048
 #   客户端路由按此约束：.doc 明确报错并提示另存为 .docx。
 #   2026-10-18 补充实测：40 页/10.7MB 文档同步通道 15.9s 完成（三批串行）；
 #   空白页文档 md_content 为空属合法返回。
+#   2026-10-26 复核：清单显示名「MinerU3.2.3」对应调用 ID 仍为 mineru3.2.3
+#   （ai-gateway/MinerU/file_parse 实测 404；5 页文本 PDF 5.2s completed）。
 #   qwen3-VL 非流式偶发完整回答置于 reasoning 字段而 content 为空（客户端
 #   ChatResponse::primary_text 已统一回退）。
 
@@ -87,20 +163,27 @@ max_tokens = 2048
 # 上方注释及 tests/docs 的实测数值保持一致；此处为结构化镜像，简体中文。
 # `online = false` 的行仅 `--all-models` 时展示（默认 --online-only 过滤掉）。
 [models.matrix]
+# 2026-10-26 全量可用性复核（16 个模型 ID，18 项探针，凭据走 .env 不落盘）：
+#   可用 9：dsv4 / qwen3.6-27b / qwen36 / qwen3-VL-30B-A3B / bge-m3 /
+#          qwen3-embadding-8b / qwen3-reranker-8b / Qwen3-ASR-1.7B / mineru3.2.3
+#   可路由 1：acid-sam3-full（v3/form 可达；探针用合成 PNG 被上游 422 拒属预期）
+#   不可用 6：paddleocrvl / mymodel-paddleocr-udhyfg / qwen3 /
+#           text-embedding-v4 / deepseek_v3_2 / qwen2.5-72b
 rows = [
   { code = "dsv4",               category = "通用对话",   latency = "1.02s",  feature = "极速响应，实测 51.8 万 Tokens 100% 召回 (默认主模型)", online = true },
   { code = "qwen3.6-27b",        category = "深度推理",   latency = "6.02s",  feature = "具思维链深度推理能力，实测 13.8 万 Tokens 100% 召回", online = true },
   { code = "qwen3-VL-30B-A3B",   category = "视觉多模态", latency = "5.62s",  feature = "16 图可靠并发（客户端 >16 图自动分批，每批 ≤16），文本硬限 131,072 Tokens", online = true },
-  { code = "paddleocrvl",        category = "公文OCR",    latency = "1.95s",  feature = "毫秒级文字转录，限制 <=800px 自动缩放", online = true },
-  { code = "mineru3.2.3",        category = "文档解析",   latency = "0.59s",  feature = "PDF/Word(docx) 一键结构化输出 Markdown 大纲与表格", online = true },
+  { code = "paddleocrvl",        category = "已下线",     latency = "—",      feature = "历史尺寸能力已测；最终复测连续两次 Request timed out / base_url_missing，当前禁止调度（用 qwen36 / qwen3-VL 兜底）", online = false },
+  { code = "mineru3.2.3",        category = "文档解析",   latency = "0.59s",  feature = "PDF/Word(docx) 一键结构化输出 Markdown 大纲与表格；清单显示名 ID「MinerU」实测 404，调用 ID 仍为 mineru3.2.3（2026-10-26）", online = true },
   { code = "bge-m3",             category = "向量表征",   latency = "0.27s",  feature = "1024 维密集向量，知识库检索首选", online = true },
   { code = "qwen3-embadding-8b", category = "超大向量",   latency = "0.39s",  feature = "4096 维超高分辨率语义向量", online = true },
   { code = "qwen3-reranker-8b",  category = "语义重排",   latency = "0.28s",  feature = "Top1 > 0.90 置信度打分，精排首选", online = true },
   { code = "Qwen3-ASR-1.7B",     category = "语音识别",   latency = "0.89s",  feature = "16kHz 语音直接转写", online = true },
   { code = "acid-sam3-full",     category = "遥感变化",   latency = "异步表单", feature = "双时相遥感大模型变化检测流水线", online = true },
-  { code = "qwen36",             category = "已下线",     latency = "—",      feature = "500 Connection error（节点宕机），禁止调度", online = false },
+  { code = "qwen36",             category = "深度推理",   latency = "2.03s",  feature = "原生多模态 + 深度思考（Qwen3.6-35B-A3B）：文本 2.0s / 图像理解 6.2s 实测可用（2026-10-26 复活，原节点宕机），多渠道仲裁候选", online = true },
   { code = "deepseek_v3_2",      category = "已下线",     latency = "—",      feature = "404 未查询到模型配置，禁止调度", online = false },
   { code = "qwen2.5-72b",        category = "已下线",     latency = "—",      feature = "404 未查询到模型配置，禁止调度", online = false },
   { code = "text-embedding-v4",  category = "已下线",     latency = "—",      feature = "500 不存在，禁止调度（用 bge-m3 替代）", online = false },
-  { code = "mymodel-paddleocr-udhyfg", category = "已下线", latency = "—",    feature = "400 base_url_missing，禁止调度（用 paddleocrvl 替代）", online = false },
+  { code = "mymodel-paddleocr-udhyfg", category = "已下线", latency = "—",    feature = "清单标已开通但实测仍故障：500 模型调用失败 Request timed out（base_url_missing，2026-10-26 图像与纯文本均失败），禁止调度（用 qwen3-VL 兜底）", online = false },
+  { code = "qwen3",              category = "文档比对",   latency = "—",      feature = "清单新增「文档比对模型工具」：网关 500 模型apiKey获取失败 base_url_missing（2026-10-26 两次复测），不可调度；恢复后为多渠道 diff 定位候选", online = false },
 ]

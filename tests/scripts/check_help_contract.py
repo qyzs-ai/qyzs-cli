@@ -295,7 +295,6 @@ def runtime_exit_code_problems(binary: pathlib.Path) -> list[str]:
     problems: list[str] = []
     env_base = dict(os.environ)
     env_base["QYZS_APIKEY"] = "dummy-key-for-exit-code-probe"
-    env_no_key = {k: v for k, v in env_base.items() if k != "QYZS_APIKEY"}
 
     def run(args: list[str], env: dict[str, int] | None = None) -> int:
         r = subprocess.run(
@@ -323,6 +322,14 @@ def runtime_exit_code_problems(binary: pathlib.Path) -> list[str]:
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
     tmp = pathlib.Path(tempfile.mkdtemp())
+    empty_cfg = tmp / "empty-cfg"
+    empty_cfg.mkdir()
+    env_no_key = {
+        k: v
+        for k, v in env_base.items()
+        if k not in {"QYZS_APIKEY", "QYZS_APIKEYS"}
+    }
+    env_no_key["XDG_CONFIG_HOME"] = str(empty_cfg)
     bad_cfg = tmp / "cfg"
     (bad_cfg / "qyzs").mkdir(parents=True)
     (bad_cfg / "qyzs" / "config.toml").write_text("not valid toml [[[\n", encoding="utf-8")
