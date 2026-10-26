@@ -95,7 +95,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Build binary for runtime checks
+        run: cargo build --quiet
       - name: Check help contract
+        # 运行时退出码核验需要已构建的二进制 (target/debug/qyzs)
         run: python3 tests/scripts/check_help_contract.py
 
   # 发布产物自检: tag 发布完成后核对线上 Release —— 资产集合完整、SHA256SUMS 与

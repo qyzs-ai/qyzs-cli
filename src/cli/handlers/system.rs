@@ -19,6 +19,9 @@ pub async fn status(ctx: &Ctx<'_>, json: bool, no_probe: bool) -> QyzsResult<()>
     let creds_path = Credentials::default_path();
     let is_secure = Credentials::is_permission_secure(&creds_path);
     let is_npm = UpdateManager::is_running_under_npm();
+    // 配置文件实际可解析性: 配置层按 best-effort 回退默认值 (脏配置不阻断命令),
+    // 但诊断命令必须如实报告配置是否损坏, 否则会对用户显示 [OK] 却实际用的是默认值
+    let config_problem = Config::load().err().map(|e| e.to_string());
     let config = &ctx.config;
     let printer = ctx.printer;
 
@@ -29,6 +32,8 @@ pub async fn status(ctx: &Ctx<'_>, json: bool, no_probe: bool) -> QyzsResult<()>
             "arch": std::env::consts::ARCH,
             "install_mode": if is_npm { "npm" } else { "standalone" },
             "config_path": Config::default_path().to_string_lossy(),
+            "config_valid": config_problem.is_none(),
+            "config_error": config_problem,
             "credentials_path": creds_path.to_string_lossy(),
             "credentials_secure": is_secure,
             "api_key_source": config.api_key_source,
@@ -59,7 +64,16 @@ pub async fn status(ctx: &Ctx<'_>, json: bool, no_probe: bool) -> QyzsResult<()>
                 "Standalone Binary"
             }
         );
-        println!("  Config File:   {} [OK]", Config::default_path().display());
+        match &config_problem {
+            Some(_) => println!(
+                "  Config File:   {} [WARN 格式错误, 已回退默认值]",
+                Config::default_path().display()
+            ),
+            None => println!("  Config File:   {} [OK]", Config::default_path().display()),
+        }
+        if let Some(err) = &config_problem {
+            println!("    ! {}", err);
+        }
         println!(
             "  Credentials:   {} [{}]",
             creds_path.display(),

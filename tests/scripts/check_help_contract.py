@@ -22,6 +22,7 @@ from __future__ import annotations
 import pathlib
 import re
 import sys
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 ARGS = (ROOT / "src/cli/args.rs").read_text(encoding="utf-8")
@@ -281,6 +282,97 @@ def script_list_problems() -> list[str]:
     return problems
 
 
+# ── 运行时退出码 ↔ README 退出码表 ──────────────────────────────────────────
+# README 的退出码表是给脚本调用方看的契约, 必须与真实行为一致。
+# 下面每一项都用真实调用触发, 再与 README 表里声明的码比对。
+def runtime_exit_code_problems(binary: pathlib.Path) -> list[str]:
+    import http.server
+    import os
+    import subprocess
+    import tempfile
+    import threading
+
+    problems: list[str] = []
+    env_base = dict(os.environ)
+    env_base["QYZS_APIKEY"] = "dummy-key-for-exit-code-probe"
+    env_no_key = {k: v for k, v in env_base.items() if k != "QYZS_APIKEY"}
+
+    def run(args: list[str], env: dict[str, int] | None = None) -> int:
+        r = subprocess.run(
+            [str(binary), *args], capture_output=True, text=True, timeout=60, env=env or env_base
+        )
+        return r.returncode
+
+    # 本地 HTTP 服务: /500 返回 5xx, /slow 挂起 (触发客户端超时)
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            try:
+                if self.path.startswith("/slow"):
+                    time.sleep(5)
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(b"server error")
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # 客户端超时先断开, 属预期
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    bad_cfg = tmp / "cfg"
+    (bad_cfg / "qyzs").mkdir(parents=True)
+    (bad_cfg / "qyzs" / "config.toml").write_text("not valid toml [[[\n", encoding="utf-8")
+
+    cases: list[tuple[str, int, list[str], dict | None]] = [
+        ("成功 (--help)", 0, ["--help"], None),
+        ("用法错误: 无参数", 2, [], None),
+        ("用法错误: 未知子命令", 2, ["bogus"], None),
+        ("用法错误: 未知参数", 2, ["chat", "--bogus"], None),
+        ("用法错误: 枚举值非法", 2, ["chat", "--lang", "french", "hi"], None),
+        ("用法错误: 数值越界", 2, ["chat", "--temperature", "9.9", "hi"], None),
+        ("用法错误: 互斥参数", 2, ["chat", "--stream", "--no-stream", "hi"], None),
+        ("认证失败: 缺 API Key", 3, ["chat", "hi"], env_no_key),
+        ("IO 失败: 文件不存在", 5, ["asr", "/nonexistent/x.wav"], None),
+        # 连接失败: 用一个确定没在监听的端口 (9 = discard, 通常未开放)
+        ("服务不可达", 69, ["-b", "http://127.0.0.1:9/x", "chat", "hi"], None),
+        ("服务端错误 (5xx)", 70, ["-b", f"http://127.0.0.1:{port}/500", "chat", "hi"], None),
+        ("请求超时", 4, ["-b", f"http://127.0.0.1:{port}/slow", "--timeout", "1", "chat", "hi"], None),
+        (
+            "配置错误: 配置文件格式错误",
+            78,
+            ["config", "get", "network.base_url"],
+            {**env_base, "XDG_CONFIG_HOME": str(bad_cfg)},
+        ),
+    ]
+    for name, expect, args, env in cases:
+        got = run(args, env)
+        if got != expect:
+            problems.append(f"退出码不符: {name} 期望 {expect} 实际 {got}")
+        else:
+            print(f"    [PASS] {name} → {got}")
+
+    srv.shutdown()
+
+    # README 的退出码表须与 error.rs 的映射一致
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    err_rs = (ROOT / "src" / "error.rs").read_text(encoding="utf-8")
+    code_map = {
+        m.group(1): int(m.group(2))
+        for m in re.finditer(
+            r"pub const (USAGE_ERR|AUTH_ERR|TIMEOUT_ERR|IO_ERR|EX_UNAVAILABLE|EX_SOFTWARE|EX_CONFIG): i32 = (\d+);",
+            err_rs,
+        )
+    }
+    for const, val in code_map.items():
+        if str(val) not in readme:
+            problems.append(f"README 退出码表缺 {val} ({const})")
+    return problems
+
+
 def main() -> int:
     args = parse_args()
     bounds = validate_bounds()
@@ -348,6 +440,14 @@ def main() -> int:
     problems.extend(doc_problems)
     script_problems = script_list_problems()
     problems.extend(script_problems)
+
+    # 运行时退出码核验 (需已构建的二进制; 没有则跳过)
+    binary = ROOT / "target" / "debug" / "qyzs"
+    if binary.exists():
+        print("  运行时退出码核验:")
+        problems.extend(runtime_exit_code_problems(binary))
+    else:
+        notes.append("未找到 target/debug/qyzs, 跳过运行时退出码核验")
 
     print(f"检查参数 {len(args)} 个, 边界映射 {len(bounds)} 条, 文档 {len(DOC_GLOBS)} 类")
     for p in problems:
