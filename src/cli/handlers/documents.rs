@@ -47,7 +47,7 @@ pub async fn markscan(ctx: &Ctx<'_>, opts: MarkScanOptions) -> QyzsResult<()> {
             Some(&|done: usize, total: usize| {
                 if total > 1 {
                     ctx.printer
-                        .info(&crate::msgf!(MdSliceProgress, done, total));
+                        .info_err(&crate::msgf!(MdSliceProgress, done, total));
                 }
             }),
         )
@@ -100,7 +100,7 @@ async fn markscan_multi(
         ctx.config.timeout_seconds,
         Some(&|done: usize, _total: usize| {
             ctx.printer
-                .info(&crate::msgf!(MdSliceProgress, done, total));
+                .info_err(&crate::msgf!(MdSliceProgress, done, total));
         }),
     )
     .await?;

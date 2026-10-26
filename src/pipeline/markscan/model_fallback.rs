@@ -1,15 +1,16 @@
 //! 角色化模型兜底链 (与 engine_health 熔断器联动)
 //!
-//! 原则: 同一角色按优先级排候选链。调用前跳过熔断中的模型 (下线模型一次
-//! 进程内最多被真实探测 3 次即短路, 不反复浪费时延与令牌); 真实失败计入
-//! 熔断并落下一位候选; 全链失败才向上抛错, 由调用方按既有语义降级。批处理阶段
-//! 先以真实首图或最小文本预检首选模型，失败即熔断并旋到下一候选。
+//! 原则: 同一角色按优先级排候选链。能力矩阵离线或熔断中的模型直接跳过；真实
+//! 调用失败计入熔断并落下一位候选；全链失败才向上抛错，由调用方按既有语义降级。
+//! 批处理阶段先以真实首图或最小文本预检候选，失败即熔断并旋到下一候选。预检与
+//! 正式调用的状态统一写入 stderr，stdout 始终留给转换产物。
 //!
 //! 链条依据 (2026-10-26 全量探活): paddleocrvl 网关故障期, qwen36 多模态
 //! 实测可用 (图像理解 6.2s), qwen3-VL 稳定 —— OCR 角色可在专用 OCR 不可
 //! 用时切换多模态 chat 模型, 而非丢弃该证据通道。
 
 use super::engine_health;
+use super::progress;
 use crate::client::{ChatOptions, QyzsClient};
 use crate::error::{QyzsError, QyzsResult};
 
@@ -24,21 +25,45 @@ pub const ROLE_CHAT: &[&str] = &["dsv4", "qwen3.6-27b", "qwen36"];
 
 const PREFLIGHT_PROMPT: &str = "健康检查：只回复 OK。";
 
-fn candidate_available(model: &str) -> bool {
-    !crate::model_capabilities::ocr_model(model).is_some_and(|cap| !cap.online_at_test)
-        && engine_health::engine_available(model)
+enum CandidateState {
+    Ready,
+    MatrixOffline,
+    CircuitOpen,
+}
+
+fn candidate_state(model: &str) -> CandidateState {
+    if crate::model_capabilities::ocr_model(model).is_some_and(|cap| !cap.online_at_test) {
+        CandidateState::MatrixOffline
+    } else if !engine_health::engine_available(model) {
+        CandidateState::CircuitOpen
+    } else {
+        CandidateState::Ready
+    }
 }
 
 /// 在正式文本批处理前快速检查候选链，返回首个可调用模型。
-pub async fn preflight_chat_chain(client: &QyzsClient, chain: &[&str]) -> QyzsResult<String> {
+pub async fn preflight_chat_chain(
+    client: &QyzsClient,
+    stage: &str,
+    chain: &[&str],
+) -> QyzsResult<String> {
     let mut last_err = QyzsError::Server("文本模型预检链为空".to_string());
     for model in chain {
-        if !candidate_available(model) {
-            continue;
+        match candidate_state(model) {
+            CandidateState::MatrixOffline => {
+                progress::ai(&crate::msgf!(MdAiPreflightSkipOffline, stage, model));
+                continue;
+            }
+            CandidateState::CircuitOpen => {
+                progress::ai(&crate::msgf!(MdAiPreflightSkipBreaker, stage, model));
+                continue;
+            }
+            CandidateState::Ready => {}
         }
         if !engine_health::claim_preflight("chat", model) {
             return Ok((*model).to_string());
         }
+        progress::ai(&crate::msgf!(MdAiPreflightTry, stage, model));
         let result = client
             .chat(
                 PREFLIGHT_PROMPT,
@@ -58,10 +83,12 @@ pub async fn preflight_chat_chain(client: &QyzsClient, chain: &[&str]) -> QyzsRe
         match result {
             Ok(_) => {
                 engine_health::record_success(model);
+                progress::ai(&crate::msgf!(MdAiPreflightReady, stage, model));
                 return Ok((*model).to_string());
             }
             Err(error) => {
                 engine_health::trip_now(model);
+                progress::warn(&crate::msgf!(MdAiPreflightFailed, stage, model));
                 last_err = error;
             }
         }
@@ -72,6 +99,7 @@ pub async fn preflight_chat_chain(client: &QyzsClient, chain: &[&str]) -> QyzsRe
 /// 用本次任务的真实首图检查视觉候选链，返回首个可调用模型。
 pub async fn preflight_vision_chain(
     client: &QyzsClient,
+    stage: &str,
     chain: &[&str],
     image_path: &str,
     max_dim: Option<u32>,
@@ -79,12 +107,21 @@ pub async fn preflight_vision_chain(
     let mut last_err = QyzsError::Server("视觉模型预检链为空".to_string());
     let probe_dim = Some(max_dim.unwrap_or(512).min(512));
     for model in chain {
-        if !candidate_available(model) {
-            continue;
+        match candidate_state(model) {
+            CandidateState::MatrixOffline => {
+                progress::ai(&crate::msgf!(MdAiPreflightSkipOffline, stage, model));
+                continue;
+            }
+            CandidateState::CircuitOpen => {
+                progress::ai(&crate::msgf!(MdAiPreflightSkipBreaker, stage, model));
+                continue;
+            }
+            CandidateState::Ready => {}
         }
         if !engine_health::claim_preflight("vision", model) {
             return Ok((*model).to_string());
         }
+        progress::ai(&crate::msgf!(MdAiPreflightTry, stage, model));
         let result = if *model == "paddleocrvl" {
             client
                 .ocr_with_model(
@@ -109,10 +146,12 @@ pub async fn preflight_vision_chain(
         match result {
             Ok(_) => {
                 engine_health::record_success(model);
+                progress::ai(&crate::msgf!(MdAiPreflightReady, stage, model));
                 return Ok((*model).to_string());
             }
             Err(error) => {
                 engine_health::trip_now(model);
+                progress::warn(&crate::msgf!(MdAiPreflightFailed, stage, model));
                 last_err = error;
             }
         }
@@ -121,25 +160,40 @@ pub async fn preflight_vision_chain(
 }
 
 /// 在语义验证批处理前用一个最小文本检查嵌入候选链。
-pub async fn preflight_embed_chain(client: &QyzsClient, chain: &[&str]) -> QyzsResult<String> {
+pub async fn preflight_embed_chain(
+    client: &QyzsClient,
+    stage: &str,
+    chain: &[&str],
+) -> QyzsResult<String> {
     let mut last_err = QyzsError::Server("嵌入模型预检链为空".to_string());
     for model in chain {
-        if !engine_health::engine_available(model) {
-            continue;
+        match candidate_state(model) {
+            CandidateState::MatrixOffline => {
+                progress::ai(&crate::msgf!(MdAiPreflightSkipOffline, stage, model));
+                continue;
+            }
+            CandidateState::CircuitOpen => {
+                progress::ai(&crate::msgf!(MdAiPreflightSkipBreaker, stage, model));
+                continue;
+            }
+            CandidateState::Ready => {}
         }
         if !engine_health::claim_preflight("embed", model) {
             return Ok((*model).to_string());
         }
+        progress::ai(&crate::msgf!(MdAiPreflightTry, stage, model));
         match client
             .embed(vec!["健康检查".to_string()], Some(model))
             .await
         {
             Ok(_) => {
                 engine_health::record_success(model);
+                progress::ai(&crate::msgf!(MdAiPreflightReady, stage, model));
                 return Ok((*model).to_string());
             }
             Err(error) => {
                 engine_health::trip_now(model);
+                progress::warn(&crate::msgf!(MdAiPreflightFailed, stage, model));
                 last_err = error;
             }
         }
@@ -148,16 +202,21 @@ pub async fn preflight_embed_chain(client: &QyzsClient, chain: &[&str]) -> QyzsR
 }
 
 /// 沿候选链调用; 返回 (实际使用的模型, 结果)。
-pub async fn with_fallback<T, F, Fut>(chain: &[&str], mut f: F) -> QyzsResult<(String, T)>
+pub async fn with_fallback<T, F, Fut>(
+    stage: &str,
+    chain: &[&str],
+    mut f: F,
+) -> QyzsResult<(String, T)>
 where
     F: FnMut(&str) -> Fut,
     Fut: std::future::Future<Output = QyzsResult<T>>,
 {
     let mut last_err = QyzsError::Server("兜底链为空".to_string());
     for model in chain {
-        if !candidate_available(model) {
+        if !matches!(candidate_state(model), CandidateState::Ready) {
             continue; // 熔断中: 不发注定失败的请求
         }
+        progress::ai(&crate::msgf!(MdAiCallStart, stage, model));
         match f(model).await {
             Ok(v) => {
                 engine_health::record_success(model);
@@ -165,6 +224,7 @@ where
             }
             Err(e) => {
                 engine_health::record_failure(model);
+                progress::warn(&crate::msgf!(MdAiCallFailed, stage, model));
                 last_err = e;
             }
         }
@@ -220,7 +280,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_to_second_candidate() {
-        let (m, v) = with_fallback(&["fb-test-a", "fb-test-b"], |m| {
+        let (m, v) = with_fallback("test", &["fb-test-a", "fb-test-b"], |m| {
             let m = m.to_string();
             async move {
                 if m == "fb-test-a" {
@@ -239,7 +299,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_skips_matrix_offline_candidate() {
-        let (model, _) = with_fallback(&["paddleocrvl", "fallback-online"], |model| {
+        let (model, _) = with_fallback("test", &["paddleocrvl", "fallback-online"], |model| {
             let model = model.to_string();
             async move { Ok::<_, QyzsError>(model.clone()) }
         })
@@ -250,7 +310,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_all_fail() {
-        let r = with_fallback(&["fb-test-c"], |_| async {
+        let r = with_fallback("test", &["fb-test-c"], |_| async {
             Err::<String, _>(QyzsError::Server("down".to_string()))
         })
         .await;

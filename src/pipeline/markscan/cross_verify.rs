@@ -5,7 +5,6 @@
 //! (≤2 轮) → 不可决段插入 unverified 标记。
 
 use super::engine_health;
-use super::model_fallback;
 use crate::client::QyzsClient;
 use crate::error::{QyzsError, QyzsResult};
 use std::collections::BTreeSet;
@@ -333,13 +332,18 @@ async fn embed_pair(
     b: &[String],
 ) -> QyzsResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
     const CHAIN: &[&str] = &["bge-m3", "qwen3-embadding-8b"];
-    let selected = super::model_fallback::preflight_embed_chain(client, CHAIN).await?;
-    eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: 嵌入使用 {selected}");
+    let selected =
+        super::model_fallback::preflight_embed_chain(client, crate::msg!(MdAiStageEmbed), CHAIN)
+            .await?;
+    let candidates = std::iter::once(selected.as_str())
+        .chain(CHAIN.iter().copied().filter(|model| *model != selected))
+        .collect::<Vec<_>>();
     let mut last = QyzsError::Server("嵌入兜底链为空".to_string());
-    for m in CHAIN {
+    for m in candidates {
         if !engine_health::engine_available(m) {
             continue;
         }
+        super::progress::ai(&crate::msgf!(MdAiCallStart, crate::msg!(MdAiStageEmbed), m));
         match client.embed(a.to_vec(), Some(m)).await {
             Ok(ra) => match client.embed(b.to_vec(), Some(m)).await {
                 Ok(rb) => {
@@ -350,11 +354,21 @@ async fn embed_pair(
                 }
                 Err(e) => {
                     engine_health::record_failure(m);
+                    super::progress::warn(&crate::msgf!(
+                        MdAiCallFailed,
+                        crate::msg!(MdAiStageEmbed),
+                        m
+                    ));
                     last = e;
                 }
             },
             Err(e) => {
                 engine_health::record_failure(m);
+                super::progress::warn(&crate::msgf!(
+                    MdAiCallFailed,
+                    crate::msg!(MdAiStageEmbed),
+                    m
+                ));
                 last = e;
             }
         }
@@ -463,17 +477,26 @@ fn normalize_for_compare(s: &str) -> String {
 /// - 双方都可决但修正文本不等价 → 取 primary 的修正并追加 secondary 的修正作为
 ///   对照标记 (保守: 不擅自二选一, 标记给人工/下游复核)。
 ///
-/// 对手模型固定取深度推理模型 (与 primary 不同族时用 qwen3.6-27b, 相同则用 dsv4),
+/// 对手模型由调用方在仲裁链预检后传入，确保正式调用与已验证的候选一致。
 /// 令牌开销约为单模型的 2 倍 —— 准确率优先场景下接受。
 pub async fn arbitrate_adversarial(
     client: &QyzsClient,
     primary: &str,
+    secondary: &str,
     paragraph: &str,
     evidence: &str,
     attempt: usize,
 ) -> QyzsResult<(String, Verdict)> {
-    let secondary =
-        model_fallback::pick_opponent(primary, model_fallback::ROLE_ARBITRATION_OPPONENT);
+    super::progress::ai(&crate::msgf!(
+        MdAiCallStart,
+        crate::msg!(MdAiStageArbitrate),
+        primary
+    ));
+    super::progress::ai(&crate::msgf!(
+        MdAiCallStart,
+        crate::msg!(MdAiStageReview),
+        secondary
+    ));
 
     let (r1, r2) = tokio::join!(
         arbitrate_paragraph(client, primary, paragraph, evidence, attempt),

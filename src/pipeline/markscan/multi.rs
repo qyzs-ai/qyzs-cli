@@ -222,7 +222,7 @@ pub async fn convert_multi(
             Ok(md) => md,
             // 判定为照片等情形: 跳过该文件但继续整批, 不写输出
             Err(QyzsError::Skipped(why)) => {
-                eprintln!("\x1b[33m[SKIP]\x1b[0m [{}/{}] {}", idx + 1, total, why);
+                super::progress::skip(&format!("[{}/{}] {}", idx + 1, total, why));
                 if let Some(cb) = on_progress {
                     cb(idx + 1, total);
                 }

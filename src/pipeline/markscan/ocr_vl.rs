@@ -80,61 +80,61 @@ async fn run_ocr_dual(
     let paddle_prompt = image_prompt.unwrap_or(VL_TRANSCRIBE_PROMPT).to_string();
     let paddle_fut = async {
         let path = image_path.to_string();
-        let (_, text) = model_fallback::with_fallback(model_fallback::ROLE_OCR, |m| {
-            let m = m.to_string();
-            let path = path.clone();
-            let prompt = paddle_prompt.clone();
-            async move {
-                match m.as_str() {
-                    "paddleocrvl" => client
-                        .ocr_with_model(&path, Some(&prompt), max_dim, &m)
-                        .await
-                        .map(|r| r.text.trim().to_string())
-                        .and_then(|t| {
-                            if t.is_empty() {
-                                Err(QyzsError::Server("paddleocrvl 返回空内容".to_string()))
-                            } else {
-                                Ok(t)
-                            }
-                        }),
-                    _ => {
-                        model_fallback::transcribe_via_chat(
-                            client, &m, &path, &prompt, 8192, max_dim,
-                        )
-                        .await
+        let (_, text) = model_fallback::with_fallback(
+            crate::msg!(MdAiStageOcr),
+            model_fallback::ROLE_OCR,
+            |m| {
+                let m = m.to_string();
+                let path = path.clone();
+                let prompt = paddle_prompt.clone();
+                async move {
+                    match m.as_str() {
+                        "paddleocrvl" => client
+                            .ocr_with_model(&path, Some(&prompt), max_dim, &m)
+                            .await
+                            .map(|r| r.text.trim().to_string())
+                            .and_then(|t| {
+                                if t.is_empty() {
+                                    Err(QyzsError::Server("paddleocrvl 返回空内容".to_string()))
+                                } else {
+                                    Ok(t)
+                                }
+                            }),
+                        _ => {
+                            model_fallback::transcribe_via_chat(
+                                client, &m, &path, &prompt, 8192, max_dim,
+                            )
+                            .await
+                        }
                     }
                 }
-            }
-        })
+            },
+        )
         .await?;
         Ok::<String, QyzsError>(text)
     };
     let vl_fut = async {
         let path = image_path.to_string();
         let prompt = image_prompt.unwrap_or(VL_TRANSCRIBE_PROMPT).to_string();
-        let (_, text) = model_fallback::with_fallback(model_fallback::ROLE_VL, |m| {
-            let m = m.to_string();
-            let path = path.clone();
-            let prompt = prompt.clone();
-            async move {
-                model_fallback::transcribe_via_chat(client, &m, &path, &prompt, 8192, max_dim).await
-            }
-        })
-        .await?;
+        let (_, text) =
+            model_fallback::with_fallback(crate::msg!(MdAiStageVl), model_fallback::ROLE_VL, |m| {
+                let m = m.to_string();
+                let path = path.clone();
+                let prompt = prompt.clone();
+                async move {
+                    model_fallback::transcribe_via_chat(client, &m, &path, &prompt, 8192, max_dim)
+                        .await
+                }
+            })
+            .await?;
         Ok::<String, QyzsError>(text)
     };
     let (p, v) = tokio::join!(paddle_fut, vl_fut);
     if p.is_err() && v.is_ok() {
-        eprintln!(
-            "\x1b[33m[WARN]\x1b[0m {}",
-            crate::msgf!(MdOcrEngineTripped, "OCR")
-        );
+        super::progress::warn(&crate::msgf!(MdOcrEngineTripped, "OCR"));
     }
     if v.is_err() && p.is_ok() {
-        eprintln!(
-            "\x1b[33m[WARN]\x1b[0m {}",
-            crate::msgf!(MdOcrEngineTripped, "VL")
-        );
+        super::progress::warn(&crate::msgf!(MdOcrEngineTripped, "VL"));
     }
     let (text, used_vl) = select_ocr(p.ok(), v.ok());
     let Some(text) = text else {
@@ -167,40 +167,42 @@ pub async fn extract_image(
             let (ocr, vl) = tokio::join!(
                 model_fallback::preflight_vision_chain(
                     client,
+                    crate::msg!(MdAiStageOcr),
                     model_fallback::ROLE_OCR,
                     image_path,
                     max_dim,
                 ),
                 model_fallback::preflight_vision_chain(
                     client,
+                    crate::msg!(MdAiStageVl),
                     model_fallback::ROLE_VL,
                     image_path,
                     max_dim,
                 ),
             );
-            for (role, result) in [("OCR", ocr), ("VL", vl)] {
-                match result {
-                    Ok(model) => eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: {role} 使用 {model}"),
-                    Err(error) => {
-                        eprintln!("\x1b[33m[WARN]\x1b[0m {role} 模型预检全链失败: {error}")
-                    }
+            for (role, result) in [
+                (crate::msg!(MdAiStageOcr), ocr),
+                (crate::msg!(MdAiStageVl), vl),
+            ] {
+                if result.is_err() {
+                    super::progress::warn(&crate::msgf!(MdAiPreflightAllFailed, role));
                 }
             }
         } else {
             match model_fallback::preflight_vision_chain(
                 client,
+                crate::msg!(MdAiStageVlDescribe),
                 model_fallback::ROLE_VL,
                 image_path,
                 max_dim,
             )
             .await
             {
-                Ok(model) => {
-                    eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: VL 使用 {model}")
-                }
-                Err(error) => {
-                    eprintln!("\x1b[33m[WARN]\x1b[0m VL 模型预检全链失败: {error}")
-                }
+                Ok(_) => {}
+                Err(_) => super::progress::warn(&crate::msgf!(
+                    MdAiPreflightAllFailed,
+                    crate::msg!(MdAiStageVlDescribe)
+                )),
             }
         }
     }
@@ -212,7 +214,7 @@ pub async fn extract_image(
         super::ImageHandling::Ocr => {
             let (text, used_vl) = run_ocr_dual(client, image_path, image_prompt, max_dim).await?;
             if used_vl {
-                eprintln!("\x1b[36m[INFO]\x1b[0m 双 OCR 引擎分歧, 采纳 qwen3-VL 转录");
+                super::progress::ai("OCR 双通道分歧，采纳 VL 转录结果");
             }
             format!("# OCR 文字\n\n{}\n", text)
         }
@@ -223,7 +225,7 @@ pub async fn extract_image(
         super::ImageHandling::Both => {
             let (text, used_vl) = run_ocr_dual(client, image_path, image_prompt, max_dim).await?;
             if used_vl {
-                eprintln!("\x1b[36m[INFO]\x1b[0m 双 OCR 引擎分歧, 采纳 qwen3-VL 转录");
+                super::progress::ai("OCR 双通道分歧，采纳 VL 转录结果");
             }
             let desc = run_describe(client, image_path, max_dim).await?;
             format!("# OCR 文字\n\n{}\n\n# 图像描述\n\n{}\n", text, desc)
@@ -231,7 +233,7 @@ pub async fn extract_image(
         super::ImageHandling::Auto => {
             let (text, used_vl) = run_ocr_dual(client, image_path, image_prompt, max_dim).await?;
             if used_vl {
-                eprintln!("\x1b[36m[INFO]\x1b[0m 双 OCR 引擎分歧, 采纳 qwen3-VL 转录");
+                super::progress::ai("OCR 双通道分歧，采纳 VL 转录结果");
             }
             let text_chars = text.trim().chars().count();
             if text_chars < AUTO_SPARSE_TEXT_CHARS {

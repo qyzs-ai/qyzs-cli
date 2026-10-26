@@ -41,6 +41,7 @@ pub mod pdf_ocr;
 pub mod pdf_probe;
 pub mod polish;
 pub mod profile;
+pub mod progress;
 pub mod reflow;
 pub mod report;
 pub mod sheet_tables;
@@ -618,10 +619,7 @@ impl MarkScanPipeline {
                     md_dir.as_deref(),
                 );
                 if image_stats.unresolved > 0 {
-                    eprintln!(
-                        "\x1b[33m[WARN]\x1b[0m {}",
-                        crate::msgf!(MdUnresolvedImageRefs, image_stats.unresolved)
-                    );
+                    progress::warn(&crate::msgf!(MdUnresolvedImageRefs, image_stats.unresolved));
                 }
 
                 let output = document.render(opts.output_format);
@@ -638,10 +636,7 @@ impl MarkScanPipeline {
                         &metrics,
                     );
                     if let Err(e) = report.write_to(report_path) {
-                        eprintln!(
-                            "\x1b[33m[WARN]\x1b[0m 报告写入失败 ({}): {}",
-                            report_path, e
-                        );
+                        progress::warn(&format!("报告写入失败 ({}): {}", report_path, e));
                     }
                 }
                 Ok(output)
@@ -847,10 +842,7 @@ impl MarkScanPipeline {
                     }
                     Ok(_) => {}
                     Err(e) => {
-                        eprintln!(
-                            "\x1b[33m[WARN]\x1b[0m {}",
-                            crate::msgf!(MdImageKindFailed, e)
-                        );
+                        progress::warn(&crate::msgf!(MdImageKindFailed, e));
                     }
                 }
             }
@@ -958,7 +950,7 @@ impl MarkScanPipeline {
                         let table_exact =
                             matches!(detection.format, SourceFormat::Xls | SourceFormat::Xlsx);
                         if table_exact {
-                            eprintln!("\x1b[36m[INFO]\x1b[0m {}", crate::msg!(MdTableExactPath));
+                            progress::info(crate::msg!(MdTableExactPath));
                             metrics.record("rule-clean", 0.0);
                             Ok(clean::rule_clean(&raw))
                         } else {
@@ -1070,10 +1062,7 @@ impl MarkScanPipeline {
                     match classify::classify_genre_model(client, &md, Some(m)).await {
                         Ok(k) => (k, crate::msgf!(MdDecideModelFirst, m)),
                         Err(e) => {
-                            eprintln!(
-                                "\x1b[33m[WARN]\x1b[0m {}",
-                                crate::msgf!(MdClassifyModelFailed, e)
-                            );
+                            progress::warn(&crate::msgf!(MdClassifyModelFailed, e));
                             (
                                 rule.kind,
                                 crate::msgf!(
@@ -1088,10 +1077,7 @@ impl MarkScanPipeline {
                     match classify::classify_genre_model(client, &md, None).await {
                         Ok(k) => (k, crate::msg!(MdDecideModelFallback).to_string()),
                         Err(e) => {
-                            eprintln!(
-                                "\x1b[33m[WARN]\x1b[0m {}",
-                                crate::msgf!(MdClassifyFallbackFailed, e)
-                            );
+                            progress::warn(&crate::msgf!(MdClassifyFallbackFailed, e));
                             (
                                 classify::DocKind::Generic,
                                 crate::msg!(MdDecideModelFallbackFailed).to_string(),
@@ -1110,10 +1096,7 @@ impl MarkScanPipeline {
                         ),
                         Ok(_) => (k, crate::msg!(MdDecideWeakConfirmed).to_string()),
                         Err(e) => {
-                            eprintln!(
-                                "\x1b[33m[WARN]\x1b[0m {}",
-                                crate::msgf!(MdWeakArbitrateFailed, e)
-                            );
+                            progress::warn(&crate::msgf!(MdWeakArbitrateFailed, e));
                             (
                                 k,
                                 crate::msgf!(
@@ -1129,15 +1112,12 @@ impl MarkScanPipeline {
 
         metrics.record("classify", started.elapsed().as_secs_f64());
         if !opts.no_classify {
-            eprintln!(
-                "\x1b[36m[INFO]\x1b[0m {}",
-                crate::msgf!(
-                    MdDocKindDetected,
-                    decided.0.label(),
-                    decided.0.key(),
-                    decided.1
-                )
-            );
+            progress::info(&crate::msgf!(
+                MdDocKindDetected,
+                decided.0.label(),
+                decided.0.key(),
+                decided.1
+            ));
         }
         let kind = decided.0;
 
@@ -1170,20 +1150,17 @@ impl MarkScanPipeline {
             return Ok(md);
         }
         let (new_md, replaced, unresolved) = assets::rewrite_refs(&md, &assets);
-        eprintln!(
-            "\x1b[36m[INFO]\x1b[0m {}",
-            crate::msgf!(
-                MdAssetsExtracted,
-                assets.len(),
-                assets_root.display().to_string(),
-                replaced,
-                if unresolved > 0 {
-                    format!(", {} unresolved marked", unresolved)
-                } else {
-                    String::new()
-                }
-            )
-        );
+        progress::info(&crate::msgf!(
+            MdAssetsExtracted,
+            assets.len(),
+            assets_root.display().to_string(),
+            replaced,
+            if unresolved > 0 {
+                format!(", {} unresolved marked", unresolved)
+            } else {
+                String::new()
+            }
+        ));
         // 附件存在但正文引用全部未能对应时, 追加索引章节:
         // 文件已在 assets/ 里, 若不在正文留下任何入口, 使用方根本发现不了。
         let new_md = if replaced == 0 {
@@ -1229,10 +1206,7 @@ impl MarkScanPipeline {
         }
         let (out, changed) = profile::apply_style_levels(&md, &levels);
         if changed > 0 {
-            eprintln!(
-                "\x1b[36m[INFO]\x1b[0m {}",
-                crate::msgf!(MdStyleAdjusted, changed)
-            );
+            progress::info(&crate::msgf!(MdStyleAdjusted, changed));
         }
         out
     }
@@ -1325,8 +1299,12 @@ impl MarkScanPipeline {
         let needs_remote_polish =
             (0..segments.len()).any(|idx| !ws.stage_done(&format!("seg-{:03}", idx + 1), "polish"));
         if needs_remote_polish {
-            let selected = model_fallback::preflight_chat_chain(client, &polish_chain).await?;
-            eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: 润色使用 {selected}");
+            model_fallback::preflight_chat_chain(
+                client,
+                crate::msg!(MdAiStagePolish),
+                &polish_chain,
+            )
+            .await?;
         }
 
         let mut polished_doc = String::new();
@@ -1338,18 +1316,21 @@ impl MarkScanPipeline {
             } else {
                 // 润色走兜底链: 用户模型失败时按 ROLE_CHAT 依次降级, 段不因
                 // 单模型故障而中断整文档
-                let (_, polished) =
-                    model_fallback::with_fallback(&polish_chain, |m| {
+                let (_, polished) = model_fallback::with_fallback(
+                    crate::msg!(MdAiStagePolish),
+                    &polish_chain,
+                    |m| {
                         let m = m.to_string();
                         let terms = term_table.clone();
                         async move {
                             polish::polish_segment(client, &m, body, heading_path, &terms).await
                         }
-                    })
-                    .await
-                    .map_err(|e| {
-                        QyzsError::Server(format!("第 {}/{} 段润色失败: {}", idx + 1, total, e))
-                    })?;
+                    },
+                )
+                .await
+                .map_err(|e| {
+                    QyzsError::Server(format!("第 {}/{} 段润色失败: {}", idx + 1, total, e))
+                })?;
 
                 // light-check: 不过则回退原文并记录告警
                 let check = light_check::check_polished(body, &polished);
@@ -1376,11 +1357,7 @@ impl MarkScanPipeline {
         }
 
         for w in &warnings {
-            eprintln!(
-                "\x1b[33m[WARN]\x1b[0m {}: {}",
-                crate::msg!(MdPolishFallback),
-                w
-            );
+            progress::warn(&format!("{}: {}", crate::msg!(MdPolishFallback), w));
             let _ = ws.add_warning(format!("{}: {}", crate::msg!(MdPolishFallback), w));
         }
 
@@ -1463,7 +1440,7 @@ impl MarkScanPipeline {
             let _ = ws.add_warning(msg.clone());
             warnings.push(msg);
             for w in &warnings {
-                eprintln!("\x1b[33m[WARN]\x1b[0m {w}");
+                progress::warn(w);
             }
             return Self::polish_document(client, opts, ws, raw, on_progress, metrics).await;
         };
@@ -1489,15 +1466,12 @@ impl MarkScanPipeline {
             .filter(|(_, score, _)| *score < threshold)
             .collect();
         metrics.conflicts = conflicts.len();
-        eprintln!(
-            "\x1b[36m[INFO]\x1b[0m {}",
-            crate::msgf!(
-                MdCrossVerifySummary,
-                paragraphs.len(),
-                conflicts.len(),
-                threshold
-            )
-        );
+        progress::info(&crate::msgf!(
+            MdCrossVerifySummary,
+            paragraphs.len(),
+            conflicts.len(),
+            threshold
+        ));
 
         // 3. 冲突仲裁 (≤2 轮; 对抗式双模型, 对手经兜底链挑选; 双护栏: 表格行数 + 体积)
         let requested_arbitrate_model = opts.model.clone().unwrap_or_else(|| "dsv4".to_string());
@@ -1507,14 +1481,23 @@ impl MarkScanPipeline {
                 primary_chain.push(candidate);
             }
         }
-        let arbitrate_model = model_fallback::preflight_chat_chain(client, &primary_chain).await?;
+        let arbitrate_model = model_fallback::preflight_chat_chain(
+            client,
+            crate::msg!(MdAiStageArbitrate),
+            &primary_chain,
+        )
+        .await?;
         let opponent_chain: Vec<&str> = model_fallback::ROLE_ARBITRATION_OPPONENT
             .iter()
             .copied()
             .filter(|candidate| *candidate != arbitrate_model)
             .collect();
-        let review_opponent = model_fallback::preflight_chat_chain(client, &opponent_chain).await?;
-        eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: 仲裁使用 {arbitrate_model} + {review_opponent}");
+        let review_opponent = model_fallback::preflight_chat_chain(
+            client,
+            crate::msg!(MdAiStageReview),
+            &opponent_chain,
+        )
+        .await?;
         let arbitrate_started = std::time::Instant::now();
         let mut final_md = raw.to_string();
         for (para_idx, score, chunk_idx) in &conflicts {
@@ -1530,6 +1513,7 @@ impl MarkScanPipeline {
                 let (secondary_model, verdict) = match cross_verify::arbitrate_adversarial(
                     client,
                     &arbitrate_model,
+                    &review_opponent,
                     paragraph,
                     evidence_text,
                     attempt,
@@ -1681,7 +1665,7 @@ impl MarkScanPipeline {
         }
 
         for w in &warnings {
-            eprintln!("\x1b[33m[WARN]\x1b[0m {w}");
+            progress::warn(w);
             // 持久化: 报告的 warnings 读自 manifest, 只打印会让结论在报告里不可见
             let _ = ws.add_warning(w.clone());
         }
@@ -1752,30 +1736,31 @@ impl MarkScanPipeline {
         };
         let prompt_owned = prompt.clone();
         let system_owned = system.to_string();
-        let (_, resp) = model_fallback::with_fallback(&chain, |m| {
-            let p = prompt_owned.clone();
-            let sys = system_owned.clone();
-            let m = m.to_string();
-            async move {
-                client
-                    .chat(
-                        &p,
-                        Some(&sys),
-                        crate::client::ChatOptions {
-                            model: Some(m.clone()),
-                            temperature: Some(0.0),
-                            max_tokens: Some(4096),
-                            top_p: None,
-                            stream: false,
-                            show_reasoning: false,
-                            images: Vec::new(),
-                            image_max_dim: None,
-                        },
-                    )
-                    .await
-            }
-        })
-        .await?;
+        let (_, resp) =
+            model_fallback::with_fallback(crate::msg!(MdAiStageLayoutAudit), &chain, |m| {
+                let p = prompt_owned.clone();
+                let sys = system_owned.clone();
+                let m = m.to_string();
+                async move {
+                    client
+                        .chat(
+                            &p,
+                            Some(&sys),
+                            crate::client::ChatOptions {
+                                model: Some(m.clone()),
+                                temperature: Some(0.0),
+                                max_tokens: Some(4096),
+                                top_p: None,
+                                stream: false,
+                                show_reasoning: false,
+                                images: Vec::new(),
+                                image_max_dim: None,
+                            },
+                        )
+                        .await
+                }
+            })
+            .await?;
 
         // 解析: 归一化标题 → 建议级数
         let mut fixes: std::collections::HashMap<String, usize> = Default::default();

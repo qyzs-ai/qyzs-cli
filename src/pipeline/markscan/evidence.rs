@@ -91,21 +91,22 @@ pub async fn build(
             let (ocr_preflight, vl_preflight) = tokio::join!(
                 super::model_fallback::preflight_vision_chain(
                     client,
+                    crate::msg!(MdAiStageScanOcr),
                     super::model_fallback::ROLE_OCR,
                     &first_image,
                     max_dim,
                 ),
                 super::model_fallback::preflight_vision_chain(
                     client,
+                    crate::msg!(MdAiStageScanVl),
                     super::model_fallback::ROLE_VL,
                     &first_image,
                     max_dim,
                 ),
             );
             for (role, result) in [("OCR", ocr_preflight), ("VL", vl_preflight)] {
-                match result {
-                    Ok(model) => eprintln!("\x1b[36m[INFO]\x1b[0m 模型预检: {role} 使用 {model}"),
-                    Err(error) => warnings.push(format!("{role} 模型预检全链失败: {error}")),
+                if let Err(error) = result {
+                    warnings.push(format!("{role} 模型预检全链失败: {error}"));
                 }
             }
             let (ocr_texts, ocr_warns) =

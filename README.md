@@ -16,7 +16,7 @@
   - **macOS**: `amd64` (Intel), `arm64` (Apple Silicon M系列)；
   - **Windows**: `amd64` (`x86_64-pc-windows-msvc`)。
 - **命令行双形式兼容**：原生支持标准子命令 `qyzs <command>`，且内置 `argv[0]` 自动重写，无缝兼容 `qyzs-<command>`（如软链接调用）。
-- **实测评分最优默认模型**：未指定 `--model` 时，自动装载经基准压测评定最高分的模型（对话默认 `dsv4` 1.0s、实测 51.8 万 Tokens 上下文 100% 召回；多图默认 `qwen3-VL` 16图并发；公文OCR默认 `paddleocrvl` 带800px防崩溃缩放；文档结构化默认 `mineru3.2.3`）。
+- **实测评分最优默认模型**：未指定 `--model` 时，自动装载经基准压测评定最高分的模型（对话默认 `dsv4` 1.0s、实测 51.8 万 Tokens 上下文 100% 召回；多图默认 `qwen3-VL` 16图并发；公文 OCR 默认 `qwen36`，不可调度的 `paddleocrvl` 由能力矩阵跳过；文档结构化默认 `mineru3.2.3`）。
 - **双语环境自适应 (i18n)**：运行时状态/进度提示自动适配中英文（默认跟随系统语言：POSIX locale 变量优先，Windows 读取系统 UI 语言 API、macOS 读取 CoreFoundation 系统区域，均无法识别回退英文；`--lang zh|en` 显式切换，`QYZS_LANG` 环境变量同效），上游模型返回内容原样透传；帮助文本与错误详情以中文为主。
 - **四层级联配置优先级**：`CLI 参数` > `环境变量 (QYZS_APIKEYS / QYZS_APIKEY / QYZS_BASE_URL / QYZS_TIMEOUT / QYZS_LANG / QYZS_MODEL_LANG)` > `配置文件 (~/.config/qyzs/)` > `代码基准真值`；敏感 API Key 严格采用 XDG 0600 安全隔离。注：`--color` 与 `--format` 仅有 CLI 参数与配置文件两层，无环境变量层。
 
@@ -236,6 +236,15 @@ qyzs markscan 图.png -o 图.md --image-handling ocr
 # 文档结构化转换 (类型识别 + 多模型抽取 + 交叉验证)
 qyzs markscan document.pdf -o document.md
 ```
+
+执行中，模型预检、AI 调用、兜底切换和页/片段进度会写入 stderr（`[AI]` / `[INFO]` /
+`[WARN]` 前缀）；转换产物保持在 stdout。因此可安全重定向：
+
+```bash
+qyzs markscan document.pdf > document.md
+```
+
+`[AI]` 状态行只包含阶段和模型名，不包含 API Key、提示词、文件路径或模型响应正文。
 
 ### 6. 语音识别与遥感变化检测 (`asr` & `sam`)
 

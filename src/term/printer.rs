@@ -21,6 +21,11 @@ impl Printer {
         println!("{} {}", self.styler.cyan("[INFO]"), msg);
     }
 
+    /// 进度类状态走 stderr，避免污染命令的机器可读 stdout。
+    pub fn info_err(&self, msg: &str) {
+        eprintln!("{} {}", self.styler.cyan("[INFO]"), msg);
+    }
+
     pub fn warn(&self, msg: &str) {
         eprintln!("{} {}", self.styler.yellow("[WARN]"), msg);
     }

@@ -193,36 +193,40 @@ pub async fn ocr_pages(
         |page: PageImage| {
             let path = page.path.to_string_lossy().to_string();
             async move {
-                let (_, text) = model_fallback::with_fallback(model_fallback::ROLE_OCR, |m| {
-                    let m = m.to_string();
-                    let path = path.clone();
-                    async move {
-                        match m.as_str() {
-                            "paddleocrvl" => client
-                                .ocr_with_model(&path, None, max_dim, &m)
-                                .await
-                                .map(|r| r.text.trim().to_string())
-                                .and_then(|t| {
-                                    if t.is_empty() {
-                                        Err(QyzsError::Server("OCR 返回空内容".to_string()))
-                                    } else {
-                                        Ok(t)
-                                    }
-                                }),
-                            _ => {
-                                model_fallback::transcribe_via_chat(
-                                    client,
-                                    &m,
-                                    &path,
-                                    CHAT_OCR_PROMPT,
-                                    VL_PAGE_MAX_TOKENS,
-                                    max_dim,
-                                )
-                                .await
+                let (_, text) = model_fallback::with_fallback(
+                    crate::msg!(MdAiStageScanOcr),
+                    model_fallback::ROLE_OCR,
+                    |m| {
+                        let m = m.to_string();
+                        let path = path.clone();
+                        async move {
+                            match m.as_str() {
+                                "paddleocrvl" => client
+                                    .ocr_with_model(&path, None, max_dim, &m)
+                                    .await
+                                    .map(|r| r.text.trim().to_string())
+                                    .and_then(|t| {
+                                        if t.is_empty() {
+                                            Err(QyzsError::Server("OCR 返回空内容".to_string()))
+                                        } else {
+                                            Ok(t)
+                                        }
+                                    }),
+                                _ => {
+                                    model_fallback::transcribe_via_chat(
+                                        client,
+                                        &m,
+                                        &path,
+                                        CHAT_OCR_PROMPT,
+                                        VL_PAGE_MAX_TOKENS,
+                                        max_dim,
+                                    )
+                                    .await
+                                }
                             }
                         }
-                    }
-                })
+                    },
+                )
                 .await?;
                 Ok(text)
             }
@@ -253,21 +257,25 @@ pub async fn vl_pages(
         |page: PageImage| {
             let path = page.path.to_string_lossy().to_string();
             async move {
-                let (_, text) = model_fallback::with_fallback(model_fallback::ROLE_VL, |m| {
-                    let m = m.to_string();
-                    let path = path.clone();
-                    async move {
-                        model_fallback::transcribe_via_chat(
-                            client,
-                            &m,
-                            &path,
-                            VL_PAGE_PROMPT,
-                            VL_PAGE_MAX_TOKENS,
-                            max_dim,
-                        )
-                        .await
-                    }
-                })
+                let (_, text) = model_fallback::with_fallback(
+                    crate::msg!(MdAiStageScanVl),
+                    model_fallback::ROLE_VL,
+                    |m| {
+                        let m = m.to_string();
+                        let path = path.clone();
+                        async move {
+                            model_fallback::transcribe_via_chat(
+                                client,
+                                &m,
+                                &path,
+                                VL_PAGE_PROMPT,
+                                VL_PAGE_MAX_TOKENS,
+                                max_dim,
+                            )
+                            .await
+                        }
+                    },
+                )
                 .await?;
                 Ok(text)
             }

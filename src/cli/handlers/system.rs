@@ -832,7 +832,7 @@ mod tests {
         );
 
         // 实测禁止调度的模型必须以 online = false 存在
-        // (2026-10-26 复核后: qwen36 / paddleocrvl 在线，qwen3 新增且不可调度;
+        // (2026-10-26 最终复测: qwen36 复活可用，paddleocrvl 网关故障期不可调度;
         //  状态翻转须与 capability_matrix.toml 同步)
         for code in [
             "paddleocrvl",
