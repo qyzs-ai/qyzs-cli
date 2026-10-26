@@ -42,6 +42,10 @@ irm https://raw.githubusercontent.com/qyzs-ai/qyzs-cli/main/install.ps1 | iex
 irm https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/install.ps1 | iex
 ```
 
+> 从 Release 页下载 `install.cmd` 双击安装也可以 —— 它是自包含的：同目录没有
+> `install.ps1` 时会自动从 Release 取一份，并优先使用 PowerShell 7（`pwsh`），
+> 没有则回退到系统自带的 Windows PowerShell。
+
 > **版本钉定**：仓库 `main` 分支上的脚本装「当前最新」；Release 资产里的脚本钉定到
 > 该 tag（发布时由 CI 注入版本号），不会出现「下载 v0.2.0 的脚本却装上 v0.3.0」。
 > 也可用 `QYZS_VERSION=v0.2.0` 显式指定版本。
