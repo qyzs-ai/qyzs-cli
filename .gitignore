@@ -19,6 +19,7 @@ credentials.toml
 *.test
 *.out
 coverage.*
+!src/pipeline/markscan/coverage.rs
 
 # Node / npm
 node_modules/
