@@ -7,10 +7,10 @@ class Qyzs < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/qyzs-aarch64-apple-darwin.tar.gz"
-      sha256 "9718adcbc6cedc728143ebed78ebd6d00cfa5e139d006fd296c731ede266b8e8"
+      sha256 "ae2c7d8b33cd1b2dc8854be741557d5eb1aa21d4a90317d3391c5a5d9211acc6"
     else
       url "https://github.com/qyzs-ai/qyzs-cli/releases/download/v0.2.0/qyzs-x86_64-apple-darwin.tar.gz"
-      sha256 "0529b684b440bfc55104b711fa7fb71bc12f6ade45ac8ee5ab37e7a2bdd125c3"
+      sha256 "7e3a5655e1e535531a9ca661b5256b08cbda7397f6a9777486436abff3ae5237"
     end
   end
 

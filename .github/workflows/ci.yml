@@ -115,13 +115,6 @@ jobs:
         run: |
           set -euo pipefail
           python3 tests/scripts/verify_published_release.py --tag "${GITHUB_REF_NAME}"
-      # 打包清单的哈希必须与**最终**的 Release 资产一致 —— 每次发版二进制都会
-      # 重新构建 (哈希必变), 故清单须随每次发版重新生成。放在发布完成之后校验,
-      # 否则并行执行时校验的是半成品 release, 会漏掉漂移。
-      - name: Verify packaging manifests against final release
-        run: |
-          set -euo pipefail
-          python3 packaging/generate_manifests.py --check --version "${GITHUB_REF_NAME}"
 
   # 打包清单 (winget / Homebrew) 必须与 Release 实际资产的哈希一致 —— 抄错或
   # 漏改会让用户装到坏包。CI 用官方 schema 校验格式, 并核对清单里的哈希与
@@ -158,14 +151,16 @@ jobs:
                   print(f"[PASS] {fname} 符合 {stype} schema")
           sys.exit(1 if bad else 0)
           PYEOF
-      - name: Validate manifest hashes against the release
+      # 清单的哈希必须与**用户实际会装到的那个版本**一致 —— 即已发布的 live
+      # release。放在 main 上校验 (而非发布当轮): 二进制是非可复现构建, 每次发版
+      # 哈希都变, 仓库里的清单必然滞后于刚发布的产物, 在发布当轮校验必失败。
+      # 失败即提示重新生成清单 (见 packaging/README.md 的版本升级流程)。
+      - name: Validate manifest hashes against the published release
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF#refs/tags/}"
-          if [ "${GITHUB_REF#refs/tags/}" = "${GITHUB_REF}" ]; then
-            echo "[INFO] 非 tag 触发, 跳过哈希比对 (清单随版本发布时更新)"
-            exit 0
-          fi
+          TAG="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'])")"
+          echo "[INFO] 对照已发布版本 ${TAG} 校验打包清单"
           python3 packaging/generate_manifests.py --check --version "${TAG}"
 
   # 平台相关代码 (`#[cfg(windows)]` / `#[cfg(target_os = "macos")]`) 此前只在
